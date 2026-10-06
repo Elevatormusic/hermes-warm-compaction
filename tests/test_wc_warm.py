@@ -107,9 +107,16 @@ class BuildRequestTest(unittest.TestCase):
         sent = capture["body"]["messages"]
         self.assertEqual(json.dumps(body["messages"][: len(sent)]), json.dumps(sent))
         self.assertEqual(body["messages"][len(sent):], [
-            wire_row(self.reply), wire_row(tool("c1", "r1")), {"role": "user", "content": INSTRUCTION}])
+            wire_row(self.reply), wire_row(tool("c1", "r1")), wire_row(user("u3")),
+            {"role": "user", "content": INSTRUCTION}])
         self.assertEqual((body["stream"], body["temperature"]), (False, 0.2))
         self.assertNotIn("stream_options", body)
+
+    def test_sends_every_trailing_user_row(self):
+        # The tail can keep only the newest of several user rows. The handoff must see the older ones too.
+        self.messages = [*self.messages, user("u4 " + "x" * 5_000)]
+        body = self.build(capture_for(self.rows, self.reply))
+        self.assertEqual(body["messages"][-3:-1], [wire_row(user("u3")), wire_row(user("u4 " + "x" * 5_000))])
 
     def test_refusal_codes(self):
         good = capture_for(self.rows, self.reply)

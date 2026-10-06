@@ -161,10 +161,11 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     if body is None:
         raise WarmRefusal("settings_unsupported")
     check_settings(body)
-    new_rows, _trailing = split_history(capture, messages)
+    new_rows, trailing = split_history(capture, messages)
     check_source(body, messages[: len(capture["digests"])])
     request = dict(body)
-    request["messages"] = [*body["messages"], *(wire_row(row) for row in new_rows),
+    # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
+    request["messages"] = [*body["messages"], *(wire_row(row) for row in (*new_rows, *trailing)),
                            {"role": "user", "content": instruction}]
     request["stream"] = False
     request.pop("stream_options", None)
