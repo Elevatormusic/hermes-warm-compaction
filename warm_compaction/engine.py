@@ -11,7 +11,7 @@ from agent.context_engine import ContextEngine
 
 from . import fallback, handoff, layout, warm
 from .capture import CaptureStore
-from .rows import estimate_tokens, hermes_value
+from .rows import api_content, attr, estimate_tokens, hermes_value
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +90,18 @@ def request_overhead(capture: dict[str, Any] | None, messages: list | None = Non
         overhead = current_tokens - estimate_tokens(messages)
         return overhead if overhead > 0 else None
     count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
-    return estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
+    overhead = estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
+    if messages is not None:
+        # Request-time text in the captured rows (context that Hermes or a middleware added) comes again with
+        # the next request, so it is overhead too.
+        for wire, row in zip(body["messages"][count:], messages):
+            overhead += max(0, estimate_tokens(attr(wire, "content")) - estimate_tokens(api_content(row)))
+    return overhead
 
 
 def request_reserve(capture: dict[str, Any] | None) -> int:
-    """The reply reserve of the captured request: max_tokens or max_completion_tokens, else the default."""
-    body = (capture or {}).get("body")
-    value = (body.get("max_tokens") or body.get("max_completion_tokens")) if isinstance(body, dict) else None
-    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else warm.DEFAULT_RESERVE
+    """The reply reserve of the captured request (warm.reply_reserve), else the default."""
+    return warm.reply_reserve((capture or {}).get("body"))
 
 
 def _int(value: Any) -> int:
@@ -207,10 +211,12 @@ class WarmCompactionEngine(ContextEngine):
         if summary is None:
             summary = fallback.fixed_summary(messages[:start])
             record["path"] = "fixed"
-        # An unknown overhead can be most of the window: then no copies.
-        overhead = request_overhead(capture, messages, current_tokens)
+        # An unknown overhead can be most of the window: then no copies. A capture of another route says
+        # nothing about the system prompt, the tools, and the reply limit of this one.
+        budget = capture if capture is not None and tuple(capture.get("route") or ()) == tuple(self._wc_route) else None
+        overhead = request_overhead(budget, messages, current_tokens)
         copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead,
-                                                                    request_reserve(capture))
+                                                                    request_reserve(budget))
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),

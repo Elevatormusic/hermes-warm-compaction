@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T11:09:43Z",
+  "started_utc": "2026-10-06T11:27:57Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -10,13 +10,13 @@
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
     "warm_compaction/capture.py": "387a5bda2c97530c6e9114e810ac062199e3731c12a582d75598d2bdb95e8c57",
-    "warm_compaction/engine.py": "f33e5f76683e379e164e71d8a68fcdb750811463f5fdb4b73bc71c8077b32263",
+    "warm_compaction/engine.py": "3021157e4bfabcd9dbfc48e42d2702d084a3cf6690ec207a7e87fe9b70137720",
     "warm_compaction/fallback.py": "45dffdab8983292f4d6b7e5b7f60b7578078c8b1abb436c0e47acef3b2f77960",
     "warm_compaction/handoff.py": "3ce85d76fce4afbefec0d9c2e91b100e09ac677a28e50ea749f4d25533d68c7e",
     "warm_compaction/layout.py": "5e730211647eed0beec1e6819dfc008b0855a0866dc920bb0cf8d6d8ab2dfa92",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
     "warm_compaction/rows.py": "cc2a8a3d0561559f24fc40881453441d938ea9d7803e1df81a107a5e05e5f00a",
-    "warm_compaction/warm.py": "c651392ce7f01937ebe284bb9d44eacf11c877961b405834b2fe1829a02f673e"
+    "warm_compaction/warm.py": "ff83b4681f52afa9eb82cbdb5893e7165c2f93b2c644c7424aa57ec95ddd9260"
   },
   "privacy": "metadata only: names, counts, codes, booleans, and times; no message text",
   "scenarios": [
@@ -76,11 +76,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.114,
+      "compress_seconds": 0.253,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.023,
+        "elapsed_s": 0.139,
         "prompt_tokens": 33883,
         "cached_tokens": 16941
       },
@@ -88,10 +88,11 @@
       "final_session_id": "wc-enable_manual_warm",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "network_host_blocked": 1,
-        "child_process_blocked": 3
+        "child_process_blocked": 4,
+        "network_host_blocked": 1
       },
       "fence_blocked_programs": [
+        "git",
         "pip",
         "python",
         "python3"
@@ -100,6 +101,7 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -187,7 +189,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 58.218
+      "process_seconds": 66.713
     },
     {
       "scenario": "manual_fallback",
@@ -246,11 +248,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.214,
+      "compress_seconds": 0.518,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.11,
+        "elapsed_s": 0.328,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -359,7 +361,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 35.991
+      "process_seconds": 41.703
     },
     {
       "scenario": "manual_fixed",
@@ -417,11 +419,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.269,
+      "compress_seconds": 0.542,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.141,
+        "elapsed_s": 0.312,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -530,7 +532,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.246
+      "process_seconds": 40.152
     },
     {
       "scenario": "auto_tool_loop",
@@ -618,14 +620,14 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.031,
+        "elapsed_s": 0.141,
         "prompt_tokens": 35201,
         "cached_tokens": 17600
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.015,
+        "elapsed_s": 0.156,
         "prompt_tokens": 18427,
         "cached_tokens": 9213
       },
@@ -735,7 +737,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 34.006
+      "process_seconds": 46.077
     },
     {
       "scenario": "rollback",
@@ -785,11 +787,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.184,
+      "compress_seconds": 0.269,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.125,
         "prompt_tokens": 33873,
         "cached_tokens": 16936
       },
@@ -948,8 +950,7 @@
           "stored": 30
         },
         "fence_denied": {
-          "child_process_blocked": 5,
-          "network_host_blocked": 1
+          "child_process_blocked": 4
         },
         "fence_blocked_programs": [
           "git",
@@ -957,9 +958,7 @@
           "python",
           "python3"
         ],
-        "fence_blocked_hosts": [
-          "hermes-assets.nousresearch.com"
-        ]
+        "fence_blocked_hosts": []
       },
       "exit": [
         0,
@@ -971,10 +970,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 44.422
+      "process_seconds": 47.662
     }
   ],
-  "finished_utc": "2026-10-06T11:13:08Z",
+  "finished_utc": "2026-10-06T11:31:59Z",
   "passed": true,
   "run_folder": "outside repository"
 }

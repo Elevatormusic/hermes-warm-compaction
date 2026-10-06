@@ -399,6 +399,43 @@ class EngineTest(unittest.TestCase):
         self.assertIsNone(request_overhead(None, rows, 10))
         self.assertIsNone(request_overhead(None, rows, estimate_tokens(rows)))
 
+    def test_request_overhead_counts_text_that_a_middleware_added_to_a_captured_row(self):
+        from warm_compaction.engine import request_overhead
+        from warm_compaction.rows import estimate_tokens
+        rows = [user("hi"), assistant("ok")]
+        added = "hi\n\n" + "[recalled] " * 400
+        capture = {"digests": [None, None], "body": {"messages": [SYSTEM, {"role": "user", "content": added},
+                                                                   {"role": "assistant", "content": "ok"}]}}
+        base = estimate_tokens({"messages": [SYSTEM], "tools": None})
+        self.assertEqual(request_overhead(capture, rows), base + estimate_tokens(added) - estimate_tokens("hi"))
+        self.assertEqual(request_overhead(capture), base)
+
+    def test_request_reserve_is_the_larger_limit(self):
+        from warm_compaction.engine import request_reserve
+        self.assertEqual(request_reserve({"body": {"messages": [], "max_tokens": 100,
+                                                   "max_completion_tokens": 5_000}}), 5_000)
+
+    def test_a_capture_of_another_route_is_not_used_for_the_copy_budget(self):
+        # After a model change, the old capture says nothing about the system prompt and tools of the new route.
+        from warm_compaction.rows import estimate_tokens
+        rows = old_turns(20)
+        engine = self.make(threshold=0.95, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        large = {"role": "system", "content": "s " * 120_000}
+        self.store.on_pre_api_request(api_request_id="r1", session_id="s1", conversation_history=list(rows[:-1]),
+                                      model=ROUTE[0], base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.store.on_llm_execution(request={"model": ROUTE[0], "messages": [large, *wire(rows[:-1])]},
+                                    next_call=lambda: None, api_request_id="r1")
+        self.store.on_post_api_request(api_request_id="r1", session_id="s1", finish_reason="stop",
+                                       assistant_message=reply_object(rows[-1]))
+        engine.update_model(model="another-model", context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows, current_tokens=estimate_tokens(rows) + 1_000)
+        self.assertEqual(engine.warm_last["reason"], "route_changed")
+        summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
+        self.assertFalse(summary.split("## Copied user messages", 1)[1].strip().startswith("(none)"))
+
     def test_without_a_capture_the_copies_leave_room_for_the_system_prompt_and_tools(self):
         # After a restart there is no capture. The system prompt and the tool schemas still take their space.
         from warm_compaction.rows import estimate_tokens

@@ -5,6 +5,7 @@ from __future__ import annotations
 import collections
 import copy
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -126,11 +127,20 @@ def _arguments(value: Any) -> tuple[str, str]:
     return "json", json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
+def _in_whole_lines(stored: str, sent: str) -> bool:
+    """True when the stored text is in the sent text as whole lines. Hermes adds request-time context as
+    separate lines ("\n\n" + context); text on the same line can change the meaning ("Delete A" to
+    "Do not Delete A")."""
+    if not stored:
+        return True
+    return re.search(r"(?:^|\n)[ \t]*" + re.escape(stored) + r"[ \t]*(?:\n|$)", sent) is not None
+
+
 def _same_row(wire: Any, row: Any) -> bool:
     """True when the sent row carries the stored row: the same shape; the same name (the Hermes transport
     removes the name from tool rows only); the same image, audio, and file parts in the same order; each stored
-    text run inside the sent text run at the same place (Hermes can add request-time context to a row); and the
-    same tool-call arguments. The stored text is the api_content sidecar when the row has one."""
+    text run inside the sent text run at the same place, as whole lines (Hermes can add request-time context to a
+    row); and the same tool-call arguments. The stored text is the api_content sidecar when the row has one."""
     if _shape(wire) != _shape(row):
         return False
     name = attr(wire, "name")
@@ -139,7 +149,7 @@ def _same_row(wire: Any, row: Any) -> bool:
     sent_runs, sent_media = _parts(attr(wire, "content"))
     stored_runs, stored_media = _parts(api_content(row))
     if sent_media != stored_media or not all(
-            stored.strip() in sent for stored, sent in zip(stored_runs, sent_runs)):
+            _in_whole_lines(stored.strip(), sent) for stored, sent in zip(stored_runs, sent_runs)):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
@@ -273,6 +283,14 @@ def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url
     return wire
 
 
+def reply_reserve(body: Any) -> int:
+    """The reply reserve of a request: the larger positive max_tokens or max_completion_tokens (a server can
+    honor either), else DEFAULT_RESERVE."""
+    values = [body.get(key) for key in ("max_tokens", "max_completion_tokens")] if isinstance(body, dict) else []
+    values = [value for value in values if type(value) is int and value > 0]
+    return max(values) if values else DEFAULT_RESERVE
+
+
 def fits(body: dict[str, Any], context_length: int, measured_tokens: int | None = None,
          measured_rows: int = 0) -> bool:
     """Return True when the request size plus the reply reserve fits in the context window.
@@ -282,7 +300,7 @@ def fits(body: dict[str, Any], context_length: int, measured_tokens: int | None 
     """
     if context_length <= 0:
         return True
-    reserve = body.get("max_tokens") or body.get("max_completion_tokens") or DEFAULT_RESERVE
+    reserve = reply_reserve(body)
     messages = body.get("messages") or []
     if type(measured_tokens) is int and measured_tokens > 0 and 0 < measured_rows <= len(messages):
         size = measured_tokens + estimate_tokens({"messages": messages[measured_rows:]}) * SAFETY
@@ -313,6 +331,8 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request.pop("stream_options", None)
     # A stop sequence of the main request could cut the handoff after the five headings.
     request.pop("stop", None)
+    # A web search costs a search and can bring text that is not in the conversation into the handoff.
+    request.pop("web_search_options", None)
     # The reply limit of the main request is for another task: a small one cuts the handoff, a large one reserves
     # space that the handoff does not need. Keep the field that the route uses.
     for key in ("max_tokens", "max_completion_tokens"):

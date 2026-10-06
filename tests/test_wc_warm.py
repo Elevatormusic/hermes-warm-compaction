@@ -115,6 +115,12 @@ class SettingsTest(unittest.TestCase):
         self.assertTrue(fits(body, 300))
         self.assertFalse(fits(body, 200))
 
+    def test_fits_reserves_the_larger_of_the_two_reply_limits(self):
+        body = {"messages": [{"role": "user", "content": "x" * 400}], "max_tokens": 100,
+                "max_completion_tokens": 5_000}
+        self.assertFalse(fits(body, 1_000))
+        self.assertTrue(fits(body, 6_000))
+
     def test_fits_uses_the_measured_count_for_the_captured_rows(self):
         # The byte estimate of the two captured rows is above 2,000 tokens. The server measured 900.
         captured = [{"role": "user", "content": "x" * 4_000}, {"role": "assistant", "content": "y" * 4_000}]
@@ -186,6 +192,11 @@ class BuildRequestTest(unittest.TestCase):
         body = self.build(capture_for(self.rows, self.reply, body_extra={"stop": ["\n## Next"], "temperature": 0.2}))
         self.assertNotIn("stop", body)
         self.assertEqual(body["temperature"], 0.2)
+
+    def test_web_search_is_not_sent(self):
+        # A web search in the handoff request costs a search and can bring text that is not in the conversation.
+        body = self.build(capture_for(self.rows, self.reply, body_extra={"web_search_options": {}}))
+        self.assertNotIn("web_search_options", body)
 
     def test_the_handoff_has_its_own_reply_limit(self):
         # The reply limit of the main request is for another task: a small one cuts the handoff, a large one
@@ -272,9 +283,9 @@ class BuildRequestTest(unittest.TestCase):
         with self.assertRaises(WarmRefusal) as caught:
             self.build(capture)
         self.assertEqual(caught.exception.code, "source_transform_unsupported")
-        # Text that Hermes adds inside a text run is not a move.
+        # Lines that Hermes adds inside a text run are not a move.
         capture = capture_for(self.rows, self.reply)
-        capture["body"]["messages"][1]["content"][0]["text"] = "[context] first"
+        capture["body"]["messages"][1]["content"][0]["text"] = "[context]\n\nfirst"
         self.build(capture)
 
     def test_the_stored_api_content_is_the_sent_text(self):
@@ -360,6 +371,23 @@ class BuildRequestTest(unittest.TestCase):
         sent[-1]["content"] += "\n\n[recalled context: the user wants short answers]"
         sent[-3]["tool_calls"][0]["function"]["arguments"] = "{ \"path\": \"a\" }"
         self.assertEqual(self.build(capture)["messages"][: len(sent)], sent)
+
+    def test_refuses_text_added_on_the_same_line_as_the_stored_text(self):
+        # Hermes adds request-time context as separate lines ("\n\n" + context). Text on the same line can
+        # change the meaning of the stored text ("Delete A" to "Do not Delete A").
+        self.rows = [user("Delete A"), assistant("a1"), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        for sent, accepted in (("Do not Delete A", False), ("Delete A now", False), ("Delete A\n\n[context]", True),
+                               ("[context]\nDelete A", True), ("[a]\n\nDelete A  \n\n[b]", True)):
+            capture = capture_for(self.rows, self.reply)
+            capture["body"]["messages"][1]["content"] = sent
+            with self.subTest(sent=sent):
+                if accepted:
+                    self.build(capture)
+                    continue
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
     def test_refuses_changed_whitespace_inside_the_text(self):
         self.rows = [user("def f():\n    return 1"), assistant("a1"), user("u2")]
