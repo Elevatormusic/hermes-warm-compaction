@@ -39,12 +39,19 @@ class HandoffTest(unittest.TestCase):
             "heading_order": reply("## Next step\nx\n## Goal\ng\n## User instructions\n## Current state\n- s\n"
                                    "## Key facts\n"),
             "section_empty": reply("## Goal\n## User instructions\n## Current state\n## Key facts\n## Next step"),
+            # Text before the first heading can be an answer or an action that did not occur, not a summary.
+            "heading_preamble": reply("I ran the tests and they pass.\n\n" + HEADINGS_TEXT),
             "heading_repeated": reply("## Goal\n## Goal\n## User instructions\n## Current state\n## Current state\n"
                                       "## Key facts\n## Next step\n## Next step"),
         }
         for expected, value in cases.items():
             with self.subTest(expected=expected):
                 self.assertEqual(gate(value), (None, expected))
+
+    def test_a_leading_think_block_is_not_a_preamble(self):
+        text, reason = gate(reply("<think>plan</think>\n\n" + HEADINGS_TEXT))
+        self.assertIsNone(reason)
+        self.assertTrue(text.startswith("## Goal"))
 
     def test_gate_needs_text_in_goal_state_and_next_step(self):
         sections = {"## Goal": "g", "## User instructions": "- u", "## Current state": "- [OPEN] s",

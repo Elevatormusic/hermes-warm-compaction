@@ -24,7 +24,7 @@ Rules:
 - Write in the language of the conversation. Use short bullets. Use at most 600 words.
 - Leave out data that the task does not need, for example unrelated records or logs.
 
-Use these five headings, in this order, each on its own line:
+Use these five headings, in this order, each on its own line. Start the reply with "## Goal":
 
 ## Goal
 The current goal of the user, in one or two sentences.
@@ -93,6 +93,9 @@ def gate(reply: dict[str, Any], summary_prefixes: Iterable[str] = ()) -> tuple[s
     starts = [lines.index(heading) for heading in HEADINGS]
     if starts != sorted(starts):
         return None, "heading_order"
+    # Text before the first heading can be an answer, or an action that did not occur: not a summary.
+    if next((line for line in lines if line), "") != HEADINGS[0]:
+        return None, "heading_preamble"
     # The goal, the state, and the next step are necessary to continue the task. The user instructions and
     # the key facts can be empty: there can be none.
     for heading, start, end in zip(HEADINGS, starts, [*starts[1:], len(lines)]):

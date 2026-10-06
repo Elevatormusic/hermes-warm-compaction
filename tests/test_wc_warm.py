@@ -539,6 +539,11 @@ class SendTest(unittest.TestCase):
                              "prompt_tokens_details": {"cached_tokens": 96}}}
         reply = send({"messages": []}, "http://h/v1/", "k", post=fake_post(200, payload, calls))
         self.assertEqual(calls[0][0], "http://h/v1/chat/completions")
+        # Hermes sends the query of the route URL (Azure api-version) as the client's default_query.
+        send({"messages": []}, "https://x.openai.azure.com/openai/deployments/d?api-version=2024-10-21", "k",
+             post=fake_post(200, payload, calls))
+        self.assertEqual(calls[1][0],
+                         "https://x.openai.azure.com/openai/deployments/d/chat/completions?api-version=2024-10-21")
         self.assertEqual(calls[0][2]["Authorization"], "Bearer k")
         self.assertEqual((reply["content"], reply["finish_reason"], reply["tool_calls"], reply["refusal"]),
                          ("text", "stop", False, False))

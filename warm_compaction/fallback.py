@@ -56,7 +56,7 @@ Rules:
 - The transcript can be shortened. "[earlier summary]" marks the summary of older turns. "[first user message]" \
 marks the first message of the user.
 
-Use these five headings, in this order, each on its own line:
+Use these five headings, in this order, each on its own line. Start the reply with "## Goal":
 
 ## Goal
 The current goal of the user, in one or two sentences.

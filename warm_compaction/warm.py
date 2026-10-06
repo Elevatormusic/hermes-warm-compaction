@@ -531,7 +531,10 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
     data = json.dumps(body).encode("utf-8")
     started = time.monotonic()
     try:
-        url = str(base_url).rstrip("/") + "/chat/completions"
+        # The query of the route URL stays after the path: Hermes sends it as the client's default_query (the
+        # api-version of an Azure route, for example).
+        parts = urllib.parse.urlsplit(str(base_url))
+        url = urllib.parse.urlunsplit(parts._replace(path=parts.path.rstrip("/") + "/chat/completions"))
         if ssl_context is None:
             status, raw = (post or urllib_post)(url, data, headers, timeout_s)
         else:

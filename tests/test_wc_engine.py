@@ -209,6 +209,52 @@ class EngineTest(unittest.TestCase):
                 self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
                                  ("fallback", "middleware_changed_reply"))
 
+    def test_a_timed_out_attempt_does_not_send(self):
+        # The host can give up on the attempt while an execution middleware still runs.
+        def slow(request=None, next_call=None, **context):
+            self.engine._compression_cancelled_check = lambda: True
+            return next_call()
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(slow)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual(self.engine.warm_last["path"], "cancelled")
+
+    def test_a_route_change_during_the_attempt_does_not_send_to_the_new_route(self):
+        def switch(request=None, next_call=None, **context):
+            self.engine.update_model(model="other-model", context_length=200_000, base_url="https://other/v1",
+                                     api_key="other-key", provider="custom", api_mode=ROUTE[2])
+            return next_call()
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(switch)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "route_changed"))
+
+    def test_preflight_counts_the_captured_overhead_and_reply_reserve(self):
+        # A large system prompt and tool schemas take space that the history estimate does not show.
+        from warm_compaction.rows import estimate_tokens
+        rows = old_turns(4)
+        engine = self.make(threshold=0.95)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        large = {"role": "system", "content": "s " * 120_000}
+        self.store.on_pre_api_request(api_request_id="r1", session_id="s1", conversation_history=list(rows[:-1]),
+                                      model=ROUTE[0], base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.store.on_llm_execution(request={"model": ROUTE[0], "messages": [large, *wire(rows[:-1])]},
+                                    next_call=lambda: None, api_request_id="r1")
+        self.store.on_post_api_request(api_request_id="r1", session_id="s1", finish_reason="stop",
+                                       assistant_message=reply_object(rows[-1]))
+        messages = [*rows, user("next")]
+        self.assertLess(estimate_tokens(messages), engine.threshold_tokens)
+        self.assertTrue(engine.should_compress_preflight(messages))
+        self.assertFalse(self.make(threshold=0.95).should_compress_preflight([user("hi")]))
+
     def test_a_second_send_is_refused_before_it_sends(self):
         def twice(request=None, next_call=None, **context):
             first = next_call()

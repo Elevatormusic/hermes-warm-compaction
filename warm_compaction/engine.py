@@ -176,7 +176,18 @@ class WarmCompactionEngine(ContextEngine):
         return self.threshold_tokens > 0 and _int(tokens) >= self.threshold_tokens
 
     def should_compress_preflight(self, messages: list) -> bool:
-        return self.threshold_tokens > 0 and estimate_tokens(messages) >= self.threshold_tokens
+        """The history estimate, with the system rows and tool schemas of a usable capture, reaches the threshold;
+        or with the reply reserve it does not fit in the window."""
+        if self.threshold_tokens <= 0:
+            return False
+        tokens = estimate_tokens(messages)
+        budget = self._budget_capture(self._store.latest(self._wc_session_id), messages)
+        if budget is not None:
+            tokens += request_overhead(budget, messages) or 0
+            window = int(self.context_length or 0)
+            if window > 0 and tokens + request_reserve(budget, window) > window:
+                return True
+        return tokens >= self.threshold_tokens
 
     def has_content_to_compress(self, messages: list) -> bool:
         start, _prepend = layout.tail_start(messages, self._tail_tokens(), self._prefixes())
@@ -202,13 +213,16 @@ class WarmCompactionEngine(ContextEngine):
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
-        capture = self._store.latest(self._wc_session_id)
+        # The route, key, and session of this attempt. Hermes can switch them while the attempt still runs (it
+        # runs on a pooled thread and can outlive a host timeout); the warm request goes only to this route.
+        attempt = self._attempt()
+        capture = self._store.latest(attempt[3])
         # An unknown overhead can be most of the window: then no copies. A capture of another route says nothing
         # about the system prompt, the tools, and the reply limit of this one.
         budget = self._budget_capture(capture, messages)
         overhead = request_overhead(budget, messages)
         reserve = request_reserve(budget, int(self.context_length or 0))
-        summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record)
+        summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record, attempt)
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []
         if summary is None and not self._cancelled():
@@ -247,18 +261,22 @@ class WarmCompactionEngine(ContextEngine):
         self._finish(record, started)
         return new
 
+    def _attempt(self) -> tuple:
+        """(route, api key, provider, session id) now."""
+        return tuple(self._wc_route), self._wc_api_key, self._wc_provider, self._wc_session_id
+
     def _warm_summary(self, messages: list, capture: dict[str, Any] | None, focus_topic: str | None, memory: str,
-                      prefixes: tuple[str, ...], record: dict[str, Any]) -> str | None:
+                      prefixes: tuple[str, ...], record: dict[str, Any], attempt: tuple) -> str | None:
         try:
             if not self._settings["warm"]:
                 raise warm.WarmRefusal("disabled")
             if capture is None:
                 raise warm.WarmRefusal("no_capture")
             instruction = handoff.build_instruction(focus_topic, memory)
-            body = warm.build_request(capture, messages, self._wc_route, self.context_length, instruction)
+            body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction)
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
-            reply = self._execute(body, instruction, len(capture["body"]["messages"]),
+            reply = self._execute(body, instruction, len(capture["body"]["messages"]), attempt,
                                   capture.get("prompt_tokens"))
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
@@ -273,7 +291,7 @@ class WarmCompactionEngine(ContextEngine):
         record.update(path="warm", reason="accepted")
         return text
 
-    def _execute(self, body: dict[str, Any], instruction: str, captured: int,
+    def _execute(self, body: dict[str, Any], instruction: str, captured: int, attempt: tuple,
                  measured: int | None = None) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
@@ -285,10 +303,11 @@ class WarmCompactionEngine(ContextEngine):
         except Exception as error:
             raise warm.WarmRefusal("middleware_unavailable") from error
         # Before any middleware sees the request: a route without its headers does not send it.
-        headers = warm.route_headers(self._wc_api_key, self._wc_route[1], self._wc_provider)
-        tls = warm.route_tls(self._wc_route[1])
-        context = {"purpose": NAME, "api_request_id": None, "session_id": self._wc_session_id,
-                   "model": self._wc_route[0], "base_url": self._wc_route[1], "api_mode": self._wc_route[2]}
+        route, api_key, provider, session_id = attempt
+        headers = warm.route_headers(api_key, route[1], provider)
+        tls = warm.route_tls(route[1])
+        context = {"purpose": NAME, "api_request_id": None, "session_id": session_id,
+                   "model": route[0], "base_url": route[1], "api_mode": route[2]}
         try:
             # A copy: a host chain that passes the request itself to a middleware that changes it in place
             # would change the body that the checks below compare with (and the stored capture).
@@ -324,8 +343,13 @@ class WarmCompactionEngine(ContextEngine):
                 # attempt stops even when the middleware catches this refusal.
                 repeated.append(True)
                 raise warm.WarmRefusal("middleware_repeated")
-            result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post, extra_headers=headers,
-                               ssl_context=tls)
+            # The last check before the provider: an execution middleware can run after the host gave up on the
+            # attempt, or after a model or session switch.
+            if self._cancelled():
+                raise warm.WarmRefusal("cancelled")
+            if self._attempt() != attempt:
+                raise warm.WarmRefusal("route_changed")
+            result = warm.send(base, route[1], api_key, post=self._post, extra_headers=headers, ssl_context=tls)
             sent.append((result, dict(result)))
             return result
         try:
