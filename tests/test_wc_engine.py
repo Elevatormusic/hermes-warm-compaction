@@ -223,6 +223,18 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
                          ("fallback", "middleware_repeated"))
 
+    def test_capacity_is_checked_again_after_the_request_middleware(self):
+        def expand(request=None, **context):
+            request["messages"][-2]["content"] += " " + "context " * 200_000
+            return {"request": request}
+        wc_hermes_stub.REQUEST_MIDDLEWARE.append(expand)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]), ("fallback", "capacity"))
+        self.assertEqual(self.post.calls, [])
+
     def test_a_request_middleware_that_changes_the_captured_part_stops_the_warm_request(self):
         # The captured body already went through the request middleware. A second pass would apply it twice.
         def prepend(request=None, **context):

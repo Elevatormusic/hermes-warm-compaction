@@ -213,7 +213,7 @@ class WarmCompactionEngine(ContextEngine):
                                       handoff.build_instruction(focus_topic, memory))
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
-            reply = self._execute(body, len(capture["body"]["messages"]))
+            reply = self._execute(body, len(capture["body"]["messages"]), capture.get("prompt_tokens"))
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
             if text is None:
@@ -227,7 +227,7 @@ class WarmCompactionEngine(ContextEngine):
         record.update(path="warm", reason="accepted")
         return text
 
-    def _execute(self, body: dict[str, Any], captured: int) -> dict[str, Any]:
+    def _execute(self, body: dict[str, Any], captured: int, measured: int | None = None) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
         execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
@@ -251,6 +251,9 @@ class WarmCompactionEngine(ContextEngine):
                 or changed["messages"][:captured] != body["messages"][:captured]):
             raise warm.WarmRefusal("middleware_rewrite")
         body = changed
+        # A request middleware can add text to the new rows. Check the size again before the request is sent.
+        if not warm.fits(body, int(self.context_length or 0), measured, captured):
+            raise warm.WarmRefusal("capacity")
         # A copy that no middleware can change in place.
         base = copy.deepcopy(body)
         sent: list[tuple[dict[str, Any], dict[str, Any]]] = []

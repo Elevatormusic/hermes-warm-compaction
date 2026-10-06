@@ -53,6 +53,20 @@ class SplitHistoryTest(unittest.TestCase):
             self.assertEqual(caught.exception.code, "history_changed")
 
 
+class ApiContentHistoryTest(unittest.TestCase):
+    def test_the_reply_matches_by_its_api_content(self):
+        rows = history()
+        capture = capture_for(rows, assistant("The answer is 4."))
+        new_rows, _trailing = split_history(capture, [*rows, assistant("", api_content="The answer is 4.")])
+        self.assertEqual(len(new_rows), 1)
+
+    def test_the_digest_covers_the_api_content(self):
+        from warm_compaction.rows import row_digest
+        self.assertNotEqual(row_digest(user("hi", api_content="[a]\n\nhi")), row_digest(user("hi", api_content="[b]\n\nhi")))
+        self.assertNotEqual(row_digest(user("hi", api_content="[a]\n\nhi")), row_digest(user("hi")))
+        self.assertEqual(row_digest(dict(tool("c1", "r"), api_content="x")), row_digest(tool("c1", "r")))
+
+
 class WireRowTest(unittest.TestCase):
     def test_keeps_api_fields_only(self):
         row = assistant(None, [("c1", "read", {"path": "a b"})], reasoning="r", _db_persisted=True)
@@ -151,6 +165,12 @@ class BuildRequestTest(unittest.TestCase):
         sent = build_request(gemini, self.messages, ("gemini-3-pro", ROUTE[1], ROUTE[2]), 100_000,
                              INSTRUCTION)["messages"][-3]
         self.assertNotIn("extra_content", sent["tool_calls"][0])
+
+    def test_the_stop_setting_is_not_sent(self):
+        # A stop sequence of the main request could cut the handoff after the five headings.
+        body = self.build(capture_for(self.rows, self.reply, body_extra={"stop": ["\n## Next"], "temperature": 0.2}))
+        self.assertNotIn("stop", body)
+        self.assertEqual(body["temperature"], 0.2)
 
     def test_sends_every_trailing_user_row(self):
         # The tail can keep only the newest of several user rows. The handoff must see the older ones too.

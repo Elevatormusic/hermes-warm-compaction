@@ -74,6 +74,20 @@ class TranscriptTest(unittest.TestCase):
         self.assertIn("## Goal", text)
         self.assertIn("## Next step\nthe final step", text)
 
+    def test_the_first_user_slot_keeps_the_end(self):
+        first = "start " + "x" * 6_000 + " the real question"
+        rows = [user(first), *[assistant("z" * 3_900) for _ in range(12)]]
+        text = transcript(rows, PREFIXES)
+        slot = text.split("[first user message]\n", 1)[1].split("\n\n", 1)[0]
+        self.assertTrue(slot.startswith("start "))
+        self.assertTrue(slot.endswith(" the real question"))
+
+    def test_long_tool_call_arguments_keep_the_end(self):
+        arguments = '{"patch": "' + "y" * 1_000 + '", "path": "src/final.py"}'
+        text = render_row(assistant("", [("c1", "write", arguments)]))
+        self.assertIn('"path": "src/final.py"})', text)
+        self.assertIn('(tool call c1 write: {"patch": "', text)
+
     def test_names_are_in_the_transcript_labels(self):
         text = transcript([user("ship it", name="alice"), user("wait", name="bob"), assistant("ok", name="lead")],
                           PREFIXES)

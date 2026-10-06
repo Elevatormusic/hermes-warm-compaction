@@ -35,7 +35,9 @@ def _matches_reply(row: Any, reply: dict[str, Any]) -> bool:
     if attr(row, "role") != "assistant":
         return False
     calls = [[call_id, name] for call_id, name, _arguments in tool_calls_of(row)]
-    return calls == reply["tool_calls"] and reply_text(attr(row, "content")) == reply_text(reply["content"])
+    # Hermes can keep the sent reply text in api_content and leave content empty or normalized.
+    text = reply_text(reply["content"])
+    return calls == reply["tool_calls"] and text in (reply_text(attr(row, "content")), reply_text(api_content(row)))
 
 
 def split_history(capture: dict[str, Any], messages: list) -> tuple[list, list]:
@@ -258,6 +260,8 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request["messages"] = [*body["messages"], *added, {"role": "user", "content": instruction}]
     request["stream"] = False
     request.pop("stream_options", None)
+    # A stop sequence of the main request could cut the handoff after the five headings.
+    request.pop("stop", None)
     if not fits(request, context_length, capture.get("prompt_tokens"), len(body["messages"])):
         raise WarmRefusal("capacity")
     return request

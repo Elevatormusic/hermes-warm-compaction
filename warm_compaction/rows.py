@@ -120,13 +120,16 @@ def estimate_tokens(value: Any) -> int:
 
 
 def row_digest(row: Any) -> str:
-    """Return the SHA-256 of the canonical JSON of the row fields that the model sees."""
+    """Return the SHA-256 of the canonical JSON of the row fields that the model sees, with the api_content
+    sidecar of a user or assistant row."""
     canonical = {
         "role": attr(row, "role"),
         "content": attr(row, "content"),
         "tool_call_id": attr(row, "tool_call_id"),
         "name": attr(row, "name"),
         "tool_calls": [list(call) for call in tool_calls_of(row)],
+        # The text that the provider saw, when Hermes keeps it in the api_content sidecar.
+        "api_content": api_content(row) if api_content(row) is not attr(row, "content") else None,
     }
     text = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("ascii")).hexdigest()

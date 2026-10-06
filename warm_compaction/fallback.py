@@ -121,7 +121,8 @@ def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
         lines.append(text)
     for call_id, name, arguments in tool_calls_of(row):
         shown = arguments if isinstance(arguments, str) else compact_json(arguments)
-        lines.append(f"(tool call {' '.join(part for part in (call_id, name) if part)}: {_cut(shown, ARGUMENT_CHARS)})")
+        label = " ".join(part for part in (call_id, name) if part)
+        lines.append(f"(tool call {label}: {_cut_middle(shown, ARGUMENT_CHARS)})")
     return "\n".join(lines)
 
 
@@ -140,8 +141,9 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
                                                    EARLIER_SUMMARY_TOKENS, middle=True))
     first = next((row for row in messages if is_real_user(row, prefixes)), None)
     if first is not None:
+        # The start and the end: a long request often has the question or the output rules at the end.
         head.append("[first user message]\n" + _bound(visible_text(api_content(first)).strip(), FIRST_USER_CHARS,
-                                                      FIRST_USER_TOKENS))
+                                                      FIRST_USER_TOKENS, middle=True))
     budget = TRANSCRIPT_CHARS - sum(len(part) + 2 for part in head)
     tokens = TRANSCRIPT_TOKENS - sum(estimate_tokens(part) + 1 for part in head)
     # A tool row takes the names of the nearest earlier tool calls. Providers can use the same call id again
