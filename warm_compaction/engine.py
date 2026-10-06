@@ -11,7 +11,7 @@ from agent.context_engine import ContextEngine
 
 from . import fallback, handoff, layout, warm
 from .capture import CaptureStore
-from .rows import api_content, attr, estimate_tokens, hermes_value
+from .rows import api_content, attr, estimate_tokens, hermes_value, sent_rows
 
 logger = logging.getLogger(__name__)
 
@@ -144,8 +144,12 @@ class WarmCompactionEngine(ContextEngine):
 
     def clone_for_agent(self) -> "WarmCompactionEngine":
         """Return a new engine for one agent. The clone shares the capture store and the model access."""
-        return WarmCompactionEngine(store=self._store, llm=self._llm, settings=self._settings, task=self._task,
-                                    post=self._post, clock=self._clock)
+        clone = WarmCompactionEngine(store=self._store, llm=self._llm, settings=self._settings, task=self._task,
+                                     post=self._post, clock=self._clock)
+        # The per-model thresholds that update_model resolves (a copy: the clone must not change with this engine).
+        if getattr(self, "model_thresholds", None):
+            clone.model_thresholds = copy.deepcopy(self.model_thresholds)
+        return clone
 
     def on_session_start(self, session_id: str, **kwargs: Any) -> None:
         if kwargs.get("boundary_reason") == "compression" and kwargs.get("old_session_id"):
@@ -182,7 +186,8 @@ class WarmCompactionEngine(ContextEngine):
         for the system rows and the tool schemas."""
         if self.threshold_tokens <= 0:
             return False
-        tokens = estimate_tokens(messages)
+        # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
+        tokens = estimate_tokens(sent_rows(messages))
         window = int(self.context_length or 0)
         budget = self._budget_capture(self._store.latest(self._wc_session_id), messages)
         if budget is not None:
@@ -229,7 +234,7 @@ class WarmCompactionEngine(ContextEngine):
         summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record, attempt)
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []
-        if summary is None and not self._cancelled():
+        if summary is None and not self._cancelled() and self._attempt() == attempt:
             layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
@@ -239,6 +244,12 @@ class WarmCompactionEngine(ContextEngine):
                 record["path"] = "fallback"
         if self._cancelled():
             record.update(path="cancelled", reason=record["reason"] or "cancelled")
+            self._finish(record, started)
+            return messages
+        if self._attempt() != attempt:
+            # A model or session switch during the attempt (while a request was on the network, for example): the
+            # summary is of the old route or session. Hermes keeps the history.
+            record.update(path="cancelled", reason="route_changed")
             self._finish(record, started)
             return messages
         if summary is None:
@@ -354,6 +365,9 @@ class WarmCompactionEngine(ContextEngine):
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
             result = warm.send(base, route[1], api_key, post=self._post, extra_headers=headers, ssl_context=tls)
+            # The send blocks on the network: a switch can occur before it returns.
+            if self._attempt() != attempt:
+                raise warm.WarmRefusal("route_changed")
             sent.append((result, dict(result)))
             return result
         try:

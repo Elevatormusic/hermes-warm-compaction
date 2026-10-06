@@ -231,10 +231,13 @@ class EngineTest(unittest.TestCase):
         rows = old_turns()
         reply = assistant("final")
         self.seed(rows, reply)
-        self.engine.compress([*rows, reply])
+        history = [*rows, reply]
+        self.assertIs(self.engine.compress(history), history)
         self.assertEqual(self.post.calls, [])
+        # The summary would be of the old route: the attempt is discarded, and no fallback runs.
         self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
-                         ("fallback", "route_changed"))
+                         ("cancelled", "route_changed"))
+        self.assertEqual(self.llm.calls, [])
 
     def test_preflight_counts_the_captured_overhead_and_reply_reserve(self):
         # A large system prompt and tool schemas take space that the history estimate does not show.
@@ -272,6 +275,32 @@ class EngineTest(unittest.TestCase):
         # A usable capture with a small overhead: the threshold applies.
         self.seed(rows[:-1], rows[-1])
         self.assertFalse(engine.should_compress_preflight([*rows, user("next")]))
+
+    def test_a_switch_during_the_send_discards_the_result(self):
+        # The send blocks on the network; a model or session switch can occur before it returns.
+        sent = fake_post()
+
+        def post(url, data, headers, timeout_s):
+            engine.update_model(model="other-model", context_length=200_000, base_url="https://other/v1",
+                                api_key="other-key", provider="custom", api_mode=ROUTE[2])
+            return sent(url, data, headers, timeout_s)
+        self.post = post
+        engine = self.make()
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        history = [*rows, reply]
+        self.assertIs(engine.compress(history), history)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
+        self.assertEqual(self.llm.calls, [])
+
+    def test_preflight_estimates_only_the_sent_content(self):
+        # Hermes sends api_content in place of content: the stored display text is not in the request.
+        rows = []
+        for index in range(30):
+            text = f"ask {index} " + "x" * 8_000
+            rows += [user(text, api_content=text + "\n\n[ctx]"), assistant(f"answer {index}")]
+        self.assertFalse(self.engine.should_compress_preflight(rows))
 
     def test_a_second_send_is_refused_before_it_sends(self):
         def twice(request=None, next_call=None, **context):
@@ -609,6 +638,13 @@ class EngineTest(unittest.TestCase):
         self.assertFalse(self.engine.has_content_to_compress(messages))
         self.assertIs(self.engine.compress(messages), messages)
         self.assertIsNone(self.engine.warm_last)
+
+    def test_clone_keeps_the_model_thresholds(self):
+        self.engine.model_thresholds = {"fake": 0.25}
+        clone = self.engine.clone_for_agent()
+        self.engine.model_thresholds["fake"] = 0.9
+        clone.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(clone.threshold_tokens, 50_000)
 
     def test_clone_shares_the_store_and_not_the_session(self):
         clone = self.engine.clone_for_agent()

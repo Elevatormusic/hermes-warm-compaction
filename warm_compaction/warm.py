@@ -147,6 +147,24 @@ def _same_row(wire: Any, row: Any) -> bool:
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
 
 
+# Fields that Hermes adds to a sent row on some routes, apart from wire_row: the prompt caching marker.
+TRANSPORT_FIELDS = frozenset({"cache_control"})
+
+
+def _no_extra_fields(wire: Any, expected: dict[str, Any]) -> bool:
+    """True when the sent row and its tool calls have no field that Hermes does not send for the stored row (a
+    provider control that a middleware added, for example): the model reads it."""
+    if not isinstance(wire, dict):
+        return True
+    if set(wire) - set(expected) - TRANSPORT_FIELDS:
+        return False
+    for call, want in zip(wire.get("tool_calls") or [], expected.get("tool_calls") or []):
+        if isinstance(call, dict) and (set(call) - set(want) or (
+                isinstance(call.get("function"), dict) and set(call["function"]) - set(want.get("function") or {}))):
+            return False
+    return True
+
+
 def _same_replay_fields(wire: Any, expected: dict[str, Any]) -> bool:
     """True when the sent row has the reasoning fields and thought signatures that Hermes replays for the stored
     row on this route. The provider reads them, so a change makes a prefix that the history does not have."""
@@ -167,8 +185,9 @@ def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None)
         raise WarmRefusal("source_transform_unsupported")
     # The replayed fields follow the captured request only: the new rows do not change what Hermes sent.
     echo = needs_reasoning_echo(body, [])
-    if not all(_same_replay_fields(wire, wire_row(row, echo, body.get("model"), base_url))
-               for wire, row in zip(sent[offset:], history_rows)):
+    expected = [wire_row(row, echo, body.get("model"), base_url) for row in history_rows]
+    if not all(_same_replay_fields(wire, want) and _no_extra_fields(wire, want)
+               for wire, want in zip(sent[offset:], expected)):
         raise WarmRefusal("source_transform_unsupported")
 
 

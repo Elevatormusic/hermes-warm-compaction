@@ -99,6 +99,20 @@ def visible_text(content: Any) -> str:
 MIDDLE_MARK = " [cut] "
 
 
+def sent_rows(messages: list) -> list:
+    """Return the rows as Hermes sends them, for an estimate: the api_content sidecar in place of the content, and
+    no private (underscore) fields."""
+    out = []
+    for row in messages:
+        if isinstance(row, dict):
+            sent = {key: value for key, value in row.items() if key != "api_content" and not key.startswith("_")}
+            sent["content"] = api_content(row)
+            out.append(sent)
+        else:
+            out.append(row)
+    return out
+
+
 def cut_bounds(text: str, limit: int) -> tuple[int, int]:
     """Return (end of the kept start, start of the kept end) of cut_middle: text[first:second] is the removed
     part."""

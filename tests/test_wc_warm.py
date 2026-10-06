@@ -284,6 +284,19 @@ class BuildRequestTest(unittest.TestCase):
                 self.build(capture)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
+    def test_refuses_a_sent_row_with_an_extra_field(self):
+        # A field that the stored row does not give (a provider control, for example) changes what the model reads.
+        for index, field in ((1, {"recipient": "x"}), (-1, {"prefix": True})):
+            capture = capture_for(self.rows, self.reply)
+            capture["body"]["messages"][index].update(field)
+            with self.subTest(field=field), self.assertRaises(WarmRefusal) as caught:
+                self.build(capture)
+            self.assertEqual(caught.exception.code, "source_transform_unsupported")
+        # Hermes prompt caching marks rows with cache_control on some routes.
+        capture = capture_for(self.rows, self.reply)
+        capture["body"]["messages"][1]["cache_control"] = {"type": "ephemeral"}
+        self.build(capture)
+
     def test_refuses_a_renamed_or_unnamed_user_row_and_accepts_an_unnamed_tool_row(self):
         self.rows = [user("u1", name="alice"), assistant("", [("c0", "read", "{}")]), tool("c0", "r0", name="read"),
                      user("u2")]
