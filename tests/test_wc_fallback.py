@@ -231,6 +231,22 @@ class FixedSummaryTest(unittest.TestCase):
         self.assertEqual([line for line in text.splitlines() if line == "## Goal"], ["## Goal"])
         self.assertNotIn("earlier summary", fixed_summary([user("x")], PREFIXES))
 
+    def test_all_quotes_share_one_budget(self):
+        # The earlier summary, the focus, the memory context, and the cut middles together stay in the budget, and
+        # each keeps a part.
+        from warm_compaction.layout import CUT_NOTE
+        from warm_compaction.rows import estimate_tokens
+        old = assistant("[CONTEXT SUMMARY]:\nOLD-GOAL " + "o" * 40_000 + "\n\n--- END OF CONTEXT SUMMARY x ---",
+                        _compressed_summary=True)
+        rows = [old, user("x"), tool("c1", CUT_NOTE + "CUT-START " + "m" * 40_000)]
+        for budget in (4_096, 1_000):
+            with self.subTest(budget=budget):
+                text = fixed_summary(rows, PREFIXES, "FOCUS-START " + "f" * 40_000, "MEMORY-START " + "y" * 40_000,
+                                     max_tokens=budget)
+                self.assertLessEqual(estimate_tokens(text), budget)
+                for mark in ("OLD-GOAL", "FOCUS-START", "MEMORY-START", "CUT-START"):
+                    self.assertIn(mark, text)
+
     def test_no_tool_calls(self):
         self.assertIn("- No tool calls.", fixed_summary([user("x")]))
 

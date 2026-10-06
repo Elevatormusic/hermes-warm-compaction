@@ -391,6 +391,38 @@ class EngineTest(unittest.TestCase):
         self.assertIn("FOCUS-ON-PARSER", summary)
         self.assertIn("MEMORY-FACT-42", summary)
 
+    def test_a_fallback_summary_above_the_room_goes_to_the_fixed_summary(self):
+        # Under the reserve, but a large system prompt and a low threshold leave less room than the summary needs.
+        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
+        engine = self.make(threshold=0.10, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        rows = old_turns(8)
+        reply = assistant("final")
+        self.seed(rows, reply, system={"role": "system", "content": "s " * 10_000}, extra={"max_tokens": 4_096})
+        engine.compress([*rows, reply])
+        self.assertEqual(len(self.llm.calls), 1)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+
+    def test_a_switch_before_the_result_is_used_discards_it(self):
+        # The check covers the whole compaction: a switch while the new history is built also stops it.
+        from warm_compaction import layout
+        engine = self.make(warm=False)
+        real = layout.build
+
+        def build(*args, **kwargs):
+            engine.update_model(model="other-model", context_length=200_000, base_url="https://other/v1",
+                                api_key="other-key", provider="custom", api_mode=ROUTE[2])
+            return real(*args, **kwargs)
+        layout.build = build
+        try:
+            history = [*old_turns(), assistant("done")]
+            self.assertIs(engine.compress(history), history)
+        finally:
+            layout.build = real
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
+        self.assertEqual(engine.compression_count, 0)
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.

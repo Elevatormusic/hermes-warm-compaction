@@ -131,6 +131,12 @@ class CopyTest(unittest.TestCase):
     def test_copies_the_newest_messages_in_order_and_cuts_each(self):
         rows = [user("a" * 10), user("b" * (COPY_EACH + 50)), assistant("x"), user("c" * 10)]
         copies = copied_user_messages(rows, COPY_EACH + 15, PREFIXES)
+        # The separators between the quotes count too: many short messages must stay in the token limit.
+        from warm_compaction.layout import quote
+        from warm_compaction.rows import estimate_tokens
+        many = [user("abcd") for _ in range(5_000)]
+        block = "\n\n".join(quote(text) for text in copied_user_messages(many, 1_000_000, PREFIXES, 10_000))
+        self.assertLessEqual(estimate_tokens(block), 10_000)
         self.assertEqual((len(copies[0]), copies[1]), (COPY_EACH, "c" * 10))
 
     def test_a_long_copy_keeps_its_start_and_its_end(self):

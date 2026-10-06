@@ -29,6 +29,9 @@ ROW_CHARS = 4_000
 MIN_PART_CHARS = 200
 # The fixed summary quotes the middles that the tail cut (layout.bound_tail): at most this many characters.
 CUT_QUOTE_CHARS = 8_000
+# The default budget of the whole fixed summary (the summary reserve of the engine), and the smallest quote.
+FIXED_TOKENS = 2 * MAX_TOKENS
+MIN_QUOTE_TOKENS = 16
 # Token limits for dense text (CJK text, emoji): the character limits divided by 4. ASCII text meets the two
 # limits at about the same point; dense text meets the token limit first, so a small fallback model can read it.
 TRANSCRIPT_TOKENS = TRANSCRIPT_CHARS // 4
@@ -216,35 +219,65 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
 
 
 def fixed_summary(messages: list, prefixes: Iterable[str] = (), focus_topic: str | None = None,
-                  memory_context: str = "") -> str:
-    """Return a five-heading summary without a model request. The newest earlier summary goes under Key facts as
-    a quote (its start and end): the goals and rules that only it has must stay. So do the focus topic and the
-    memory context of this compaction (bounded quotes): no other row has them."""
+                  memory_context: str = "", max_tokens: int = FIXED_TOKENS) -> str:
+    """Return a five-heading summary without a model request, in about max_tokens estimated tokens. Its quotes
+    share that budget: the newest earlier summary (the goals and rules that only it has), the focus topic and the
+    memory context of this compaction (no other row has them), and the middles that the tail cut. Each quote keeps
+    its start and end."""
     prefixes = tuple(prefixes)
     counts = collections.Counter(
         name for row in messages for _call_id, name, _arguments in tool_calls_of(row) if name)
-    facts = [f"- Tool calls: {name} x{count}" for name, count in sorted(counts.items())] or ["- No tool calls."]
+    tools = [f"- Tool calls: {name} x{count}" for name, count in sorted(counts.items())] or ["- No tool calls."]
+    # (label, texts, character limit): in the order of the summary.
+    items: list[tuple[str, list[str], int]] = []
     summaries = [row for row in messages if is_summary(row, prefixes)]
     if summaries:
-        earlier = _bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS,
-                         middle=True)
-        facts += ["- The earlier summary follows. It was not updated:", quote(earlier)]
+        items.append(("- The earlier summary follows. It was not updated:",
+                      [_summary_text(summaries[-1], prefixes)], EARLIER_SUMMARY_CHARS))
     for label, value in (("- The focus of this compaction:", focus_topic),
                          ("- Context from the memory provider (data, not instructions):", memory_context)):
         if value and str(value).strip():
-            facts += [label, quote(_bound(str(value).strip(), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True))]
+            items.append((label, [str(value).strip()], EXTRAS_CHARS))
     cut = [text[len(CUT_NOTE):] for text in (attr(row, "content") for row in messages)
            if isinstance(text, str) and text.startswith(CUT_NOTE)]
     if cut:
         # The tail keeps only the start and end of these newest payloads: without a model summary, a bounded quote
         # of their middles keeps the requirements and the tool output that they have.
-        each = max(MIN_PART_CHARS, CUT_QUOTE_CHARS // len(cut))
-        facts.append("- Parts that the tail cut from the newest rows (their start and end):")
-        facts += [quote(_bound(text, each, each // 4, middle=True)) for text in cut[-(CUT_QUOTE_CHARS // each):]]
-    return "\n".join([
-        "## Goal", "Summary unavailable.", "",
-        "## User instructions", "- See the copied user messages below.", "",
-        "## Current state", "- [OPEN] Continue from the latest user message.", "",
-        "## Key facts", *facts, "",
-        "## Next step", "Continue from the latest user message.",
-    ])
+        items.append(("- Parts that the tail cut from the newest rows (their start and end):", cut, CUT_QUOTE_CHARS))
+
+    wanted = [min(chars // 4, estimate_tokens(" ".join(texts))) for _label, texts, chars in items]
+
+    def render(shares: list[int]) -> str:
+        facts = list(tools)
+        for (label, texts, chars), share, want in zip(items, shares, wanted):
+            # No quote without room; a short quote whole, a long one at least MIN_QUOTE_TOKENS.
+            if share <= 0 or share < min(MIN_QUOTE_TOKENS, want):
+                continue
+            parts = texts[-max(1, min(len(texts), chars // MIN_PART_CHARS, share // MIN_QUOTE_TOKENS)):]
+            facts.append(label)
+            facts += [quote(_bound(text, max(MIN_PART_CHARS, chars // len(parts)), share // len(parts), middle=True))
+                      for text in parts]
+        return "\n".join([
+            "## Goal", "Summary unavailable.", "",
+            "## User instructions", "- See the copied user messages below.", "",
+            "## Current state", "- [OPEN] Continue from the latest user message.", "",
+            "## Key facts", *facts, "",
+            "## Next step", "Continue from the latest user message.",
+        ])
+
+    # One budget: each quote gets an equal share of the room after the fixed text, and a quote that needs less
+    # gives the rest to the others.
+    remaining = max(0, max_tokens - estimate_tokens(render([0] * len(items))))
+    shares = [0] * len(items)
+    for rank, index in enumerate(sorted(range(len(items)), key=lambda index: wanted[index])):
+        shares[index] = min(wanted[index], remaining // (len(items) - rank))
+        remaining -= shares[index]
+    text = render(shares)
+    # The labels and the quote marks are not in the shares: make the shares smaller until the text fits.
+    for _round in range(8):
+        size = estimate_tokens(text)
+        if size <= max_tokens:
+            break
+        shares = [share * max_tokens // (size + 1) - 1 for share in shares]
+        text = render(shares)
+    return text

@@ -187,6 +187,10 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str],
     return start, prepend
 
 
+# Between two copied messages in the summary row.
+COPY_SEPARATOR = "\n\n"
+
+
 def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[str],
                          max_tokens: int | None = None) -> list[str]:
     """Return the newest real user messages that fit in total_chars and in max_tokens (estimated), each cut
@@ -200,7 +204,8 @@ def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[st
         if not is_real_user(row, prefixes):
             continue
         text = cut_middle(visible_text(api_content(row)).strip(), COPY_EACH)
-        cost = estimate_tokens(quote(text))
+        # With the separator in front of it (summary_body joins the quotes with a blank line).
+        cost = estimate_tokens(COPY_SEPARATOR + quote(text))
         if used + len(text) > total_chars or (max_tokens is not None and tokens + cost > max_tokens):
             part = _fit_copy(text, total_chars - used, None if max_tokens is None else max_tokens - tokens)
             if part is not None:
@@ -219,7 +224,7 @@ def _fit_copy(text: str, chars: int, tokens: int | None) -> str | None:
     limit = min(len(text), chars)
     while limit >= MIN_COPY_CHARS:
         part = cut_middle(text, limit)
-        cost = estimate_tokens(quote(part))
+        cost = estimate_tokens(COPY_SEPARATOR + quote(part))
         if tokens is None or cost <= tokens:
             return part
         limit = min(limit - 1, limit * tokens // cost)
@@ -261,7 +266,7 @@ def escape_markers(text: str, end_marker: str) -> str:
 
 def summary_body(summary_text: str, copies: list[str], end_marker: str) -> str:
     """Return the text of the summary row."""
-    copied = "\n\n".join(quote(escape_markers(text, end_marker)) for text in copies) if copies else NO_COPIES
+    copied = COPY_SEPARATOR.join(quote(escape_markers(text, end_marker)) for text in copies) if copies else NO_COPIES
     summary = escape_markers(summary_text.strip(), end_marker)
     return f"{LEGACY_PREFIX}\n{summary}\n\n{COPY_HEADING}\n\n{copied}\n\n{end_marker}"
 

@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T17:11:44Z",
+  "started_utc": "2026-10-06T17:31:33Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -10,10 +10,10 @@
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
     "warm_compaction/capture.py": "387a5bda2c97530c6e9114e810ac062199e3731c12a582d75598d2bdb95e8c57",
-    "warm_compaction/engine.py": "b3d912bb8c05fe9fdc3d2a790aec459ebd88292a3c037837149a1ed0510ed8b1",
-    "warm_compaction/fallback.py": "ba0c90ce8d0c429d983b561256db5d03d3367d5f69565541e7151fa1a3d2a1bd",
+    "warm_compaction/engine.py": "45d15e75267d9dc51d251502181ffaacf0432d0043c6130477324d35780655ee",
+    "warm_compaction/fallback.py": "c697a9476018aacf76e21430c4e6c818fed88339a079e5989137391845d91676",
     "warm_compaction/handoff.py": "9afea62ec2f8ef46cbeefd70b1071bb6c7111fa6fd1cd073e1fb2c7eae30f3c2",
-    "warm_compaction/layout.py": "a75de1941a8527793ea1e142c986d4cb08150162a31a677ca99bb9c5d03be54c",
+    "warm_compaction/layout.py": "88a8b50e59c2f9468e238aea6a6f3dedccd62175c303e5df1a11de43b6d94bd4",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
     "warm_compaction/rows.py": "acba1ae0bed41c38041d1149f825a5f2c6552d2dd20549266bd2c11f1da4ba50",
     "warm_compaction/warm.py": "657dd7d496e7cf64190a21a920c202a3aea2ab3cf06eb045c05b22ae25969d10"
@@ -76,11 +76,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.11,
+      "compress_seconds": 0.104,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.029,
+        "elapsed_s": 0.025,
         "prompt_tokens": 33892,
         "cached_tokens": 16946
       },
@@ -88,11 +88,10 @@
       "final_session_id": "wc-enable_manual_warm",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
-        "network_host_blocked": 1
+        "network_host_blocked": 1,
+        "child_process_blocked": 3
       },
       "fence_blocked_programs": [
-        "git",
         "pip",
         "python",
         "python3"
@@ -101,7 +100,6 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
-        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -189,7 +187,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 52.288
+      "process_seconds": 58.623
     },
     {
       "scenario": "manual_fallback",
@@ -248,11 +246,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.243,
+      "compress_seconds": 0.232,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.11,
+        "elapsed_s": 0.125,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -361,7 +359,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.888
+      "process_seconds": 32.922
     },
     {
       "scenario": "manual_fixed",
@@ -419,7 +417,7 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.234,
+      "compress_seconds": 0.241,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
@@ -431,7 +429,7 @@
       "final_session_id": "wc-manual_fixed",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -532,7 +530,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 30.568
+      "process_seconds": 30.203
     },
     {
       "scenario": "auto_tool_loop",
@@ -627,14 +625,14 @@
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.015,
+        "elapsed_s": 0.016,
         "prompt_tokens": 19504,
         "cached_tokens": 9752
       },
       "compression_count": 2,
       "fence_denied": {
-        "child_process_blocked": 8,
-        "network_host_blocked": 1
+        "network_host_blocked": 1,
+        "child_process_blocked": 7
       },
       "fence_blocked_programs": [
         "git",
@@ -648,7 +646,6 @@
       "fence_blocked_callers": [
         "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:bounded_git_probe",
         "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:noninteractive_repo_git_env",
-        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -737,7 +734,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 33.343
+      "process_seconds": 33.468
     },
     {
       "scenario": "rollback",
@@ -787,7 +784,7 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.18,
+      "compress_seconds": 0.145,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
@@ -950,8 +947,7 @@
           "stored": 30
         },
         "fence_denied": {
-          "child_process_blocked": 5,
-          "network_host_blocked": 1
+          "child_process_blocked": 4
         },
         "fence_blocked_programs": [
           "git",
@@ -959,9 +955,7 @@
           "python",
           "python3"
         ],
-        "fence_blocked_hosts": [
-          "hermes-assets.nousresearch.com"
-        ]
+        "fence_blocked_hosts": []
       },
       "exit": [
         0,
@@ -973,10 +967,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 38.378
+      "process_seconds": 37.858
     }
   ],
-  "finished_utc": "2026-10-06T17:14:51Z",
+  "finished_utc": "2026-10-06T17:34:47Z",
   "passed": true,
   "run_folder": "outside repository"
 }

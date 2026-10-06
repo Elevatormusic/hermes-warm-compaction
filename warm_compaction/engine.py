@@ -29,6 +29,8 @@ CARRIER_TOKENS = 500
 # Rounds of the fixed path: cut the tail, quote the cut, and size the cap again.
 FIXED_ROUNDS = 10
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
+# The smallest fixed summary: the headings and short quotes.
+FIXED_MIN_TOKENS = 256
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
@@ -231,11 +233,12 @@ class WarmCompactionEngine(ContextEngine):
                  force: bool = False, memory_context: str = "") -> list:
         """Replace the rows before the tail with a summary. Keep the history when no row comes before the tail."""
         started = self._clock()
+        # The route, key, and session of this attempt, before anything reads them. Hermes can switch them while
+        # the attempt still runs (it runs on a pooled thread and can outlive a host timeout); the warm request goes
+        # only to this route, and the result is used only when they did not change.
+        attempt = self._attempt()
         prefixes = self._prefixes()
         policy = self._policy(messages)
-        # The route, key, and session of this attempt. Hermes can switch them while the attempt still runs (it
-        # runs on a pooled thread and can outlive a host timeout); the warm request goes only to this route.
-        attempt = self._attempt()
         capture = self._store.latest(attempt[3])
         # An unknown overhead can be most of the window: then no copies. A capture of another route says nothing
         # about the system prompt, the tools, and the reply limit of this one.
@@ -264,9 +267,11 @@ class WarmCompactionEngine(ContextEngine):
             # can spend its budget on the tail.
             summary, _tokens = fallback.llm_summary(self._llm, [*messages[:start], *removed], prefixes,
                                                     focus_topic=focus_topic, memory_context=memory, task=self._task)
-            if summary is not None and estimate_tokens(summary) > SUMMARY_RESERVE:
+            if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
+                                        or not self._summary_fits(summary, overhead, reserve)):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
-                # transcript had. The fixed summary quotes what the final tail cuts.
+                # transcript had. Or above the room (a large system prompt and a low threshold): the next request
+                # would compact again at once. The fixed summary quotes what the final tail cuts, in the room.
                 logger.warning("warm_compaction: the fallback summary is above the reserve; fixed summary used")
                 summary = None
             if summary is not None:
@@ -281,8 +286,10 @@ class WarmCompactionEngine(ContextEngine):
             record.update(path="cancelled", reason="route_changed")
             self._finish(record, started)
             return messages
+        # The fixed summary takes at most the reserve, and at most the room.
+        fixed_budget = self._fixed_budget(overhead, reserve)
         if summary is None:
-            summary = fallback.fixed_summary([*messages[:start], *removed], prefixes, focus_topic, memory)
+            summary = fallback.fixed_summary([*messages[:start], *removed], prefixes, focus_topic, memory, fixed_budget)
             record["path"] = "fixed"
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum. The room is after the
@@ -301,7 +308,8 @@ class WarmCompactionEngine(ContextEngine):
                     # The row is not copied and the fixed summary does not have it: its cut middle goes into the
                     # summary as a quote. The room keeps space for that quote.
                     prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
-                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory)
+                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory,
+                                                    fixed_budget)
         prepend_tokens = sent_tokens(prepend, policy) if prepend is not None else 0
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         if record["path"] == "fixed":
@@ -313,7 +321,8 @@ class WarmCompactionEngine(ContextEngine):
                 layout.bound_tail(messages[start:], tail_tokens, final, policy)
                 if final != removed:
                     removed = final
-                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory)
+                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory,
+                                                    fixed_budget)
                 lower = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
                 if lower >= tail_tokens or _round == FIXED_ROUNDS - 1:
                     break
@@ -328,6 +337,11 @@ class WarmCompactionEngine(ContextEngine):
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
             copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy)
+        # Again before the result is used: a switch or a cancel while the new history was built also stops it.
+        if self._cancelled() or self._attempt() != attempt:
+            record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
+            self._finish(record, started)
+            return messages
         self.compression_count += 1
         self._finish(record, started)
         return new
@@ -498,6 +512,16 @@ class WarmCompactionEngine(ContextEngine):
         limit = min(threshold, window - reserve) if window > 0 else threshold
         return limit - (overhead + estimate_tokens(sent_rows(tail_rows, policy)) + estimate_tokens(summary)
                         + CARRIER_TOKENS)
+
+    def _fixed_budget(self, overhead: int | None, reserve: int) -> int:
+        """The token budget of the fixed summary: the summary reserve, and at most the free room (half of it with
+        an unknown overhead), but enough for the headings."""
+        free = self._room([], "", overhead or 0, reserve)
+        if free is None:
+            return SUMMARY_RESERVE
+        if overhead is None:
+            free //= 2
+        return max(FIXED_MIN_TOKENS, min(SUMMARY_RESERVE, free))
 
     def _summary_fits(self, summary: str, overhead: int | None, reserve: int) -> bool:
         """True when the summary row fits in the free room (as _tail_cap: half of it with an unknown overhead)."""
