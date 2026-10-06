@@ -192,7 +192,7 @@ class WarmCompactionEngine(ContextEngine):
         if self.threshold_tokens <= 0:
             return False
         # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
-        tokens = estimate_tokens(sent_rows(messages))
+        tokens = estimate_tokens(sent_rows(messages, self._details()))
         window = int(self.context_length or 0)
         budget = self._budget_capture(self._store.latest(self._wc_session_id), messages)
         if budget is not None:
@@ -204,7 +204,7 @@ class WarmCompactionEngine(ContextEngine):
         return tokens >= self.threshold_tokens
 
     def has_content_to_compress(self, messages: list) -> bool:
-        start, _prepend = layout.tail_start(messages, self._tail_tokens(), self._prefixes())
+        start, _prepend = layout.tail_start(messages, self._tail_tokens(), self._prefixes(), self._details())
         return start > 0
 
     def on_session_reset(self) -> None:
@@ -224,7 +224,8 @@ class WarmCompactionEngine(ContextEngine):
         """Replace the rows before the tail with a summary. Keep the history when no row comes before the tail."""
         started = self._clock()
         prefixes = self._prefixes()
-        start, prepend = layout.tail_start(messages, self._tail_tokens(), prefixes)
+        details = self._details()
+        start, prepend = layout.tail_start(messages, self._tail_tokens(), prefixes, details)
         if start <= 0:
             return messages
         memory = sanitize_memory(memory_context)
@@ -243,11 +244,16 @@ class WarmCompactionEngine(ContextEngine):
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []
         if summary is None and not self._cancelled() and self._attempt() == attempt:
-            layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed)
+            layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed, details)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
             summary, _tokens = fallback.llm_summary(self._llm, [*messages[:start], *removed], prefixes,
                                                     focus_topic=focus_topic, memory_context=memory, task=self._task)
+            if summary is not None and estimate_tokens(summary) > SUMMARY_RESERVE:
+                # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
+                # transcript had. The fixed summary quotes what the final tail cuts.
+                logger.warning("warm_compaction: the fallback summary is above the reserve; fixed summary used")
+                summary = None
             if summary is not None:
                 record["path"] = "fallback"
         if self._cancelled():
@@ -266,6 +272,7 @@ class WarmCompactionEngine(ContextEngine):
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum.
         room = self._room(messages[start:], summary, overhead or 0, reserve)
+        cut: list = []
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
             if estimate_tokens(prepend) > allowed:
@@ -275,22 +282,37 @@ class WarmCompactionEngine(ContextEngine):
                 else:
                     # The row is not copied and the fixed summary does not have it: its cut middle goes into the
                     # summary as a quote. The room keeps space for that quote.
-                    cut: list = []
                     prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
                     summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
         copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead, reserve)
-        tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve,
-                                     estimate_tokens(prepend) if prepend is not None else 0)
+        prepend_tokens = estimate_tokens(prepend) if prepend is not None else 0
+        tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
+        if record["path"] == "fixed":
+            # The fixed summary quotes what the tail cuts: cut and quote at the same (final) cap. A larger summary
+            # makes a smaller cap; a few rounds reach it.
+            for _round in range(3):
+                final: list = []
+                layout.bound_tail(messages[start:], tail_tokens, final, details)
+                if final == removed:
+                    break
+                removed = final
+                summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
+                tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=copy_tokens, tail_tokens=tail_tokens)
+            copy_tokens=copy_tokens, tail_tokens=tail_tokens, details=details)
         self.compression_count += 1
         self._finish(record, started)
         return new
+
+    def _details(self) -> bool:
+        """True when the route replays reasoning_details (warm.wire_row sends them)."""
+        return bool(hermes_value("agent.transports.chat_completions", "_route_replays_reasoning_details",
+                                 warm._route_replays_reasoning_details)(self._wc_route[1]))
 
     def _attempt(self) -> tuple:
         """(route, api key, provider, session id) now."""
@@ -418,7 +440,8 @@ class WarmCompactionEngine(ContextEngine):
             return None
         window = int(self.context_length or 0)
         limit = min(threshold, window - reserve) if window > 0 else threshold
-        return limit - (overhead + estimate_tokens(sent_rows(tail_rows)) + estimate_tokens(summary) + CARRIER_TOKENS)
+        return limit - (overhead + estimate_tokens(sent_rows(tail_rows, self._details())) + estimate_tokens(summary)
+                        + CARRIER_TOKENS)
 
     def _tail_cap(self, summary_tokens: int, overhead: int | None, reserve: int, prepend_tokens: int = 0) -> int:
         """The tail budget, and at most the free room for the tail after the overhead, the summary, and the

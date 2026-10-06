@@ -99,13 +99,18 @@ def visible_text(content: Any) -> str:
 MIDDLE_MARK = " [cut] "
 
 
-def sent_rows(messages: list) -> list:
-    """Return the rows as Hermes sends them, for an estimate: the api_content sidecar in place of the content, and
-    no private (underscore) fields."""
+# The fields of a row that Hermes sends (warm.wire_row): a stored reasoning field and metadata are not sent.
+SENT_FIELDS = ("role", "content", "name", "tool_call_id", "tool_calls", "reasoning_content")
+
+
+def sent_rows(messages: list, details: bool = True) -> list:
+    """Return the rows as Hermes sends them, for an estimate: the fields of warm.wire_row, with the api_content
+    sidecar in place of the content. reasoning_details only with details (a route that replays it)."""
+    fields = (*SENT_FIELDS, "reasoning_details") if details else SENT_FIELDS
     out = []
     for row in messages:
         if isinstance(row, dict):
-            sent = {key: value for key, value in row.items() if key != "api_content" and not key.startswith("_")}
+            sent = {key: row[key] for key in fields if key in row}
             sent["content"] = api_content(row)
             out.append(sent)
         else:
@@ -113,9 +118,9 @@ def sent_rows(messages: list) -> list:
     return out
 
 
-def sent_tokens(row: Any) -> int:
+def sent_tokens(row: Any, details: bool = True) -> int:
     """Estimated tokens of one row as Hermes sends it (sent_rows)."""
-    return estimate_tokens(sent_rows([row])[0])
+    return estimate_tokens(sent_rows([row], details)[0])
 
 
 def cut_bounds(text: str, limit: int) -> tuple[int, int]:

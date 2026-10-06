@@ -744,6 +744,32 @@ class EngineTest(unittest.TestCase):
         self.assertIn("u" * 100, transcript)
         self.assertTrue(any(str(row.get("content")).endswith(" end") for row in new))
 
+    def test_a_fallback_summary_above_the_reserve_goes_to_the_fixed_summary(self):
+        # A dense summary (CJK) can pass the byte gate and still be above the token reserve: the tail would then
+        # cut more than the fallback transcript had.
+        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 2_500) + "\n" + END_LINE)
+        engine = self.make(warm=False)
+        engine.compress([*old_turns(), assistant("done")])
+        self.assertEqual(engine.warm_last["path"], "fixed")
+
+    def test_the_fixed_summary_quotes_the_middle_that_the_final_tail_cuts(self):
+        # A large earlier summary (CJK) makes the fixed summary larger than the reserve: the tail is cut at the
+        # final cap, and the quote starts where the kept start ends.
+        from warm_compaction.rows import MIDDLE_MARK
+        self.llm.error = RuntimeError("down")
+        text = "".join(f"{index:07d}" for index in range(30_000))
+        rows = [assistant("\u65e7" * 9_000, _compressed_summary=True), *old_turns(4), user("go"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", text)]
+        engine = self.make(threshold=0.95, tail_tokens=30_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        kept = next(row for row in new if row.get("role") == "tool")["content"]
+        head = kept.split(MIDDLE_MARK)[0]
+        summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
+        self.assertIn("> " + text[len(head):len(head) + 40], summary)
+
     def test_the_fixed_summary_gets_the_middles_that_the_tail_cuts(self):
         self.llm.error = RuntimeError("down")
         rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),

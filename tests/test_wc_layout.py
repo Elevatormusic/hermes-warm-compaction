@@ -194,6 +194,10 @@ class BoundTailTest(unittest.TestCase):
         self.assertEqual(tail_start(rows, 1_500, PREFIXES), (2, None))
         self.assertIs(bound_tail(rows[2:], 1_500)[0], rows[2])
 
+    def test_unsent_reasoning_does_not_move_the_tail(self):
+        rows = [user("o" * 4_000), assistant("a"), user("q"), assistant("b", reasoning="r" * 40_000)]
+        self.assertEqual(tail_start(rows, 900, PREFIXES), (2, None))
+
     def test_a_large_assistant_row_is_cut_and_keeps_its_tool_calls(self):
         from warm_compaction.layout import bound_tail
         from warm_compaction.rows import MIDDLE_MARK, estimate_tokens

@@ -63,3 +63,17 @@ class RowsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SentRowsTest(unittest.TestCase):
+    def test_the_estimate_uses_the_fields_that_hermes_sends(self):
+        # wire_row: no stored reasoning field, no metadata, reasoning_details only on a route that replays it.
+        from warm_compaction.rows import sent_tokens
+        base = {"role": "assistant", "content": "ok"}
+        small = sent_tokens(base)
+        self.assertEqual(sent_tokens({**base, "reasoning": "r" * 40_000, "timestamp": "t" * 4_000}), small)
+        self.assertGreater(sent_tokens({**base, "reasoning_content": "r" * 4_000}), small + 900)
+        details = {**base, "reasoning_details": [{"type": "reasoning.text", "text": "d" * 4_000}]}
+        self.assertGreater(sent_tokens(details), small + 900)
+        self.assertEqual(sent_tokens(details, details=False), small)
+

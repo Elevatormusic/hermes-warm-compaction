@@ -125,7 +125,8 @@ def units(messages: list) -> list[tuple[int, int]]:
     return spans
 
 
-def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tuple[int, dict[str, Any] | None]:
+def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str],
+               details: bool = True) -> tuple[int, dict[str, Any] | None]:
     """Return the first tail index and, in the middle of a task, a copy of the latest real user row."""
     prefixes = tuple(prefixes)
     spans = units(messages)
@@ -133,9 +134,9 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
         return 0, None
     start = spans[-1][0]
     # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
-    size = sum(sent_tokens(row) for row in messages[start:])
+    size = sum(sent_tokens(row, details) for row in messages[start:])
     for span_start, span_end in reversed(spans[:-1]):
-        cost = sum(sent_tokens(row) for row in messages[span_start:span_end])
+        cost = sum(sent_tokens(row, details) for row in messages[span_start:span_end])
         if size + cost > tail_tokens:
             break
         size += cost
@@ -300,7 +301,7 @@ def _set_part(row: dict[str, Any], key: tuple, value: Any) -> dict[str, Any]:
     return new
 
 
-def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
+def bound_tail(rows: list, tokens: int, removed: list | None = None, details: bool = True) -> list:
     """Return the tail rows in about tokens estimated tokens. The tail keeps whole units, so the newest unit can
     be larger than the tail budget (a large user message, assistant reply, tool call, or tool result). Then the
     largest sent payloads (_tail_parts) are cut to their start and end, until the rows fit or no payload has more
@@ -318,7 +319,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
     limits: dict[tuple, int] = {}
     # First the cuts to start and end (at least MIN_COPY_CHARS), then, when they are not enough, the drops.
     floor = MIN_COPY_CHARS
-    while sum(sent_tokens(row) for row in rows) > tokens:
+    while sum(sent_tokens(row, details) for row in rows) > tokens:
         cuttable = []
         for index, row in enumerate(rows):
             for key, value in _tail_parts(row):
@@ -340,7 +341,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
             limits[(index, key)] = 0
             new_value = DROPPED
         else:
-            target = cost - (sum(sent_tokens(row) for row in rows) - tokens)
+            target = cost - (sum(sent_tokens(row, details) for row in rows) - tokens)
             limit = max(MIN_COPY_CHARS, min(len(value) - 1, len(value) * max(target, 0) // max(cost, 1)))
             # Cut the original text again: the kept start and end are then parts of the original text.
             limits[(index, key)] = limit
@@ -365,7 +366,8 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
 
 def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, Any] | None, copy_chars: int,
           header_prefix: str, prefixes: Iterable[str], end_marker: str,
-          marker: str = "_db_persisted", copy_tokens: int | None = None, tail_tokens: int | None = None) -> list | None:
+          marker: str = "_db_persisted", copy_tokens: int | None = None, tail_tokens: int | None = None,
+          details: bool = True) -> list | None:
     """Return the new history, or None when no row comes before the tail. With tail_tokens, a tail above it
     is cut to it (bound_tail)."""
     if start <= 0:
@@ -384,7 +386,7 @@ def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, A
     body = summary_body(summary_text, copies, end_marker)
     tail = [_tail_row(row, marker) for row in messages[start:]]
     if tail_tokens is not None:
-        tail = bound_tail(tail, tail_tokens)
+        tail = bound_tail(tail, tail_tokens, details=details)
     rest = ([copy.deepcopy(prepend)] if prepend else []) + tail
     if attr(rest[0], "role") != "user":
         return [{"role": "user", "content": f"{header}\n\n{body}", "_compressed_summary": True}, *rest]
