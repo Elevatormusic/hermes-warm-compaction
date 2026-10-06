@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="490" viewBox="0 0 1200 490" role="img" aria-label="How a compaction works: built-in compressor against warm_compaction" font-family="-apple-system, BlinkMacSystemFont, &apos;Segoe UI&apos;, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFB547"/><stop offset="0.6" stop-color="#FF6B3D"/><stop offset="1" stop-color="#E03A5A"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6B7280"/>
+    </marker>
+    <marker id="arrowWarm" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#FF6B3D"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="490" rx="24" fill="#101218"/>
+  <rect x="0.5" y="0.5" width="1199" height="489" rx="23.5" fill="none" stroke="#262A33"/>
+  <text x="40" y="54" font-size="26" font-weight="700" fill="#F7F4EF">How a compaction works</text>
+  <text x="40" y="82" font-size="15" fill="#A9A39A">Same model, same request prefix: the server reuses its prefix cache and reads only the new rows.</text>
+
+  <circle cx="48" cy="123" r="6" fill="#5E6878"/>
+  <text x="62" y="129" font-size="17" font-weight="700" fill="#EDE8E0">Built-in compressor</text>
+  <g>
+    <rect x="40" y="142" width="300" height="110" rx="14" fill="#171A21" stroke="#2A2F39"/>
+    <text x="60" y="184" font-size="19" font-weight="700" fill="#F7F4EF">Conversation</text>
+    <text x="60" y="212" font-size="15" fill="#A9A39A">long session history</text>
+    <rect x="400" y="142" width="420" height="110" rx="14" fill="#171A21" stroke="#2A2F39"/>
+    <text x="420" y="180" font-size="19" font-weight="700" fill="#F7F4EF">Separate summary request</text>
+    <text x="420" y="206" font-size="15" fill="#A9A39A">cut-down transcript + summary prompt</text>
+    <text x="420" y="230" font-size="15" fill="#8EA4C8">new prompt prefix: no cache reuse</text>
+    <rect x="880" y="142" width="280" height="110" rx="14" fill="#171A21" stroke="#2A2F39"/>
+    <text x="900" y="184" font-size="19" font-weight="700" fill="#F7F4EF">Summary + recent rows</text>
+    <text x="900" y="212" font-size="15" fill="#A9A39A">long summary output</text>
+    <line x1="344" y1="197" x2="394" y2="197" stroke="#6B7280" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <line x1="824" y1="197" x2="874" y2="197" stroke="#6B7280" stroke-width="2.5" marker-end="url(#arrow)"/>
+  </g>
+
+  <circle cx="48" cy="287" r="6" fill="#FF6B3D"/>
+  <text x="62" y="293" font-size="17" font-weight="700" fill="#EDE8E0">warm_compaction</text>
+  <g>
+    <rect x="40" y="306" width="300" height="130" rx="14" fill="#171A21" stroke="#2A2F39"/>
+    <text x="60" y="356" font-size="19" font-weight="700" fill="#F7F4EF">Conversation</text>
+    <text x="60" y="384" font-size="15" fill="#A9A39A">its last request is still</text>
+    <text x="60" y="404" font-size="15" fill="#A9A39A">in the server cache</text>
+    <rect x="400" y="306" width="420" height="130" rx="14" fill="#1D1613" stroke="#FF6B3D" stroke-opacity="0.75"/>
+    <text x="420" y="342" font-size="19" font-weight="700" fill="#F7F4EF">Warm request</text>
+    <rect x="420" y="356" width="300" height="22" rx="5" fill="url(#warm)"/>
+    <text x="432" y="372" font-size="13" font-weight="700" fill="#2A1208">cached prefix: last request</text>
+    <rect x="724" y="356" width="44" height="22" rx="5" fill="#EDE8E0"/>
+    <text x="746" y="372" font-size="12" font-weight="700" fill="#1A1C22" text-anchor="middle">new</text>
+    <rect x="772" y="356" width="28" height="22" rx="5" fill="#FFB547"/>
+    <text x="786" y="372" font-size="12" font-weight="700" fill="#2A1208" text-anchor="middle">+</text>
+    <text x="420" y="402" font-size="15" fill="#A9A39A">last request + new rows + handoff instruction</text>
+    <text x="420" y="424" font-size="15" fill="#FF9A5C">same prefix: cache hit, full rows visible</text>
+    <rect x="880" y="306" width="280" height="130" rx="14" fill="#171A21" stroke="#2A2F39"/>
+    <text x="900" y="356" font-size="19" font-weight="700" fill="#F7F4EF">Handoff + verbatim tail</text>
+    <text x="900" y="384" font-size="15" fill="#A9A39A">short Markdown handoff</text>
+    <text x="900" y="404" font-size="15" fill="#A9A39A">with five headings</text>
+    <line x1="344" y1="371" x2="394" y2="371" stroke="#FF6B3D" stroke-width="2.5" marker-end="url(#arrowWarm)"/>
+    <line x1="824" y1="371" x2="874" y2="371" stroke="#FF6B3D" stroke-width="2.5" marker-end="url(#arrowWarm)"/>
+  </g>
+  <text x="400" y="464" font-size="14" fill="#8C867D">Warm request refused or failed? The same attempt uses a fallback summary, then a fixed summary.</text>
+</svg>

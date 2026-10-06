@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Warm Compaction logo">
+  <defs>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB547"/><stop offset="0.55" stop-color="#FF6B3D"/><stop offset="1" stop-color="#E03A5A"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#warm)"/>
+  <rect x="26" y="24" width="76" height="10" rx="5" fill="#fff" fill-opacity="0.5"/>
+  <rect x="26" y="40" width="76" height="10" rx="5" fill="#fff" fill-opacity="0.72"/>
+  <rect x="26" y="56" width="76" height="10" rx="5" fill="#fff" fill-opacity="0.94"/>
+  <path d="M44 76 L64 90 L84 76" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="40" y="98" width="48" height="10" rx="5" fill="#fff"/>
+</svg>
