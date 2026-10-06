@@ -76,12 +76,16 @@ def sanitize_memory(memory_context: Any) -> str:
         return ""
 
 
-def request_overhead(capture: dict[str, Any] | None) -> int:
+def request_overhead(capture: dict[str, Any] | None, messages: list | None = None,
+                     current_tokens: Any = None) -> int | None:
     """Estimated tokens of the request parts that are not history rows: the system rows and the tool schemas of
-    the captured request. 0 without a captured request body."""
+    the captured request. Without a captured request body (for example, after a restart), the host's token
+    count of the request less the history estimate. None when neither is known."""
     body = (capture or {}).get("body")
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
-        return 0
+        if messages is None or type(current_tokens) is not int or current_tokens <= 0:
+            return None
+        return max(0, current_tokens - estimate_tokens(messages))
     count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
     return estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
 
@@ -198,14 +202,17 @@ class WarmCompactionEngine(ContextEngine):
         if summary is None:
             summary = fallback.fixed_summary(messages[:start])
             record["path"] = "fixed"
+        # An unknown overhead can be most of the window: then no copies.
+        overhead = request_overhead(capture, messages, current_tokens)
+        copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead,
+                                                                    request_reserve(capture))
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=self._copy_tokens(messages[start:], summary, request_overhead(capture),
-                                          request_reserve(capture)))
+            copy_tokens=copy_tokens)
         self.compression_count += 1
         self._finish(record, started)
         return new

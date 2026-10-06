@@ -3,6 +3,7 @@
 import unittest
 from types import SimpleNamespace
 
+import wc_hermes_stub
 from warm_compaction.capture import CaptureStore, UnsupportedRequest, final_body
 from warm_compaction.rows import row_digest
 from wc_fixtures import user
@@ -39,7 +40,9 @@ class FinalBodyTest(unittest.TestCase):
 
 class CaptureStoreTest(unittest.TestCase):
     def setUp(self):
+        wc_hermes_stub.install(self)
         self.store = CaptureStore(clock=lambda: 5.0)
+        wc_hermes_stub.CAPTURE_CHAIN.append(self.store.on_llm_execution)
         self.history = [user("u")]
 
     def run_request(self, request_id="r1", session="s1", api_mode="chat_completions", finish="stop",
@@ -80,20 +83,34 @@ class CaptureStoreTest(unittest.TestCase):
 
     def test_no_body_when_an_execution_middleware_runs_after_the_capture(self):
         # A later middleware can change the request after the capture saw it. The capture cannot see that change.
-        import wc_hermes_stub
-        wc_hermes_stub.install(self)
-
         def other(request=None, next_call=None, **context):
             return next_call()
         for chain, kept in (([self.store.on_llm_execution, other], False), ([other, self.store.on_llm_execution], True)):
-            wc_hermes_stub.PLUGINS._delivery_manager = lambda chain=chain: SimpleNamespace(
-                _middleware={"llm_execution": chain})
-            self.addCleanup(lambda: wc_hermes_stub.PLUGINS.__dict__.pop("_delivery_manager", None))
+            wc_hermes_stub.CAPTURE_CHAIN[:] = chain
             with self.subTest(kept=kept):
                 self.run_request()
                 capture = self.store.latest("s1")
                 self.assertEqual(capture["body"] is not None, kept)
                 self.assertEqual(capture.get("refusal"), None if kept else "middleware_after_capture")
+
+    def test_no_body_when_the_middleware_order_cannot_be_read(self):
+        # A later Hermes can keep the chain in another form. Then a later middleware can change the request
+        # without this capture seeing it: fail closed.
+        def broken():
+            raise AttributeError("_middleware")
+        cases = (("no manager", lambda: wc_hermes_stub.PLUGINS.__dict__.pop("_delivery_manager")),
+                 ("manager fails", lambda: setattr(wc_hermes_stub.PLUGINS, "_delivery_manager", broken)),
+                 ("capture not in the chain", wc_hermes_stub.CAPTURE_CHAIN.clear))
+        manager = wc_hermes_stub.PLUGINS._delivery_manager
+        for name, change in cases:
+            wc_hermes_stub.CAPTURE_CHAIN[:] = [self.store.on_llm_execution]
+            wc_hermes_stub.PLUGINS._delivery_manager = manager
+            change()
+            with self.subTest(name):
+                self.run_request()
+                capture = self.store.latest("s1")
+                self.assertEqual((capture["body"], capture["refusal"]), (None, "middleware_order_unknown"))
+        wc_hermes_stub.PLUGINS._delivery_manager = manager
 
     def test_keeps_tool_call_ids_and_names(self):
         self.run_request(finish="tool_calls", message=reply_object("", [("c1", "read")]))

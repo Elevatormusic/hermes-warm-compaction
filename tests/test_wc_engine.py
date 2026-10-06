@@ -50,6 +50,7 @@ class EngineTest(unittest.TestCase):
         from warm_compaction.engine import WarmCompactionEngine
         self.engine_class = WarmCompactionEngine
         self.store = CaptureStore()
+        wc_hermes_stub.CAPTURE_CHAIN.append(self.store.on_llm_execution)
         self.llm = FakeLlm()
         self.post = fake_post()
         self.engine = self.make()
@@ -352,7 +353,26 @@ class EngineTest(unittest.TestCase):
         self.seed(rows, assistant("final"))
         capture = self.store.latest("s1")
         self.assertEqual(request_overhead(capture), estimate_tokens({"messages": [SYSTEM], "tools": None}))
-        self.assertEqual(request_overhead(None), 0)
+        # Without a captured body: the host's token count less the history estimate, or unknown.
+        self.assertIsNone(request_overhead(None))
+        self.assertIsNone(request_overhead({"body": None}, rows, None))
+        self.assertEqual(request_overhead(None, rows, estimate_tokens(rows) + 45_000), 45_000)
+        self.assertEqual(request_overhead(None, rows, 10), 0)
+
+    def test_without_a_capture_the_copies_leave_room_for_the_system_prompt_and_tools(self):
+        # After a restart there is no capture. The system prompt and the tool schemas still take their space.
+        from warm_compaction.rows import estimate_tokens
+        rows = old_turns(20)
+        engine = self.make(threshold=0.95, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        for current, copied in ((estimate_tokens(rows), True), (estimate_tokens(rows) + 60_000, False),
+                                (None, False)):
+            with self.subTest(current=current):
+                new = engine.compress(rows, current_tokens=current)
+                summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
+                section = summary.split("## Copied user messages", 1)[1].strip()
+                self.assertEqual(not section.startswith("(none)"), copied)
 
     def test_fixed_summary_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("down"))

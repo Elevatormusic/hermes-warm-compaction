@@ -102,27 +102,31 @@ class CaptureStore:
             body = final_body(request)
         except UnsupportedRequest:
             body = None
-        if body is not None and self._runs_before_other_middleware():
+        if body is not None:
             # A later middleware can change the request after this capture saw it. The warm request would
             # then send a body that the provider never received.
-            body, refusal = None, "middleware_after_capture"
+            refusal = self._middleware_order_refusal()
+            if refusal is not None:
+                body = None
         with self._lock:
             entry["body"] = body
             entry["refusal"] = refusal
 
-    def _runs_before_other_middleware(self) -> bool:
-        """True when another llm_execution middleware runs after this capture. The chain order is in the
-        Hermes plugin manager; when it cannot be read, the capture is kept."""
+    def _middleware_order_refusal(self) -> str | None:
+        """Return None when this capture is the last llm_execution middleware. The chain order is in the Hermes
+        plugin manager (a private form). When another middleware runs after the capture, return
+        middleware_after_capture; when the order cannot be read or the capture is not in it, return
+        middleware_order_unknown: a later middleware could change the request (fail closed)."""
         try:
             from hermes_cli.plugins import _delivery_manager
             chain = list(_delivery_manager()._middleware.get("llm_execution", []))
         except Exception:
-            return False
+            return "middleware_order_unknown"
         own = CaptureStore.on_llm_execution
         for index, callback in enumerate(chain):
             if getattr(callback, "__self__", None) is self and getattr(callback, "__func__", None) is own:
-                return index < len(chain) - 1
-        return False
+                return "middleware_after_capture" if index < len(chain) - 1 else None
+        return "middleware_order_unknown"
 
     def on_post_api_request(self, api_request_id: Any = None, session_id: Any = None, finish_reason: Any = None,
                             assistant_message: Any = None, usage: Any = None, **_: Any) -> None:

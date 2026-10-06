@@ -103,6 +103,10 @@ PLUGINS = _module("hermes_cli.plugins", VALID_HOOKS={
     "on_session_reset"})
 EXECUTION_MIDDLEWARE = []
 REQUEST_MIDDLEWARE = []
+# The llm_execution callbacks in the order that the Hermes plugin manager keeps them. A test that runs a capture
+# store adds its on_llm_execution here, as the plugin registration does.
+CAPTURE_CHAIN = []
+PLUGINS._delivery_manager = lambda: SimpleNamespace(_middleware={"llm_execution": list(CAPTURE_CHAIN)})
 
 
 def apply_llm_request_middleware(request, **context):
@@ -156,3 +160,4 @@ def install(test_case):
     test_case.addCleanup(patcher.stop)
     test_case.addCleanup(EXECUTION_MIDDLEWARE.clear)
     test_case.addCleanup(REQUEST_MIDDLEWARE.clear)
+    test_case.addCleanup(CAPTURE_CHAIN.clear)
