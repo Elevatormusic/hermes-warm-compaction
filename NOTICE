@@ -1,0 +1,13 @@
+hermes-warm-compaction
+Copyright 2026 Elevatormusic
+
+This product includes the warm_compaction context engine for Hermes Agent,
+written by Elevatormusic (https://github.com/Elevatormusic).
+
+    Source:   https://github.com/Elevatormusic/hermes-warm-compaction
+    License:  Apache License 2.0 (see LICENSE)
+
+The warm_compaction design: at each compaction, the main model writes the
+handoff summary on the cached prefix of its last request, so the server reads
+only the new rows. A copy, a port, or a derivative work of this code must keep
+this NOTICE as Section 4(d) of the Apache License 2.0 requires.
