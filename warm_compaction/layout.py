@@ -6,7 +6,7 @@ import copy
 import functools
 from typing import Any, Iterable
 
-from .handoff import LEGACY_PREFIX
+from .handoff import END_MARKER, LEGACY_PREFIX
 from .rows import attr, estimate_tokens, hermes_value, plain_text, visible_text
 
 HEADER_TEXT = "The summary of the earlier turns follows."
@@ -134,8 +134,9 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
     if latest is None:
         return start, None
     prepend = {"role": "user", "content": copy.deepcopy(latest["content"])}
-    if latest.get("name"):
-        prepend["name"] = latest["name"]
+    for key in ("name", "api_content"):
+        if latest.get(key):
+            prepend[key] = copy.deepcopy(latest[key])
     return start, prepend
 
 
@@ -165,10 +166,20 @@ def quote(text: str) -> str:
     return "\n".join(">" + (" " + line if line else "") for line in text.splitlines()) or ">"
 
 
+def escape_markers(text: str, end_marker: str) -> str:
+    """Break each end marker in the text, so that only the real end marker ends the summary row. A reader
+    splits the row at the first end marker."""
+    for marker in (end_marker, END_MARKER):
+        if marker:
+            text = text.replace(marker, marker[0] + " " + marker[1:])
+    return text
+
+
 def summary_body(summary_text: str, copies: list[str], end_marker: str) -> str:
     """Return the text of the summary row."""
-    copied = "\n\n".join(quote(text) for text in copies) if copies else NO_COPIES
-    return f"{LEGACY_PREFIX}\n{summary_text.strip()}\n\n{COPY_HEADING}\n\n{copied}\n\n{end_marker}"
+    copied = "\n\n".join(quote(escape_markers(text, end_marker)) for text in copies) if copies else NO_COPIES
+    summary = escape_markers(summary_text.strip(), end_marker)
+    return f"{LEGACY_PREFIX}\n{summary}\n\n{COPY_HEADING}\n\n{copied}\n\n{end_marker}"
 
 
 def _tail_row(row: Any, marker: str) -> Any:

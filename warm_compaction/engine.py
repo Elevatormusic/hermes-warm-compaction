@@ -169,7 +169,9 @@ class WarmCompactionEngine(ContextEngine):
                                   "cached_tokens": None}
         summary = self._warm_summary(messages, focus_topic, memory, prefixes, record)
         if summary is None and not self._cancelled():
-            summary, _tokens = fallback.llm_summary(self._llm, messages, prefixes, focus_topic=focus_topic,
+            # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
+            # can spend its budget on the tail.
+            summary, _tokens = fallback.llm_summary(self._llm, messages[:start], prefixes, focus_topic=focus_topic,
                                                     memory_context=memory, task=self._task)
             if summary is not None:
                 record["path"] = "fallback"

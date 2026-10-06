@@ -14,8 +14,11 @@ from wc_fixtures import assistant, tool, user
 PREFIXES = ("[HERMES PREFIX]", "[CONTEXT SUMMARY]:")
 
 
+SUMMARY = "## Goal\nG\n## User instructions\n- none\n## Current state\n- [OPEN] x\n## Key facts\n- y\n## Next step\nz"
+
+
 class FakeLlm:
-    def __init__(self, text="## Goal\nG", error=None):
+    def __init__(self, text=SUMMARY, error=None):
         self.text, self.error, self.calls = text, error, []
 
     def complete(self, messages, **kwargs):
@@ -44,6 +47,19 @@ class TranscriptTest(unittest.TestCase):
         text = transcript(rows, PREFIXES)
         self.assertIn("[tool result call_0 read]\nold", text)
         self.assertIn("[tool result call_0 write]\nnew", text)
+
+    def test_the_sent_api_content_is_in_the_transcript(self):
+        text = transcript([user("hi", api_content="[ctx]\n\nhi"), assistant("", api_content="The answer is 4.")],
+                          PREFIXES)
+        self.assertIn("[user]\n[ctx]\n\nhi", text)
+        self.assertIn("[assistant]\nThe answer is 4.", text)
+
+    def test_names_are_in_the_transcript_labels(self):
+        text = transcript([user("ship it", name="alice"), user("wait", name="bob"), assistant("ok", name="lead")],
+                          PREFIXES)
+        self.assertIn("[user alice]\nship it", text)
+        self.assertIn("[user bob]\nwait", text)
+        self.assertIn("[assistant lead]\nok", text)
 
     def test_think_blocks_are_removed_only_from_assistant_rows(self):
         text = "<think>keep me</think> body"
@@ -98,7 +114,7 @@ class LlmSummaryTest(unittest.TestCase):
         llm = FakeLlm()
         text, tokens = llm_summary(llm, [user("hi"), assistant("ok")], PREFIXES, focus_topic="db", memory_context="m")
         messages, kwargs = llm.calls[0]
-        self.assertEqual((text, tokens), ("## Goal\nG", 321))
+        self.assertEqual((text, tokens), (SUMMARY, 321))
         self.assertEqual((kwargs["task"], kwargs["max_tokens"], kwargs["timeout"]), (TASK, MAX_TOKENS, 120.0))
         self.assertTrue(messages[0]["content"].startswith(FALLBACK_INSTRUCTION))
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
@@ -110,7 +126,8 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertIsNone(llm.calls[0][1]["task"])
 
     def test_failures_return_none(self):
-        for llm in (None, FakeLlm(text="  "), FakeLlm(text="x" * 30_000)):
+        for llm in (None, FakeLlm(text="  "), FakeLlm(text="x" * 30_000), FakeLlm(text="The answer is 4."),
+                    FakeLlm(text="## Goal\nG\n## Next step\nz"), FakeLlm(text=SUMMARY + "\n[CONTEXT SUMMARY]: x")):
             with self.subTest(llm=llm):
                 self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (None, None))
         with self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:

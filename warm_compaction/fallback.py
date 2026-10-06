@@ -6,9 +6,11 @@ import collections
 import logging
 from typing import Any, Iterable
 
-from .handoff import END_MARKER, LEGACY_PREFIX, MAX_REPLY_BYTES, extras
+from .handoff import END_MARKER, LEGACY_PREFIX, extras, gate
 from .layout import is_real_user, is_summary
-from .rows import attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text
+from .rows import (
+    api_content, attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,17 +103,19 @@ def _summary_text(row: Any, prefixes: tuple[str, ...]) -> str:
 
 
 def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
-    """Return one transcript entry for a row. A tool result names its call id and tool, so that results of
-    parallel calls stay linked to their calls."""
+    """Return one transcript entry for a row: the text that Hermes sent (api_content when the row has it) under
+    a label with the role and the name. A tool result names its call id and tool, so that results of parallel
+    calls stay linked to their calls."""
     role = str(attr(row, "role") or "unknown")
-    text = visible_text(attr(row, "content"))
+    text = visible_text(api_content(row))
     text = (strip_think(text) if role == "assistant" else text).strip()
     if role == "tool":
         call_id = str(attr(row, "tool_call_id") or "")
         name = str(attr(row, "name") or (call_names or {}).get(call_id) or "")
         label = " ".join(part for part in ("tool result", call_id, name) if part)
         return f"[{label}]\n" + _cut(text, TOOL_CHARS)
-    lines = [f"[{role}]"]
+    name = attr(row, "name")
+    lines = [f"[{role} {name}]" if isinstance(name, str) and name else f"[{role}]"]
     if text:
         lines.append(text)
     for call_id, name, arguments in tool_calls_of(row):
@@ -169,6 +173,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails."""
     if llm is None:
         return None, None
+    prefixes = tuple(prefixes)
     request = [
         {"role": "system", "content": FALLBACK_INSTRUCTION + extras(focus_topic, memory_context)},
         {"role": "user", "content": transcript(messages, prefixes)},
@@ -178,8 +183,12 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     except Exception as error:
         logger.warning("warm_compaction: the fallback summary request failed (%s)", type(error).__name__)
         return None, None
-    text = strip_think(str(getattr(result, "text", "") or "")).strip()
-    if not text or len(text.encode("utf-8", "surrogatepass")) > MAX_REPLY_BYTES:
+    # The same checks as the warm reply: the five headings, the byte limit, and no summary markers. A reply
+    # without them (cut off, or an answer to the conversation) must not replace the history.
+    text, reason = gate({"content": str(getattr(result, "text", "") or ""),
+                         "finish_reason": getattr(result, "finish_reason", None) or "stop"}, prefixes)
+    if text is None:
+        logger.warning("warm_compaction: the fallback summary was refused (%s)", reason)
         return None, None
     tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
     return text, tokens if isinstance(tokens, int) and tokens > 0 else None

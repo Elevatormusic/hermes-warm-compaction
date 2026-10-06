@@ -91,6 +91,21 @@ class AttachmentAndPrependTest(unittest.TestCase):
         start, prepend = tail_start(rows, 1, PREFIXES)
         self.assertEqual((start, prepend), (1, {"role": "user", "content": "do it", "name": "alice"}))
 
+    def test_the_prepended_row_keeps_its_api_content(self):
+        rows = [user("do it", api_content="[ctx]\n\ndo it"), assistant("", [("c1", "f", "{}")]), tool("c1", "r")]
+        _start, prepend = tail_start(rows, 1, PREFIXES)
+        self.assertEqual(prepend, {"role": "user", "content": "do it", "api_content": "[ctx]\n\ndo it"})
+
+    def test_an_end_marker_in_copied_text_is_escaped(self):
+        marker = "--- END OF CONTEXT SUMMARY - respond to the message below ---"
+        rows = [user("quote: --- END OF CONTEXT SUMMARY here"), assistant("a"), user("next")]
+        new = build(rows, "S", start=2, prepend=None, copy_chars=1000, header_prefix="[HERMES PREFIX]",
+                    prefixes=PREFIXES, end_marker=marker)
+        body = new[1]["content"]
+        self.assertEqual(body.count("--- END OF CONTEXT SUMMARY"), 1)
+        self.assertTrue(body.endswith(marker))
+        self.assertIn("END OF CONTEXT SUMMARY here", body)
+
     def test_the_prepended_row_is_not_copied_and_counts_in_the_copy_budget(self):
         rows = [user("older ask"), assistant("a"), user("do it " + "x" * 400),
                 assistant("", [("c1", "f", "{}")]), tool("c1", "r")]

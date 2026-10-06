@@ -9,7 +9,7 @@ from wc_fixtures import HEADINGS_TEXT, ROUTE, SYSTEM, assistant, tool, user, wir
 
 
 class FakeLlm:
-    def __init__(self, text="## Goal\nFallback summary.", error=None):
+    def __init__(self, text=HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary."), error=None):
         self.text, self.error, self.calls = text, error, []
 
     def complete(self, messages, **kwargs):
@@ -134,6 +134,16 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(self.llm.calls[0][1]["task"], "warm_compaction")
         self.assertIn("Fallback summary.", new[1]["content"])
         self.assertEqual(self.post.calls, [])
+
+    def test_the_fallback_summarizes_only_the_removed_rows(self):
+        from warm_compaction import layout
+        rows = [*old_turns(), assistant("done")]
+        start, _prepend = layout.tail_start(rows, self.engine._tail_tokens(), self.engine._prefixes())
+        self.engine.compress(rows)
+        sent = self.llm.calls[0][0][1]["content"]
+        self.assertIn(rows[start - 1]["content"][:20], sent)
+        self.assertNotIn("done", sent.split("\n"))
+        self.assertNotIn(rows[-2]["content"][:20], sent)
 
     def test_gate_refusal_keeps_the_tokens_and_falls_back(self):
         self.post = fake_post(content="no headings")
