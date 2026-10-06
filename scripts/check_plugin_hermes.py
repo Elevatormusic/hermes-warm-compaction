@@ -29,6 +29,8 @@ PLUGIN = ROOT / "warm_compaction"
 MODEL = "fake-model"
 CONTEXT_LENGTH = 200_000
 WARM_MARK = "Stop the current task now. This request comes from the host program"
+# The reply limit of the warm request (warm_compaction.warm). The check does not import the plugin.
+HANDOFF_MIN_TOKENS, HANDOFF_MAX_TOKENS = 2048, 8192
 FALLBACK_MARK = "Write a handoff summary of the conversation transcript"
 SYSTEM = "You are a test agent. Answer in one short sentence."
 SEED_QUESTION = "What is the code word?"
@@ -663,8 +665,15 @@ def check_warm_request(server, checks, label, tool_rows=0):
     checks[f"{label}_new_rows"] = len(extended) == len(sent) + 2 + tool_rows
     checks[f"{label}_instruction_last"] = str(extended[-1].get("content") or "").startswith(WARM_MARK)
     checks[f"{label}_not_streamed"] = warm["body"].get("stream") is False and "stream_options" not in warm["body"]
-    same = {key: value for key, value in main["body"].items() if key not in {"messages", "stream", "stream_options"}}
+    limits = {"max_tokens", "max_completion_tokens"}
+    same = {key: value for key, value in main["body"].items()
+            if key not in {"messages", "stream", "stream_options", *limits}}
     checks[f"{label}_settings_kept"] = all(warm["body"].get(key) == value for key, value in same.items())
+    # The handoff has its own reply limit: the main limit kept between HANDOFF_MIN_TOKENS and HANDOFF_MAX_TOKENS.
+    checks[f"{label}_reply_limit"] = all(
+        warm["body"].get(key) == (min(max(value, HANDOFF_MIN_TOKENS), HANDOFF_MAX_TOKENS)
+                                  if type(value) is int and value > 0 else value)
+        for key, value in ((key, main["body"].get(key)) for key in limits))
     if tool_rows:
         roles = [row.get("role") for row in extended[len(sent):]]
         checks[f"{label}_tool_rows_sent"] = roles == ["assistant", *["tool"] * tool_rows, "user"]
