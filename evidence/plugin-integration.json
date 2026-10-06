@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T15:38:58Z",
+  "started_utc": "2026-10-06T16:12:49Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -10,13 +10,13 @@
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
     "warm_compaction/capture.py": "387a5bda2c97530c6e9114e810ac062199e3731c12a582d75598d2bdb95e8c57",
-    "warm_compaction/engine.py": "b88091a5581a15b1ae034a22e62d468767f0cf8641e22b1c6fb398554a571794",
+    "warm_compaction/engine.py": "aa7d4abc93dad256a14ccca91cc4f9498940a8c99149b3d6c5f3ed4c6a41ade5",
     "warm_compaction/fallback.py": "f4cf08186f38fc9a46f47af2bedf22584b6ede4f11de1c3abd0fd598aec2f8a4",
     "warm_compaction/handoff.py": "9afea62ec2f8ef46cbeefd70b1071bb6c7111fa6fd1cd073e1fb2c7eae30f3c2",
-    "warm_compaction/layout.py": "e99ccddff875a2e7a093eb4f75c7d3418b93376e39adea76e2974b81fbdabf7d",
+    "warm_compaction/layout.py": "21a280ec25c581e732e8d0c528f19b72102d685bd0da91bc622b6e01cd0fbb06",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
-    "warm_compaction/rows.py": "d282fb4d40a0e7050183f350f13a0e8b127a5c42d6ccd29fe79975809d466b84",
-    "warm_compaction/warm.py": "f76aa64c739f8db7e228c25f9f3ee0c7d890c48eea8215f75577a2d6e5f4736b"
+    "warm_compaction/rows.py": "1eb0a043c060322769ad0e2533b3f1b30d5258f125502752d18b8a94c1006347",
+    "warm_compaction/warm.py": "fe1f1b2e065f7198586979455ab54ed7dfd20d144b3751c3451d3cf6a70480e4"
   },
   "privacy": "metadata only: names, counts, codes, booleans, and times; no message text",
   "scenarios": [
@@ -76,11 +76,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.118,
+      "compress_seconds": 0.097,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.031,
+        "elapsed_s": 0.025,
         "prompt_tokens": 33892,
         "cached_tokens": 16946
       },
@@ -189,7 +189,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 56.42
+      "process_seconds": 56.281
     },
     {
       "scenario": "manual_fallback",
@@ -248,11 +248,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.249,
+      "compress_seconds": 0.264,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.109,
+        "elapsed_s": 0.141,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -361,7 +361,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 35.621
+      "process_seconds": 33.064
     },
     {
       "scenario": "manual_fixed",
@@ -419,11 +419,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.244,
+      "compress_seconds": 0.271,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.109,
+        "elapsed_s": 0.141,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -431,7 +431,7 @@
       "final_session_id": "wc-manual_fixed",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 6,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -532,7 +532,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 31.615
+      "process_seconds": 30.49
     },
     {
       "scenario": "auto_tool_loop",
@@ -620,14 +620,14 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.015,
         "prompt_tokens": 35209,
         "cached_tokens": 17604
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.015,
+        "elapsed_s": 0.016,
         "prompt_tokens": 19504,
         "cached_tokens": 9752
       },
@@ -737,7 +737,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 34.583
+      "process_seconds": 33.176
     },
     {
       "scenario": "rollback",
@@ -787,11 +787,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.155,
+      "compress_seconds": 0.158,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.015,
         "prompt_tokens": 33882,
         "cached_tokens": 16941
       },
@@ -799,7 +799,7 @@
       "final_session_id": "wc-rollback",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 5,
+        "child_process_blocked": 4,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -950,7 +950,8 @@
           "stored": 30
         },
         "fence_denied": {
-          "child_process_blocked": 5
+          "child_process_blocked": 5,
+          "network_host_blocked": 1
         },
         "fence_blocked_programs": [
           "git",
@@ -958,7 +959,9 @@
           "python",
           "python3"
         ],
-        "fence_blocked_hosts": []
+        "fence_blocked_hosts": [
+          "hermes-assets.nousresearch.com"
+        ]
       },
       "exit": [
         0,
@@ -970,10 +973,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 38.012
+      "process_seconds": 40.153
     }
   ],
-  "finished_utc": "2026-10-06T15:42:14Z",
+  "finished_utc": "2026-10-06T16:16:02Z",
   "passed": true,
   "run_folder": "outside repository"
 }

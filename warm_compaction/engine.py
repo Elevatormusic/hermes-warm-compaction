@@ -196,7 +196,7 @@ class WarmCompactionEngine(ContextEngine):
         if self.threshold_tokens <= 0:
             return False
         # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
-        tokens = estimate_tokens(sent_rows(messages, self._policy()))
+        tokens = estimate_tokens(sent_rows(messages, self._policy(messages)))
         window = int(self.context_length or 0)
         budget = self._budget_capture(self._store.latest(self._wc_session_id), messages)
         if budget is not None:
@@ -209,7 +209,7 @@ class WarmCompactionEngine(ContextEngine):
 
     def has_content_to_compress(self, messages: list) -> bool:
         start, _prepend = layout.tail_start(messages, self._start_tail(messages, self._store.latest(
-            self._wc_session_id)), self._prefixes(), self._policy())
+            self._wc_session_id)), self._prefixes(), self._policy(messages))
         return start > 0
 
     def on_session_reset(self) -> None:
@@ -229,7 +229,7 @@ class WarmCompactionEngine(ContextEngine):
         """Replace the rows before the tail with a summary. Keep the history when no row comes before the tail."""
         started = self._clock()
         prefixes = self._prefixes()
-        policy = self._policy()
+        policy = self._policy(messages)
         # The route, key, and session of this attempt. Hermes can switch them while the attempt still runs (it
         # runs on a pooled thread and can outlive a host timeout); the warm request goes only to this route.
         attempt = self._attempt()
@@ -277,7 +277,7 @@ class WarmCompactionEngine(ContextEngine):
             record["path"] = "fixed"
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum.
-        room = self._room(messages[start:], summary, overhead or 0, reserve)
+        room = self._room(messages[start:], summary, overhead or 0, reserve, policy)
         cut: list = []
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
@@ -290,7 +290,6 @@ class WarmCompactionEngine(ContextEngine):
                     # summary as a quote. The room keeps space for that quote.
                     prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
                     summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
-        copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead, reserve)
         prepend_tokens = estimate_tokens(prepend) if prepend is not None else 0
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         if record["path"] == "fixed":
@@ -307,6 +306,9 @@ class WarmCompactionEngine(ContextEngine):
                 if lower >= tail_tokens or _round == FIXED_ROUNDS - 1:
                     break
                 tail_tokens = lower
+        # The copies get the room after the tail as build cuts it: the uncut tail can be much larger.
+        copy_tokens = 0 if overhead is None else self._copy_tokens(
+            layout.bound_tail(messages[start:], tail_tokens, policy=policy), summary, overhead, reserve, policy)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
@@ -318,11 +320,20 @@ class WarmCompactionEngine(ContextEngine):
         self._finish(record, started)
         return new
 
-    def _policy(self) -> SendPolicy:
+    def _policy(self, messages: list) -> SendPolicy:
         """The route-dependent fields that warm.wire_row sends: reasoning_details on a route that replays them,
-        and the tool-call thought signature for a model that reads it."""
+        the tool-call thought signature for a model that reads it, and reasoning_content on a route that needs it
+        back. Hermes does not give that last rule to a context engine: a capture of this route shows it (Hermes
+        sends the field on every assistant row, or on none); without one, a stored row that has the field."""
+        capture = self._store.latest(self._wc_session_id)
+        body = capture.get("body") if capture and tuple(capture.get("route") or ()) == tuple(self._wc_route) else None
+        sent = [row for row in (body.get("messages") or []) if isinstance(row, dict) and row.get("role") == "assistant"
+                ] if isinstance(body, dict) else []
+        echo = (any("reasoning_content" in row for row in sent) if sent
+                else warm.needs_reasoning_echo({}, messages))
         module = "agent.transports.chat_completions"
         return SendPolicy(
+            echo=echo,
             details=bool(hermes_value(module, "_route_replays_reasoning_details",
                                       warm._route_replays_reasoning_details)(self._wc_route[1])),
             signatures=bool(hermes_value(module, "_model_consumes_thought_signature",
@@ -453,7 +464,8 @@ class WarmCompactionEngine(ContextEngine):
         return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
                            int(self.threshold_tokens or 0))
 
-    def _room(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int | None:
+    def _room(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0,
+              policy: SendPolicy = SendPolicy()) -> int | None:
         """Tokens that stay free below the compaction threshold, and below the context window less the reply
         reserve, after the request overhead (system rows and tool schemas), the tail rows, the summary, and the
         summary row headings. None without a threshold."""
@@ -462,7 +474,7 @@ class WarmCompactionEngine(ContextEngine):
             return None
         window = int(self.context_length or 0)
         limit = min(threshold, window - reserve) if window > 0 else threshold
-        return limit - (overhead + estimate_tokens(sent_rows(tail_rows, self._policy())) + estimate_tokens(summary)
+        return limit - (overhead + estimate_tokens(sent_rows(tail_rows, policy)) + estimate_tokens(summary)
                         + CARRIER_TOKENS)
 
     def _tail_cap(self, summary_tokens: int, overhead: int | None, reserve: int, prepend_tokens: int = 0) -> int:
@@ -494,11 +506,12 @@ class WarmCompactionEngine(ContextEngine):
             return None
         return capture
 
-    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int:
+    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0,
+                     policy: SendPolicy = SendPolicy()) -> int:
         """Token allowance for the copied user messages and the prepended user row: at most the tail size, and
         the free room (_room)."""
         tail = self._tail_tokens()
-        room = self._room(tail_rows, summary, overhead, reserve)
+        room = self._room(tail_rows, summary, overhead, reserve, policy)
         return tail if room is None else max(0, min(tail, room))
 
     def _cancelled(self) -> bool:

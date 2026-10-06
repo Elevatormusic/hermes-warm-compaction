@@ -195,8 +195,28 @@ class BoundTailTest(unittest.TestCase):
         self.assertIs(bound_tail(rows[2:], 1_500)[0], rows[2])
 
     def test_unsent_reasoning_does_not_move_the_tail(self):
+        from warm_compaction.rows import SendPolicy
         rows = [user("o" * 4_000), assistant("a"), user("q"), assistant("b", reasoning="r" * 40_000)]
-        self.assertEqual(tail_start(rows, 900, PREFIXES), (2, None))
+        self.assertEqual(tail_start(rows, 900, PREFIXES, SendPolicy(echo=False)), (2, None))
+
+    def test_unsent_reasoning_is_not_cut_or_given_back(self):
+        # A route that does not send reasoning: the private reasoning must not go to the fallback model or into
+        # the fixed summary.
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import SendPolicy
+        for key in ("reasoning", "reasoning_content"):
+            with self.subTest(key=key):
+                rows = [user("go"), assistant("c" * 20_000, **{key: "r" * 30_000 + " SECRET " + "r" * 30_000})]
+                removed = []
+                bounded = bound_tail(rows, 2_000, removed, SendPolicy(echo=False))
+                self.assertEqual(bounded[1][key], rows[1][key])
+                self.assertNotIn("SECRET", str(removed))
+        # A route that needs reasoning back sends a stored reasoning field as reasoning_content: it is cut.
+        rows = [user("go"), assistant("ok", reasoning="r" * 30_000 + " SENT " + "r" * 30_000)]
+        removed = []
+        bounded = bound_tail(rows, 2_000, removed, SendPolicy(echo=True))
+        self.assertLess(len(bounded[1]["reasoning"]), 60_000)
+        self.assertIn("SENT", str(removed))
 
     def test_a_large_assistant_row_is_cut_and_keeps_its_tool_calls(self):
         from warm_compaction.layout import bound_tail
@@ -243,8 +263,22 @@ class BoundTailTest(unittest.TestCase):
         self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
         text, note = bounded[0]["content"]
         self.assertTrue(text["text"].startswith("look ") and text["text"].endswith(" end"))
-        self.assertEqual(note, {"type": "text", "text": "[image_url removed]"})
+        self.assertEqual(note, {"type": "text", "text": "[image attachment] (removed)"})
         self.assertIs(rows[0]["content"][1], image)
+
+    def test_a_removed_media_part_keeps_its_reference(self):
+        # A web URL or a file name stays in the tail and in the removed note; a data URL does not.
+        from warm_compaction.layout import bound_tail
+        url = "https://example.invalid/photo.png?" + "q" * 40_000
+        image = {"type": "image_url", "image_url": {"url": url}}
+        rows = [user([{"type": "text", "text": "see"}, image]), assistant("ok")]
+        removed = []
+        bounded = bound_tail(rows, 2_000, removed)
+        note = bounded[0]["content"][1]["text"]
+        self.assertTrue(note.startswith("[image attachment: https://example.invalid/photo.png?"))
+        self.assertLess(len(note), 400)
+        self.assertIn("https://example.invalid/photo.png?", removed[0]["content"])
+        self.assertLess(len(removed[0]["content"]), 600)
 
     def test_raw_string_parts_and_untyped_text_parts_are_cut_as_text(self):
         # visible_text reads both shapes as text: the bound cuts them, and does not replace them with a note.

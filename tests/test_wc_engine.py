@@ -723,6 +723,31 @@ class EngineTest(unittest.TestCase):
         self.assertIsNot(new, history)
         self.assertLess(len(new), len(history))
 
+    def test_the_copied_messages_are_sized_after_the_tail_cut(self):
+        # A huge newest unit fills the room before the cut; after the cut there is room for the copies, which the
+        # fixed summary needs (it does not keep the earlier user text).
+        self.llm.error = RuntimeError("down")
+        rows = [*old_turns(4), user("go")]
+        reply = assistant("", [("c1", "read", "{}")])
+        self.seed(rows, reply)
+        engine = self.make(threshold=0.95, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress([*rows, reply, tool("c1", "t" * 400_000)])
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
+        self.assertIn("ask 0 ", summary)
+
+    def test_unsent_reasoning_does_not_reach_the_fallback_model(self):
+        # The route does not send reasoning: the auxiliary model must not get the private reasoning of a cut row.
+        rows = [*old_turns(4), user("go"), assistant("c" * 40_000, reasoning="r" * 40_000 + " SECRET " + "r" * 40_000)]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        sent = json.dumps([call[0] for call in self.llm.calls])
+        self.assertNotIn("SECRET", sent)
+        self.assertNotIn("r" * 100, sent)
+
     def test_clone_keeps_the_model_thresholds(self):
         self.engine.model_thresholds = {"fake": 0.25}
         clone = self.engine.clone_for_agent()

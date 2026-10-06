@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
 from .rows import (api_content, attr, compact_json, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text,
-                   SendPolicy, sent_tokens, visible_text)
+                   SendPolicy, attachment_mark, sent_reasoning_key, sent_tokens, visible_text)
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -240,13 +240,11 @@ def _tail_row(row: Any, marker: str) -> Any:
     return clean
 
 
-# The sent text fields of an assistant row that a model can make large: its reasoning.
-REASONING_KEYS = ("reasoning_content", "reasoning")
-
-
-def _tail_parts(row: Any) -> list[tuple[tuple, Any]]:
+def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple, Any]]:
     """Return the sent payloads of a tail row that a cut can make smaller, as (key, value): the content (text, or
-    each part of a list), the arguments of each tool call, and the reasoning text of an assistant row."""
+    each part of a list), the arguments of each tool call, and the reasoning text that the route sends for an
+    assistant row (sent_reasoning_key). Reasoning that the route does not send is not a payload: a cut would give
+    it to the fallback model and the fixed summary."""
     if not isinstance(row, dict):
         return []
     role = row.get("role")
@@ -269,7 +267,9 @@ def _tail_parts(row: Any) -> list[tuple[tuple, Any]]:
             if isinstance(function, dict) and function.get("arguments") is not None:
                 arguments = function["arguments"]
                 parts.append((("arguments", index), arguments if isinstance(arguments, str) else compact_json(arguments)))
-        parts.extend(((key,), row[key]) for key in REASONING_KEYS if isinstance(row.get(key), str))
+        key = sent_reasoning_key(row, policy)
+        if key is not None:
+            parts.append(((key,), row[key]))
     return parts
 
 
@@ -306,7 +306,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
     be larger than the tail budget (a large user message, assistant reply, tool call, or tool result). Then the
     largest sent payloads (_tail_parts) are cut to their start and end, until the rows fit or no payload has more
     than MIN_COPY_CHARS characters. A tool call keeps its id and name, and its arguments stay a JSON object. A
-    media part (an image, for example) is replaced by a short text. Other rows and fields stay as they are; signed
+    media part (an image, for example) is replaced by its attachment mark. Other rows and fields stay as they are; signed
     reasoning_details stay, because a cut breaks the signature. When the minimum cuts are not enough (a small cap,
     or many small payloads), the payloads are dropped (DROPPED), largest first. Only the row structure (roles, tool
     call ids and names) can then stay above the cap.
@@ -322,7 +322,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
     while sum(sent_tokens(row, policy) for row in rows) > tokens:
         cuttable = []
         for index, row in enumerate(rows):
-            for key, value in _tail_parts(row):
+            for key, value in _tail_parts(row, policy):
                 value = current.get((index, key), value)
                 if (isinstance(value, str) and len(value) > max(floor, len(DROPPED))) or (
                         key[0] == "media" and (index, key) not in current
@@ -336,7 +336,8 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
         cost, index, key, value = max(cuttable, key=lambda item: (item[0], -item[1]))
         originals.setdefault((index, key), value)
         if key[0] == "media":
-            new_value: Any = {"type": "text", "text": f"[{value.get('type') or 'media'} removed]"}
+            # The mark keeps a web URL or a file name (short), not a data URL.
+            new_value: Any = {"type": "text", "text": attachment_mark(value) + " (removed)"}
         elif not floor:
             limits[(index, key)] = 0
             new_value = DROPPED
@@ -352,7 +353,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
         for index, key in sorted(originals, key=lambda item: (item[0], repr(item[1]))):
             original = originals[(index, key)]
             if key[0] == "media":
-                text = f"(a {original.get('type') or 'media'} part was removed)"
+                text = f"(removed from the tail: {attachment_mark(original)})"
             else:
                 first, second = cut_bounds(original, limits[(index, key)])
                 label = {"arguments": "tool call arguments: ", "reasoning_content": "reasoning: ",

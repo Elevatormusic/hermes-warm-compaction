@@ -68,15 +68,23 @@ if __name__ == "__main__":
 class SentRowsTest(unittest.TestCase):
     def test_the_estimate_uses_the_fields_that_hermes_sends(self):
         # wire_row: no stored reasoning field, no metadata, reasoning_details only on a route that replays it.
-        from warm_compaction.rows import sent_tokens
+        from warm_compaction.rows import SendPolicy, sent_tokens
         base = {"role": "assistant", "content": "ok"}
-        small = sent_tokens(base)
-        self.assertEqual(sent_tokens({**base, "reasoning": "r" * 40_000, "timestamp": "t" * 4_000}), small)
+        small = sent_tokens(base, SendPolicy(echo=False))
+        quiet = SendPolicy(echo=False)
+        self.assertEqual(sent_tokens({**base, "reasoning": "r" * 40_000, "timestamp": "t" * 4_000}, quiet), small)
+        # reasoning_content only on a route that needs it back (apply_reasoning_content_policy); there a stored
+        # reasoning field without tool calls goes as reasoning_content.
+        self.assertEqual(sent_tokens({**base, "reasoning_content": "r" * 4_000}, quiet), small)
         self.assertGreater(sent_tokens({**base, "reasoning_content": "r" * 4_000}), small + 900)
+        self.assertGreater(sent_tokens({**base, "reasoning": "r" * 4_000}), small + 900)
         details = {**base, "reasoning_details": [{"type": "reasoning.text", "text": "d" * 4_000}]}
         self.assertGreater(sent_tokens(details), small + 900)
         from warm_compaction.rows import SendPolicy
-        self.assertEqual(sent_tokens(details, SendPolicy(details=False)), small)
+        self.assertEqual(sent_tokens(details, SendPolicy(details=False, echo=False)), small)
+        # The private native-assistant carriers are not replayed (warm._replay_details).
+        native = {**base, "reasoning_details": [{"type": "anthropic.native_assistant", "text": "n" * 8_000}]}
+        self.assertEqual(sent_tokens(native, SendPolicy(echo=False)), small)
 
     def test_the_estimate_uses_the_tool_call_fields_that_hermes_sends(self):
         # wire_row: id, type, and function name and arguments; the thought signature only for a model that reads it.
@@ -91,4 +99,9 @@ class SentRowsTest(unittest.TestCase):
         self.assertEqual(sent_tokens(noisy, SendPolicy(signatures=False)), small)
         self.assertGreater(sent_tokens(noisy, SendPolicy(signatures=True)), small + 1_900)
         self.assertLess(sent_tokens(noisy, SendPolicy(signatures=True)), small + 2_100)
+        # extra_content without a usable thought signature is not sent (warm._signature).
+        for unsigned in ({"meta": "m" * 8_000}, {"google": {"thought_signature": " "}, "meta": "m" * 8_000}):
+            with self.subTest(extra=unsigned):
+                row = {**base, "tool_calls": [{**call, "extra_content": unsigned}]}
+                self.assertEqual(sent_tokens(row, SendPolicy(signatures=True)), small)
 

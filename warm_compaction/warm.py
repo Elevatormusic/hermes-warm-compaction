@@ -13,8 +13,8 @@ import urllib.request
 from typing import Any, Callable
 
 from .rows import (
-    api_content, attr, compact_json, estimate_tokens, hermes_value, plain_text, reply_text, row_digest,
-    tool_calls_of,
+    api_content, attr, compact_json, estimate_tokens, has_thought_signature, hermes_value, plain_text,
+    reasoning_policy as _reasoning_policy, replay_details, reply_text, row_digest, tool_calls_of,
 )
 
 DEFAULT_RESERVE = 4096
@@ -191,23 +191,6 @@ def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None)
         raise WarmRefusal("source_transform_unsupported")
 
 
-def _reasoning_policy(source: dict, wire: dict, needs_pad: bool) -> None:
-    """The reasoning_content rule of Hermes 45871e10 (agent.message_sanitization.apply_reasoning_content_policy):
-    a thinking-mode route (DeepSeek, Kimi, MiMo) needs the field on every assistant row; other routes reject it."""
-    if source.get("role") != "assistant":
-        return
-    if not needs_pad:
-        wire.pop("reasoning_content", None)
-        return
-    existing, reasoning = source.get("reasoning_content"), source.get("reasoning")
-    if isinstance(existing, str):
-        wire["reasoning_content"] = existing or " "
-    elif isinstance(reasoning, str) and reasoning and not source.get("tool_calls"):
-        wire["reasoning_content"] = reasoning
-    else:
-        wire["reasoning_content"] = " "
-
-
 def needs_reasoning_echo(body: dict[str, Any], rows: list) -> bool:
     """True when the route needs reasoning_content on assistant rows: Hermes sent it on a captured assistant row,
     or a new assistant row has it from the provider."""
@@ -224,14 +207,8 @@ def _model_consumes_thought_signature(model: Any) -> bool:
 
 
 def _signature(extra: Any) -> Any:
-    """Return the tool-call extra_content when it has a usable thought signature, else None."""
-    if not isinstance(extra, dict):
-        return None
-    candidate = extra.get("thought_signature")
-    google = extra.get("google")
-    if candidate is None and isinstance(google, dict):
-        candidate = google.get("thought_signature")
-    return copy.deepcopy(extra) if isinstance(candidate, str) and candidate.strip() else None
+    """Return a copy of the tool-call extra_content when it has a usable thought signature, else None."""
+    return copy.deepcopy(extra) if has_thought_signature(extra) else None
 
 
 REPLAY_DETAILS_HOSTS = ("openrouter.ai", "nousresearch.com")
@@ -264,13 +241,9 @@ def _route_replays_reasoning_details(base_url: Any) -> bool:
 
 
 def _replay_details(details: Any) -> list | None:
-    """Return reasoning_details without private native-assistant carriers (the profile that reads them is not
-    known here), or None when nothing is left."""
-    if not isinstance(details, list):
-        return None
-    kept = [copy.deepcopy(item) for item in details if not (
-        isinstance(item, dict) and isinstance(item.get("type"), str) and item["type"].endswith(".native_assistant"))]
-    return kept or None
+    """A copy of rows.replay_details: reasoning_details without private native-assistant carriers, or None."""
+    kept = replay_details(details)
+    return copy.deepcopy(kept) if kept is not None else None
 
 
 def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url: Any = None) -> dict[str, Any]:

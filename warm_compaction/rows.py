@@ -70,7 +70,9 @@ ATTACHMENT_KINDS = {"image_url": "image", "input_audio": "audio", "file": "file"
 REFERENCE_CHARS = 200
 
 
-def _attachment_mark(part: dict) -> str:
+def attachment_mark(part: dict) -> str:
+    """One short mark for an image, audio, or file part: a web URL or a file name (at most REFERENCE_CHARS
+    characters) stays, a data URL does not."""
     kind = str(part.get("type") or "unknown")
     label = ATTACHMENT_KINDS.get(kind, kind)
     body = part.get(kind) if isinstance(part.get(kind), dict) else {}
@@ -92,7 +94,7 @@ def visible_text(content: Any) -> str:
         elif isinstance(part, dict) and isinstance(part.get("text"), str) and part.get("type", "text") == "text":
             lines.append(part["text"])
         elif isinstance(part, dict):
-            lines.append(_attachment_mark(part))
+            lines.append(attachment_mark(part))
     return "\n".join(lines)
 
 
@@ -104,20 +106,74 @@ SENT_FIELDS = ("role", "content", "name", "tool_call_id", "reasoning_content")
 
 
 class SendPolicy(NamedTuple):
-    """The route-dependent fields of warm.wire_row: reasoning_details (a route that replays them) and the
-    tool-call thought signature, extra_content (a model that reads it). The default counts both."""
+    """The route-dependent fields of warm.wire_row: reasoning_details (a route that replays them), the tool-call
+    thought signature, extra_content (a model that reads it), and reasoning_content (a route that needs it back,
+    apply_reasoning_content_policy). The default counts all of them."""
     details: bool = True
     signatures: bool = True
+    echo: bool = True
+
+
+def reasoning_policy(source: dict, wire: dict, needs_pad: bool) -> None:
+    """The reasoning_content rule of Hermes 45871e10 (agent.message_sanitization.apply_reasoning_content_policy):
+    a thinking-mode route (DeepSeek, Kimi, MiMo) needs the field on every assistant row; other routes reject it."""
+    if source.get("role") != "assistant":
+        return
+    if not needs_pad:
+        wire.pop("reasoning_content", None)
+        return
+    existing, reasoning = source.get("reasoning_content"), source.get("reasoning")
+    if isinstance(existing, str):
+        wire["reasoning_content"] = existing or " "
+    elif isinstance(reasoning, str) and reasoning and not source.get("tool_calls"):
+        wire["reasoning_content"] = reasoning
+    else:
+        wire["reasoning_content"] = " "
+
+
+def sent_reasoning_key(row: Any, policy: SendPolicy) -> str | None:
+    """The stored field that Hermes sends as reasoning_content (reasoning_policy), or None: then the row sends no
+    reasoning of its own."""
+    if not policy.echo or not isinstance(row, dict) or row.get("role") != "assistant":
+        return None
+    if isinstance(row.get("reasoning_content"), str):
+        return "reasoning_content"
+    reasoning = row.get("reasoning")
+    return "reasoning" if isinstance(reasoning, str) and reasoning and not row.get("tool_calls") else None
+
+
+def has_thought_signature(extra: Any) -> bool:
+    """True when a tool-call extra_content has a usable thought signature (Hermes sends only such a value)."""
+    if not isinstance(extra, dict):
+        return False
+    candidate = extra.get("thought_signature")
+    google = extra.get("google")
+    if candidate is None and isinstance(google, dict):
+        candidate = google.get("thought_signature")
+    return isinstance(candidate, str) and bool(candidate.strip())
+
+
+def replay_details(details: Any) -> list | None:
+    """Return reasoning_details without private native-assistant carriers (the profile that reads them is not
+    known here), or None when nothing is left. The items are not copied."""
+    if not isinstance(details, list):
+        return None
+    kept = [item for item in details if not (
+        isinstance(item, dict) and isinstance(item.get("type"), str) and item["type"].endswith(".native_assistant"))]
+    return kept or None
 
 
 def sent_rows(messages: list, policy: SendPolicy = SendPolicy()) -> list:
-    """Return the rows as Hermes sends them, for an estimate: the fields of warm.wire_row, with the api_content
-    sidecar in place of the content, and each tool call as id, type, and function name and arguments."""
-    fields = (*SENT_FIELDS, "reasoning_details") if policy.details else SENT_FIELDS
+    """Return the rows as Hermes sends them, for an estimate, by the rules of warm.wire_row: the api_content
+    sidecar in place of the content, no name on a tool row, each tool call as id, type, and function name and
+    arguments (with a usable thought signature when the model reads it), replayed reasoning_details, and
+    reasoning_content by the reasoning policy."""
+    reasoning = hermes_value("agent.message_sanitization", "apply_reasoning_content_policy", reasoning_policy)
     out = []
     for row in messages:
         if isinstance(row, dict):
-            sent = {key: row[key] for key in fields if key in row}
+            role = row.get("role")
+            sent = {key: row[key] for key in SENT_FIELDS if key in row and not (key == "name" and role == "tool")}
             sent["content"] = api_content(row)
             calls = []
             for (call_id, name, arguments), source in zip(tool_calls_of(row), row.get("tool_calls") or ()):
@@ -125,11 +181,16 @@ def sent_rows(messages: list, policy: SendPolicy = SendPolicy()) -> list:
                     arguments if isinstance(arguments, str) else compact_json(
                         arguments if arguments is not None else {}))}}
                 extra = attr(source, "extra_content")
-                if policy.signatures and isinstance(extra, dict):
+                if policy.signatures and has_thought_signature(extra):
                     call["extra_content"] = extra
                 calls.append(call)
             if calls:
                 sent["tool_calls"] = calls
+            if policy.details and role == "assistant":
+                details = replay_details(row.get("reasoning_details"))
+                if details is not None:
+                    sent["reasoning_details"] = details
+            reasoning(row, sent, policy.echo)
             out.append(sent)
         else:
             out.append(row)
