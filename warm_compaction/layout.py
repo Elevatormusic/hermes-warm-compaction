@@ -6,7 +6,7 @@ import copy
 from typing import Any, Iterable
 
 from .handoff import LEGACY_PREFIX
-from .rows import attr, estimate_tokens, plain_text
+from .rows import attr, estimate_tokens, plain_text, visible_text
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -42,7 +42,7 @@ def is_real_user(row: Any, prefixes: Iterable[str]) -> bool:
         return False
     if row.get("display_kind") and row.get("display_kind") != STEER_KIND:
         return False
-    text = plain_text(row.get("content")).strip()
+    text = visible_text(row.get("content")).strip()
     if not text or text.startswith(SYNTHETIC_PREFIXES):
         return False
     return not is_summary(row, prefixes)
@@ -82,7 +82,10 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
     latest = next((row for row in reversed(messages[:start]) if is_real_user(row, prefixes)), None)
     if latest is None:
         return start, None
-    return start, {"role": "user", "content": copy.deepcopy(latest["content"])}
+    prepend = {"role": "user", "content": copy.deepcopy(latest["content"])}
+    if latest.get("name"):
+        prepend["name"] = latest["name"]
+    return start, prepend
 
 
 def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[str],
@@ -95,7 +98,7 @@ def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[st
     for row in reversed(messages):
         if not is_real_user(row, prefixes):
             continue
-        text = plain_text(row.get("content")).strip()[:COPY_EACH]
+        text = visible_text(row.get("content")).strip()[:COPY_EACH]
         cost = estimate_tokens(text)
         if used + len(text) > total_chars or (max_tokens is not None and tokens + cost > max_tokens):
             break
@@ -132,7 +135,15 @@ def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, A
         return None
     prefixes = tuple(prefixes)
     header = f"{header_prefix}\n\n{HEADER_TEXT}"
-    copies = copied_user_messages(messages[:start], copy_chars, prefixes, copy_tokens)
+    earlier = messages[:start]
+    if prepend:
+        # The prepended row is the latest real user row before the tail. Do not copy it a second time, and
+        # count it in the copy budget.
+        last = max((index for index, row in enumerate(earlier) if is_real_user(row, prefixes)), default=len(earlier))
+        earlier = earlier[:last]
+        if copy_tokens is not None:
+            copy_tokens = max(copy_tokens - estimate_tokens(prepend), 0)
+    copies = copied_user_messages(earlier, copy_chars, prefixes, copy_tokens)
     body = summary_body(summary_text, copies, end_marker)
     rest = ([copy.deepcopy(prepend)] if prepend else []) + [_tail_row(row, marker) for row in messages[start:]]
     if attr(rest[0], "role") != "user":

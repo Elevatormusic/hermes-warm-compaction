@@ -5,10 +5,20 @@ from types import SimpleNamespace
 
 from warm_compaction.rows import (
     attr, compact_json, estimate_tokens, plain_text, reply_text, row_digest, strip_think, tool_calls_of,
+    visible_text,
 )
 
 
 class RowsTest(unittest.TestCase):
+    def test_visible_text_marks_each_non_text_part(self):
+        content = [{"type": "text", "text": "see"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                   {"type": "image_url", "image_url": {"url": "https://example.invalid/a.png"}},
+                   {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}},
+                   {"type": "file", "file": {"filename": "report.pdf", "file_data": "AAAA"}}]
+        self.assertEqual(visible_text(content), "see\n[image attachment]\n[image attachment: "
+                         "https://example.invalid/a.png]\n[audio attachment]\n[file attachment: report.pdf]")
+        self.assertEqual(visible_text("plain"), "plain")
+
     def test_attr_reads_mappings_and_objects(self):
         self.assertEqual(attr({"a": 1}, "a"), 1)
         self.assertEqual(attr(SimpleNamespace(a=2), "a"), 2)

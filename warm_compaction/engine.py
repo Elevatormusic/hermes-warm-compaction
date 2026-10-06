@@ -233,6 +233,10 @@ class WarmCompactionEngine(ContextEngine):
             raise warm.WarmRefusal("middleware_unavailable") from error
 
         def terminal(request: Any) -> dict[str, Any]:
+            # The capture keeps the body before later middleware. A middleware that rewrites this request can
+            # also have rewritten the captured request, so the warm request is not sent.
+            if request != body:
+                raise warm.WarmRefusal("middleware_rewrite")
             return warm.send(request, self._wc_route[1], self._wc_api_key, post=self._post)
         try:
             reply = run_llm_execution_middleware(

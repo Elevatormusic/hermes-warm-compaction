@@ -44,6 +44,36 @@ def plain_text(content: Any) -> str:
     return str(content)
 
 
+ATTACHMENT_KINDS = {"image_url": "image", "input_audio": "audio", "file": "file"}
+REFERENCE_CHARS = 200
+
+
+def _attachment_mark(part: dict) -> str:
+    kind = str(part.get("type") or "unknown")
+    label = ATTACHMENT_KINDS.get(kind, kind)
+    body = part.get(kind) if isinstance(part.get(kind), dict) else {}
+    reference = body.get("filename") if kind == "file" else body.get("url") if kind == "image_url" else None
+    if isinstance(reference, str) and reference and not reference.startswith("data:"):
+        return f"[{label} attachment: {reference[:REFERENCE_CHARS]}]"
+    return f"[{label} attachment]"
+
+
+def visible_text(content: Any) -> str:
+    """Return the text of a content value and one mark for each image, audio, or file part. A data URL is not
+    copied; a web URL or a file name is."""
+    if not isinstance(content, list):
+        return plain_text(content)
+    lines = []
+    for part in content:
+        if isinstance(part, str):
+            lines.append(part)
+        elif isinstance(part, dict) and isinstance(part.get("text"), str) and part.get("type", "text") == "text":
+            lines.append(part["text"])
+        elif isinstance(part, dict):
+            lines.append(_attachment_mark(part))
+    return "\n".join(lines)
+
+
 def strip_think(text: str) -> str:
     """Remove one leading <think>...</think> block and the white space around it."""
     return THINK_BLOCK.sub("", text, count=1)

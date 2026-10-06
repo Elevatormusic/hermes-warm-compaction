@@ -65,6 +65,30 @@ class CopyTest(unittest.TestCase):
         self.assertEqual(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=100), [])
 
 
+class AttachmentAndPrependTest(unittest.TestCase):
+    def test_an_image_only_user_row_is_real_and_copied_as_a_mark(self):
+        row = user([{"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}])
+        self.assertTrue(is_real_user(row, PREFIXES))
+        self.assertEqual(copied_user_messages([row], 1_000, PREFIXES), ["[image attachment]"])
+
+    def test_the_prepended_row_keeps_its_name(self):
+        rows = [user("do it", name="alice"), assistant("", [("c1", "f", "{}")]), tool("c1", "r")]
+        start, prepend = tail_start(rows, 1, PREFIXES)
+        self.assertEqual((start, prepend), (1, {"role": "user", "content": "do it", "name": "alice"}))
+
+    def test_the_prepended_row_is_not_copied_and_counts_in_the_copy_budget(self):
+        rows = [user("older ask"), assistant("a"), user("do it " + "x" * 400),
+                assistant("", [("c1", "f", "{}")]), tool("c1", "r")]
+        prepend = {"role": "user", "content": rows[2]["content"]}
+        new = build(rows, "S", start=3, prepend=prepend, copy_chars=10_000, header_prefix="[HERMES PREFIX]",
+                    prefixes=PREFIXES, end_marker=END, copy_tokens=1_000)
+        self.assertIn("> older ask", new[1]["content"])
+        self.assertNotIn("do it", new[1]["content"])
+        new = build(rows, "S", start=3, prepend=prepend, copy_chars=10_000, header_prefix="[HERMES PREFIX]",
+                    prefixes=PREFIXES, end_marker=END, copy_tokens=105)
+        self.assertNotIn("older ask", new[1]["content"])
+
+
 class BuildTest(unittest.TestCase):
     def test_two_summary_rows_then_the_tail_without_the_marker(self):
         rows = [user("goal"), assistant("a1"), user("next", _db_persisted=True), assistant("a2", _db_persisted=True)]

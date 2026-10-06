@@ -177,6 +177,20 @@ class EngineTest(unittest.TestCase):
                                  ("fallback", reason))
                 self.assertEqual(self.post.calls, [])
 
+    def test_a_rewriting_middleware_stops_the_warm_request(self):
+        # The capture keeps the body before later middleware. A middleware that rewrites requests can have
+        # rewritten the captured request too, so the warm request is not sent.
+        def rewrite(request=None, next_call=None, **context):
+            return next_call({**request, "messages": request["messages"][1:]})
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(rewrite)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "middleware_rewrite"))
+        self.assertEqual(self.post.calls, [])
+
     def test_fixed_summary_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("down"))
         engine = self.make()

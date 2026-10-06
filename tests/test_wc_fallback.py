@@ -4,9 +4,10 @@ import unittest
 from types import SimpleNamespace
 
 from warm_compaction.fallback import (
-    FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, fixed_summary, llm_summary,
-    render_row, transcript,
+    FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
+    fixed_summary, llm_summary, render_row, transcript,
 )
+from warm_compaction.rows import estimate_tokens
 from warm_compaction.handoff import HEADINGS
 from wc_fixtures import assistant, tool, user
 
@@ -25,6 +26,18 @@ class FakeLlm:
 
 
 class TranscriptTest(unittest.TestCase):
+    def test_attachments_are_marked_in_the_transcript(self):
+        text = transcript([user([{"type": "text", "text": "see"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]), assistant("ok")], PREFIXES)
+        self.assertIn("[first user message]\nsee\n[image attachment]", text)
+        self.assertIn("[user]\nsee\n[image attachment]", text)
+
+    def test_dense_text_is_bounded_in_tokens(self):
+        rows = [user("\u4f60" * 3_000), *[assistant("\u597d" * 3_000) for _ in range(20)]]
+        text = transcript(rows, PREFIXES)
+        self.assertLessEqual(estimate_tokens(text), TRANSCRIPT_TOKENS)
+        self.assertIn("[first user message]", text)
+        self.assertTrue(text.endswith("\u597d"))
+
     def test_think_blocks_are_removed_only_from_assistant_rows(self):
         text = "<think>keep me</think> body"
         self.assertNotIn("keep me", render_row(assistant(text)))
