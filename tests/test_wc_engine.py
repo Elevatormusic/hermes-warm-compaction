@@ -319,6 +319,54 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
                          ("fallback", "middleware_repeated"))
 
+    def test_a_retry_after_a_failed_send_does_not_send_again(self):
+        # A timeout can come after the provider got the request: a retry middleware must not send it again.
+        attempts = []
+
+        def post(url, data, headers, timeout_s):
+            attempts.append(url)
+            raise TimeoutError("read timed out")
+
+        def retry(request=None, next_call=None, **context):
+            try:
+                return next_call()
+            except Exception:
+                return next_call()
+        self.post = post
+        engine = self.make()
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(retry)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+
+    def test_a_warm_summary_above_the_room_goes_to_the_fallback(self):
+        # A dense handoff can pass the byte gate and still not fit below a low threshold: the next request would
+        # compact again at once.
+        dense = HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 3_000)
+        self.post = fake_post(content=dense)
+        engine = self.make(threshold=0.10)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        rows = old_turns(8)
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(len(self.post.calls), 1)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "summary_too_large"))
+
+    def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
+        # The capture is of this route, but its rows are not the stored rows: it does not show what the next
+        # request replays. The stored rows with reasoning_content do.
+        rows = old_turns(2)
+        self.seed(rows, assistant("x"))
+        changed = [user("other"), assistant("a", reasoning_content="r" * 4_000), user("next")]
+        policy = self.engine._policy(changed)
+        self.assertTrue(policy.echo)
+        self.assertFalse(policy.cut_reasoning)
+
     def test_capacity_is_checked_again_after_the_request_middleware(self):
         def expand(request=None, **context):
             request["messages"][-2]["content"] += " " + "context " * 200_000

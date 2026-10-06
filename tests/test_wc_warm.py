@@ -284,6 +284,17 @@ class BuildRequestTest(unittest.TestCase):
                 self.build(capture)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
+    def test_refuses_a_changed_tool_call_type(self):
+        # The same keys with another type value: the provider reads another kind of call than the stored one.
+        self.rows = [user("u1"), assistant("", [("c0", "read", "{}")]), tool("c0", "r0"), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        capture = capture_for(self.rows, self.reply)
+        capture["body"]["messages"][2]["tool_calls"][0]["type"] = "custom"
+        with self.assertRaises(WarmRefusal) as caught:
+            self.build(capture)
+        self.assertEqual(caught.exception.code, "source_transform_unsupported")
+        self.build(capture_for(self.rows, self.reply))
+
     def test_refuses_a_sent_row_with_an_extra_field(self):
         # A field that the stored row does not give (a provider control, for example) changes what the model reads.
         for index, field in ((1, {"recipient": "x"}), (-1, {"prefix": True})):

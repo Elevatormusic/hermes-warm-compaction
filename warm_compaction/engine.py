@@ -247,6 +247,12 @@ class WarmCompactionEngine(ContextEngine):
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
         summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record, attempt)
+        if summary is not None and not self._summary_fits(summary, overhead, reserve):
+            # A dense handoff can pass the byte gate and still not fit below the threshold: the next request would
+            # compact again at once. The fallback summary has a smaller limit.
+            logger.warning("warm_compaction: the warm summary does not fit in the room; fallback used")
+            record.update(path=None, reason="summary_too_large")
+            summary = None
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []
         if summary is None and not self._cancelled() and self._attempt() == attempt:
@@ -328,8 +334,9 @@ class WarmCompactionEngine(ContextEngine):
         the tool-call thought signature for a model that reads it, and reasoning_content on a route that needs it
         back. Hermes does not give that last rule to a context engine: a capture of this route shows it (Hermes
         sends the field on every assistant row, or on none); without one, a stored row that has the field."""
-        capture = self._store.latest(self._wc_session_id)
-        body = capture.get("body") if capture and tuple(capture.get("route") or ()) == tuple(self._wc_route) else None
+        # Only a usable capture (_budget_capture: this route, and the stored rows) shows what the route sends.
+        capture = self._budget_capture(self._store.latest(self._wc_session_id), messages)
+        body = capture.get("body") if capture else None
         sent = [row for row in (body.get("messages") or []) if isinstance(row, dict) and row.get("role") == "assistant"
                 ] if isinstance(body, dict) else []
         echo = (any("reasoning_content" in row for row in sent) if sent
@@ -421,6 +428,7 @@ class WarmCompactionEngine(ContextEngine):
         # A copy that no middleware can change in place.
         base = copy.deepcopy(body)
         sent: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        started: list[bool] = []
         repeated: list[bool] = []
 
         def terminal(request: Any) -> dict[str, Any]:
@@ -428,9 +436,10 @@ class WarmCompactionEngine(ContextEngine):
             # this request can also have rewritten the captured request, so the warm request is not sent.
             if request != base:
                 raise warm.WarmRefusal("middleware_rewrite")
-            if sent:
-                # One request only: a middleware that calls next_call again does not send it again, and the
-                # attempt stops even when the middleware catches this refusal.
+            if started:
+                # One request only: a middleware that calls next_call again does not send it again (also after a
+                # failed send: the provider can have the request), and the attempt stops even when the middleware
+                # catches this refusal.
                 repeated.append(True)
                 raise warm.WarmRefusal("middleware_repeated")
             # The last check before the provider: an execution middleware can run after the host gave up on the
@@ -439,6 +448,7 @@ class WarmCompactionEngine(ContextEngine):
                 raise warm.WarmRefusal("cancelled")
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
+            started.append(True)
             result = warm.send(base, route[1], api_key, post=self._post, extra_headers=headers, ssl_context=tls)
             # The send blocks on the network: a switch can occur before it returns.
             if self._attempt() != attempt:
@@ -480,6 +490,15 @@ class WarmCompactionEngine(ContextEngine):
         limit = min(threshold, window - reserve) if window > 0 else threshold
         return limit - (overhead + estimate_tokens(sent_rows(tail_rows, policy)) + estimate_tokens(summary)
                         + CARRIER_TOKENS)
+
+    def _summary_fits(self, summary: str, overhead: int | None, reserve: int) -> bool:
+        """True when the summary row fits in the free room (as _tail_cap: half of it with an unknown overhead)."""
+        free = self._room([], "", overhead or 0, reserve)
+        if free is None:
+            return True
+        if overhead is None:
+            free //= 2
+        return estimate_tokens(summary) <= free
 
     def _tail_cap(self, summary_tokens: int, overhead: int | None, reserve: int, prepend_tokens: int = 0) -> int:
         """The tail budget, and at most the free room for the tail after the overhead, the summary, and the

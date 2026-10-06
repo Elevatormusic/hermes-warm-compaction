@@ -162,6 +162,9 @@ def _no_extra_fields(wire: Any, expected: dict[str, Any]) -> bool:
         if isinstance(call, dict) and (set(call) - set(want) or (
                 isinstance(call.get("function"), dict) and set(call["function"]) - set(want.get("function") or {}))):
             return False
+        # The same keys with another type value: the provider reads another kind of call.
+        if isinstance(call, dict) and "type" in call and call["type"] != want.get("type"):
+            return False
     return True
 
 
