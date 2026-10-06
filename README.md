@@ -196,7 +196,7 @@ The plugin was faster than both other engines in 10 of 10 cases. hermes-lcm and 
 ## Limits
 
 - The warm path needs a captured main-model request in the current Hermes process. After a restart or a resume, the first compaction uses the fallback summary if no main-model request completed before it (`no_capture`).
-- The verbatim tail keeps the newest rows that fit in `tail_tokens`. It stops at the first older row that does not fit, and that row goes into the summary.
+- The verbatim tail keeps the newest rows that fit in `tail_tokens`. It stops at the first older row that does not fit, and that row goes into the summary. When the newest unit alone is larger than the tail or the free room, its largest user, assistant, and tool rows keep only their start and end; an assistant row keeps its tool calls. The fallback summary gets the cut middles. With an unknown request overhead (no usable capture and no host token count), the tail takes at most half of the free room. A capture of another route, or one whose rows a middleware changed, is not used for the room.
 - The warm request is not streamed and not retried. Its time limit is 120 seconds. The fallback request also has a 120-second limit.
 - A request with `extra_headers` or `extra_query`, `n` above 1, a forced `tool_choice`, `response_format`, or audio settings uses the fallback (`settings_unsupported`).
 - After `/compress`, Hermes builds the system prompt again from its configuration. A system message that a host gave in code is not kept. This is Hermes behavior, and it is the same for the built-in compressor.

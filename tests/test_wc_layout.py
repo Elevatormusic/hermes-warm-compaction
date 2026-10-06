@@ -177,6 +177,32 @@ class BoundTailTest(unittest.TestCase):
         self.assertNotIn("api_content", bounded[2])
         self.assertIs(bound_tail(rows[:1], 2_000)[0], rows[0])
 
+    def test_a_large_assistant_row_is_cut_and_keeps_its_tool_calls(self):
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
+        rows = [user("ask"), assistant("start " + "a" * 40_000 + " end", [("c1", "read", "{}")]), tool("c1", "r")]
+        bounded = bound_tail(rows, 2_000)
+        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        self.assertEqual(bounded[1]["tool_calls"], rows[1]["tool_calls"])
+        self.assertTrue(bounded[1]["content"].startswith("start ") and bounded[1]["content"].endswith(" end"))
+        self.assertIn(MIDDLE_MARK, bounded[1]["content"])
+
+    def test_the_cut_middles_are_given_back(self):
+        # The fallback summary gets the parts that the tail cuts: they are not lost.
+        from warm_compaction.layout import CUT_NOTE, bound_tail
+        from warm_compaction.rows import MIDDLE_MARK
+        text = "head " + "".join(f"{index:06d}" for index in range(8_000)) + " tail"
+        rows = [assistant("", [("c1", "read", "{}")]), tool("c1", text), user("short")]
+        removed = []
+        bounded = bound_tail(rows, 1_000, removed)
+        self.assertEqual(len(removed), 1)
+        self.assertEqual((removed[0]["role"], removed[0]["tool_call_id"]), ("tool", "c1"))
+        self.assertTrue(removed[0]["content"].startswith(CUT_NOTE))
+        head, end = bounded[1]["content"].split(MIDDLE_MARK)
+        self.assertEqual(head + removed[0]["content"][len(CUT_NOTE):] + end, text)
+        self.assertEqual(bound_tail(rows[2:], 1_000, removed), rows[2:])
+        self.assertEqual(len(removed), 1)
+
     def test_build_bounds_the_tail(self):
         from warm_compaction.rows import estimate_tokens
         rows = [user("old"), assistant("a"), user("huge " + "z" * 40_000 + " end")]

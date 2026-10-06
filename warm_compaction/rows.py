@@ -99,16 +99,27 @@ def visible_text(content: Any) -> str:
 MIDDLE_MARK = " [cut] "
 
 
+def cut_bounds(text: str, limit: int) -> tuple[int, int]:
+    """Return (end of the kept start, start of the kept end) of cut_middle: text[first:second] is the removed
+    part."""
+    if len(text) <= limit:
+        return len(text), len(text)
+    keep = limit - len(MIDDLE_MARK)
+    if keep < 2:
+        return max(limit, 0), len(text)
+    head = keep * 2 // 3
+    return head, len(text) - (keep - head)
+
+
 def cut_middle(text: str, limit: int) -> str:
     """Return at most limit characters: the start (two thirds) and the end of the text, with a mark between.
     The end of a long text often has the result, the question, or the output rules."""
     if len(text) <= limit:
         return text
-    keep = limit - len(MIDDLE_MARK)
-    if keep < 2:
-        return text[:max(limit, 0)]
-    head = keep * 2 // 3
-    return text[:head] + MIDDLE_MARK + text[len(text) - (keep - head):]
+    head, end = cut_bounds(text, limit)
+    if end == len(text):
+        return text[:head]
+    return text[:head] + MIDDLE_MARK + text[end:]
 
 
 def strip_think(text: str) -> str:

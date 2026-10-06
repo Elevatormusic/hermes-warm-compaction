@@ -24,6 +24,9 @@ TAIL_MAX = 25_000
 # The summary row without the summary text and the copies: the header, the headings, the end marker, and the
 # quote marks, with a margin for the estimate.
 CARRIER_TOKENS = 500
+# The summary size that the tail cap keeps free before the fallback summary is known: two times its reply
+# limit, because the estimate and the server count do not use the same tokenizer.
+SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
 
@@ -196,12 +199,20 @@ class WarmCompactionEngine(ContextEngine):
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
         capture = self._store.latest(self._wc_session_id)
+        # An unknown overhead can be most of the window: then no copies. A capture of another route says nothing
+        # about the system prompt, the tools, and the reply limit of this one.
+        budget = self._budget_capture(capture, messages)
+        overhead = request_overhead(budget, messages, current_tokens)
+        reserve = request_reserve(budget)
         summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record)
+        # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
+        removed: list = []
         if summary is None and not self._cancelled():
+            layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
-            summary, _tokens = fallback.llm_summary(self._llm, messages[:start], prefixes, focus_topic=focus_topic,
-                                                    memory_context=memory, task=self._task)
+            summary, _tokens = fallback.llm_summary(self._llm, [*messages[:start], *removed], prefixes,
+                                                    focus_topic=focus_topic, memory_context=memory, task=self._task)
             if summary is not None:
                 record["path"] = "fallback"
         if self._cancelled():
@@ -209,28 +220,25 @@ class WarmCompactionEngine(ContextEngine):
             self._finish(record, started)
             return messages
         if summary is None:
-            summary = fallback.fixed_summary(messages[:start], prefixes)
+            summary = fallback.fixed_summary([*messages[:start], *removed], prefixes)
             record["path"] = "fixed"
-        # An unknown overhead can be most of the window: then no copies. A capture of another route says
-        # nothing about the system prompt, the tools, and the reply limit of this one.
-        budget = capture if capture is not None and tuple(capture.get("route") or ()) == tuple(self._wc_route) else None
-        overhead = request_overhead(budget, messages, current_tokens)
-        copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead,
-                                                                    request_reserve(budget))
+        copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead, reserve)
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum.
-        room = self._room(messages[start:], summary, overhead or 0, request_reserve(budget))
+        room = self._room(messages[start:], summary, overhead or 0, reserve)
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
             if estimate_tokens(prepend) > allowed:
                 prepend = layout.fit_user_row(prepend, allowed)
+        tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve,
+                                     estimate_tokens(prepend) if prepend is not None else 0)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=copy_tokens, tail_tokens=self._tail_tokens())
+            copy_tokens=copy_tokens, tail_tokens=tail_tokens)
         self.compression_count += 1
         self._finish(record, started)
         return new
@@ -347,6 +355,35 @@ class WarmCompactionEngine(ContextEngine):
         window = int(self.context_length or 0)
         limit = min(threshold, window - reserve) if window > 0 else threshold
         return limit - (overhead + estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS)
+
+    def _tail_cap(self, summary_tokens: int, overhead: int | None, reserve: int, prepend_tokens: int = 0) -> int:
+        """The tail budget, and at most the free room for the tail after the overhead, the summary, and the
+        prepended row. With an unknown overhead, the tail takes at most half of that room: the other half is for
+        the system rows and the tool schemas that the next request also sends."""
+        tail = self._tail_tokens()
+        free = self._room([], "", overhead or 0, reserve)
+        if free is None:
+            return tail
+        free -= summary_tokens + prepend_tokens
+        if overhead is None:
+            free //= 2
+        return max(0, min(tail, free))
+
+    def _budget_capture(self, capture: dict[str, Any] | None, messages: list) -> dict[str, Any] | None:
+        """The capture for the request budget, or None. Its body must be of this route, and it must be the system
+        rows followed by the stored rows (the warm path checks): otherwise, the count of its system rows is not
+        known."""
+        if capture is None or tuple(capture.get("route") or ()) != tuple(self._wc_route):
+            return None
+        body = capture.get("body")
+        if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
+            return None
+        try:
+            warm.split_history(capture, messages)
+            warm.check_source(body, messages[: len(capture["digests"])], self._wc_route[1])
+        except Exception:
+            return None
+        return capture
 
     def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int:
         """Token allowance for the copied user messages and the prepended user row: at most the tail size, and

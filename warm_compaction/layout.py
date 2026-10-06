@@ -7,12 +7,13 @@ import functools
 from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
-from .rows import api_content, attr, cut_middle, estimate_tokens, hermes_value, plain_text, visible_text
+from .rows import api_content, attr, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text, visible_text
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
 COPY_EACH = 4_000
 MIN_COPY_CHARS = 200
+CUT_NOTE = "[The middle of a newest row; its start and end stay after the summary.]\n"
 NO_COPIES = "(none)"
 STEER_KIND = "steer"
 SYNTHETIC_FLAGS = ("_dropped_toolcall_nudge",)
@@ -223,19 +224,24 @@ def _tail_row(row: Any, marker: str) -> Any:
     return clean
 
 
-def bound_tail(rows: list, tokens: int) -> list:
+def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
     """Return the tail rows in about tokens estimated tokens. The tail keeps whole units, so the newest unit can
-    be larger than the tail budget (a large user message or tool result). Then the largest text rows (tool
-    results and user messages, as Hermes sent them) are cut to their start and end, until the rows fit or no
-    row has more than MIN_COPY_CHARS characters. Other rows stay as they are."""
+    be larger than the tail budget (a large user message, assistant reply, or tool result). Then the largest text
+    rows (as Hermes sent them) are cut to their start and end, until the rows fit or no row has more than
+    MIN_COPY_CHARS characters. An assistant row keeps its tool calls. Other rows stay as they are.
+
+    With a removed list, one row for each cut row is added to it: the removed middle after CUT_NOTE, with the role
+    (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""
     rows = list(rows)
+    originals: dict[int, str] = {}
+    limits: dict[int, int] = {}
 
     def text_of(row: Any) -> Any:
-        return api_content(row) if attr(row, "role") == "user" else attr(row, "content")
+        return api_content(row) if attr(row, "role") in ("user", "assistant") else attr(row, "content")
 
     while sum(estimate_tokens(row) for row in rows) > tokens:
         cuttable = [(estimate_tokens(row), index) for index, row in enumerate(rows)
-                    if isinstance(row, dict) and attr(row, "role") in ("user", "tool")
+                    if isinstance(row, dict) and attr(row, "role") in ("user", "assistant", "tool")
                     and isinstance(text_of(row), str) and len(text_of(row)) > MIN_COPY_CHARS]
         if not cuttable:
             break
@@ -243,9 +249,20 @@ def bound_tail(rows: list, tokens: int) -> list:
         text = text_of(rows[index])
         target = cost - (sum(estimate_tokens(row) for row in rows) - tokens)
         limit = max(MIN_COPY_CHARS, min(len(text) - 1, len(text) * max(target, 0) // max(cost, 1)))
+        # Cut the original text again: the kept start and end are then parts of the original text.
+        original = originals.setdefault(index, text)
+        limits[index] = limit
         cut = {key: value for key, value in rows[index].items() if key != "api_content"}
-        cut["content"] = cut_middle(text, limit)
+        cut["content"] = cut_middle(original, limit)
         rows[index] = cut
+    if removed is not None:
+        for index in sorted(originals):
+            original = originals[index]
+            first, second = cut_bounds(original, limits[index])
+            part = {"role": attr(rows[index], "role"), "content": CUT_NOTE + original[first:second]}
+            if part["role"] == "tool":
+                part["tool_call_id"] = attr(rows[index], "tool_call_id")
+            removed.append(part)
     return rows
 
 

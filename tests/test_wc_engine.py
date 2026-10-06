@@ -539,6 +539,56 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((self.engine.warm_last, self.engine.compression_count), (None, 0))
         self.assertIn("warm_last", self.engine.get_status())
 
+    def test_an_unknown_overhead_caps_the_tail(self):
+        # Without a known overhead (no capture and no host count), the tail takes at most half of the free room:
+        # the other half is for the system rows and the tool schemas.
+        from warm_compaction.engine import CARRIER_TOKENS
+        from warm_compaction.rows import estimate_tokens
+        from warm_compaction.warm import DEFAULT_RESERVE
+        rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
+                tool("c1", "head " + "r" * 200_000 + " tail")]
+        engine = self.make(threshold=0.95, tail_tokens=9_500, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=20_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        limit = min(engine.threshold_tokens, 20_000 - DEFAULT_RESERVE)
+        for current, capped in ((estimate_tokens(rows) + 1_000, False), (None, True)):
+            with self.subTest(current=current):
+                new = engine.compress(list(rows), current_tokens=current)
+                tail = [row for row in new if not row.get("_compressed_summary")]
+                self.assertEqual(estimate_tokens(tail) <= (limit - CARRIER_TOKENS) // 2, capped)
+
+    def test_the_fallback_summary_gets_the_middles_that_the_tail_cuts(self):
+        from warm_compaction.layout import CUT_NOTE
+        rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
+                tool("c1", "head " + "u" * 40_000 + " end")]
+        engine = self.make(tail_tokens=2_000, warm=False)
+        new = engine.compress(rows, current_tokens=None)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        transcript = self.llm.calls[-1][0][1]["content"]
+        self.assertIn(CUT_NOTE, transcript)
+        self.assertIn("u" * 100, transcript)
+        self.assertTrue(any(str(row.get("content")).endswith(" end") for row in new))
+
+    def test_a_capture_with_a_changed_source_is_not_used_for_the_budget(self):
+        # A middleware removed a stored row: the captured body no longer shows which rows are the system rows.
+        from warm_compaction.rows import estimate_tokens
+        large = "s " * 120_000
+        rows = [user("first " + "f" * 239_990), assistant("a"), *old_turns(6), assistant("final")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        self.store.on_pre_api_request(api_request_id="r1", session_id="s1", conversation_history=list(rows[:-1]),
+                                      model=ROUTE[0], base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.store.on_llm_execution(request={"model": ROUTE[0], "messages": [{"role": "system", "content": large},
+                                                                             *wire(rows[1:-1])]},
+                                    next_call=lambda: None, api_request_id="r1")
+        self.store.on_post_api_request(api_request_id="r1", session_id="s1", finish_reason="stop",
+                                       assistant_message=reply_object(rows[-1]))
+        new = engine.compress(rows, current_tokens=estimate_tokens(rows) + estimate_tokens(large))
+        self.assertEqual(engine.warm_last["reason"], "source_transform_unsupported")
+        summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
+        self.assertTrue(summary.split("## Copied user messages", 1)[1].strip().startswith("(none)"))
+
 
 class SettingsTest(unittest.TestCase):
     def setUp(self):
