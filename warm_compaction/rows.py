@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import math
 import re
@@ -16,6 +17,27 @@ def attr(obj: Any, name: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
+
+
+def hermes_value(module: str, name: str, default: Any) -> Any:
+    """Read one Hermes value. Return the default when the read fails or the type is not the default type."""
+    try:
+        value = getattr(importlib.import_module(module), name)
+    except Exception:
+        return default
+    return value if isinstance(value, type(default)) else default
+
+
+API_CONTENT_ROLES = ("user", "assistant")
+
+
+def api_content(row: Any) -> Any:
+    """Return the content that Hermes sends for a stored row. A user or assistant row can carry an api_content
+    sidecar: the exact text of the earlier request, which Hermes sends in place of content."""
+    sidecar = attr(row, "api_content")
+    if isinstance(sidecar, str) and sidecar and attr(row, "role") in API_CONTENT_ROLES:
+        return sidecar
+    return attr(row, "content")
 
 
 def tool_calls_of(row: Any) -> list[tuple[str, str, Any]]:

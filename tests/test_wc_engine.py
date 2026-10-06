@@ -191,16 +191,53 @@ class EngineTest(unittest.TestCase):
                          ("fallback", "middleware_rewrite"))
         self.assertEqual(self.post.calls, [])
 
-    def test_copy_allowance_leaves_room_for_the_summary(self):
-        from warm_compaction.engine import SUMMARY_RESERVE_TOKENS
+    def test_an_in_place_rewrite_stops_the_warm_request(self):
+        # The request and the comparison base must not be the same object.
+        def rewrite(request=None, next_call=None, **context):
+            request["messages"][-1]["content"] = "Continue the task."
+            return next_call()
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(rewrite)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "middleware_rewrite"))
+        self.assertEqual(self.post.calls, [])
+
+    def test_the_warm_request_goes_through_the_request_middleware(self):
+        def redact(request=None, **context):
+            seen.append(context.get("purpose"))
+            text = json.dumps(request).replace("SECRET", "[redacted]")
+            return {"request": json.loads(text)}
+        seen = []
+        wc_hermes_stub.REQUEST_MIDDLEWARE.append(redact)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply, user("the key is SECRET")])
+        self.assertEqual(self.engine.warm_last["path"], "warm")
+        self.assertEqual(seen, ["warm_compaction"])
+        sent = json.dumps(self.post.calls[0]["body"])
+        self.assertNotIn("SECRET", sent)
+        self.assertIn("the key is [redacted]", sent)
+
+    def test_copy_allowance_leaves_room_for_the_actual_summary(self):
+        from warm_compaction.engine import CARRIER_TOKENS
+        from warm_compaction.rows import estimate_tokens
         self.engine.update_model(model=ROUTE[0], context_length=20_000, base_url=ROUTE[1], api_key="k",
                                  provider="custom", api_mode=ROUTE[2])
-        tail = self.engine._tail_tokens()
-        allowance = self.engine._copy_tokens()
-        self.assertEqual((self.engine.threshold_tokens, tail), (10_000, 5_000))
-        self.assertLessEqual(tail + allowance + SUMMARY_RESERVE_TOKENS, self.engine.threshold_tokens)
+        self.assertEqual((self.engine.threshold_tokens, self.engine._tail_tokens()), (10_000, 5_000))
+        tail = [user("t " + "x" * 16_000)]
+        for summary in ("short", "## Key facts\n" + "- /very/long/path/name_" * 600):
+            with self.subTest(summary=len(summary)):
+                allowance = self.engine._copy_tokens(tail, summary)
+                self.assertLessEqual(estimate_tokens(tail) + estimate_tokens(summary) + CARRIER_TOKENS + allowance,
+                                     self.engine.threshold_tokens)
+        self.assertEqual(self.engine._copy_tokens(tail, "short"), 5_000)
+        self.assertLess(self.engine._copy_tokens(tail, summary), 5_000)
         engine = self.make()  # A large window keeps the full allowance.
-        self.assertEqual(engine._copy_tokens(), engine._tail_tokens())
+        self.assertEqual(engine._copy_tokens(tail, summary), engine._tail_tokens())
 
     def test_fixed_summary_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("down"))

@@ -138,12 +138,20 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
                                                       FIRST_USER_TOKENS))
     budget = TRANSCRIPT_CHARS - sum(len(part) + 2 for part in head)
     tokens = TRANSCRIPT_TOKENS - sum(estimate_tokens(part) + 1 for part in head)
-    call_names = {call_id: name for row in messages for call_id, name, _arguments in tool_calls_of(row) if call_id}
+    # A tool row takes the names of the nearest earlier tool calls. Providers can use the same call id again
+    # in a later turn.
+    turn_names: list[dict[str, str]] = []
+    names: dict[str, str] = {}
+    for row in messages:
+        if attr(row, "role") == "assistant" and tool_calls_of(row):
+            names = {call_id: name for call_id, name, _arguments in tool_calls_of(row) if call_id}
+        turn_names.append(names)
     recent: collections.deque = collections.deque()
-    for row in reversed(messages):
+    for index in range(len(messages) - 1, -1, -1):
+        row = messages[index]
         if is_summary(row, prefixes):
             continue
-        part = _bound(render_row(row, call_names), ROW_CHARS, ROW_TOKENS, middle=True)
+        part = _bound(render_row(row, turn_names[index]), ROW_CHARS, ROW_TOKENS, middle=True)
         cost = estimate_tokens(part) + 1
         if len(part) + 2 > budget or cost > tokens:
             if budget - 2 >= MIN_PART_CHARS and tokens - 1 >= MIN_PART_CHARS // 4:

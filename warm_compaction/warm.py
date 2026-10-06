@@ -9,7 +9,9 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
-from .rows import attr, compact_json, estimate_tokens, plain_text, reply_text, row_digest, tool_calls_of
+from .rows import (
+    api_content, attr, compact_json, estimate_tokens, plain_text, reply_text, row_digest, tool_calls_of,
+)
 
 DEFAULT_RESERVE = 4096
 TIMEOUT_S = 120.0
@@ -78,16 +80,32 @@ def _shape(row: Any) -> tuple:
     return attr(row, "role"), attr(row, "tool_call_id") or None, calls
 
 
-def _words(content: Any) -> str:
-    return " ".join(plain_text(content).split())
+def _words(text: str) -> str:
+    return " ".join(text.split())
 
 
-def _media(content: Any) -> list:
-    """Return the parts of a content list that are not text, in order."""
+def _is_text(part: Any) -> bool:
+    return isinstance(part, str) or (
+        isinstance(part, dict) and part.get("type", "text") == "text" and isinstance(part.get("text"), str))
+
+
+def _parts(content: Any) -> tuple[list[str], list]:
+    """Return the text runs between the non-text parts (as words) and the non-text parts, in order. A message
+    with n image, audio, or file parts has n + 1 text runs."""
     if not isinstance(content, list):
-        return []
-    return [part for part in content if not (isinstance(part, str) or (
-        isinstance(part, dict) and part.get("type", "text") == "text" and isinstance(part.get("text"), str)))]
+        return [_words(plain_text(content))], []
+    runs: list[str] = []
+    media: list = []
+    current: list[str] = []
+    for part in content:
+        if _is_text(part):
+            current.append(part if isinstance(part, str) else part["text"])
+        else:
+            runs.append(_words(" ".join(current)))
+            media.append(part)
+            current = []
+    runs.append(_words(" ".join(current)))
+    return runs, media
 
 
 def _arguments(value: Any) -> Any:
@@ -101,14 +119,18 @@ def _arguments(value: Any) -> Any:
 
 
 def _same_row(wire: Any, row: Any) -> bool:
-    """True when the sent row carries the stored row: the same shape, the same name or no name (the Hermes
-    transport removes the name from some rows), the stored text inside the sent text (Hermes can add
-    request-time context to a row), the same image, audio, and file parts, and the same tool-call arguments."""
-    if _shape(wire) != _shape(row) or attr(wire, "name") not in (None, attr(row, "name")):
+    """True when the sent row carries the stored row: the same shape; the same name (the Hermes transport
+    removes the name from tool rows only); the same image, audio, and file parts in the same order; each stored
+    text run inside the sent text run at the same place (Hermes can add request-time context to a row); and the
+    same tool-call arguments. The stored text is the api_content sidecar when the row has one."""
+    if _shape(wire) != _shape(row):
         return False
-    if _words(attr(row, "content")) not in _words(attr(wire, "content")):
+    name = attr(wire, "name")
+    if name != attr(row, "name") and not (name is None and attr(row, "role") == "tool"):
         return False
-    if _media(attr(wire, "content")) != _media(attr(row, "content")):
+    sent_runs, sent_media = _parts(attr(wire, "content"))
+    stored_runs, stored_media = _parts(api_content(row))
+    if sent_media != stored_media or not all(stored in sent for stored, sent in zip(stored_runs, sent_runs)):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
@@ -126,8 +148,9 @@ def check_source(body: dict[str, Any], history_rows: list) -> None:
 
 
 def wire_row(row: Any) -> dict[str, Any]:
-    """Return the wire form of a stored row. Keep only the fields that the API reads."""
-    wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(attr(row, "content"))}
+    """Return the wire form of a stored row, as Hermes sends it: only the fields that the API reads, and the
+    api_content sidecar of a user or assistant row in place of its content."""
+    wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(api_content(row))}
     for key in ("tool_call_id", "name"):
         value = attr(row, key)
         if value is not None:

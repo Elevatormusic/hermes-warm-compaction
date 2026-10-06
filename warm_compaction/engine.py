@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import importlib
+import copy
 import logging
 import time
 from typing import Any, Callable
@@ -11,7 +11,7 @@ from agent.context_engine import ContextEngine
 
 from . import fallback, handoff, layout, warm
 from .capture import CaptureStore
-from .rows import estimate_tokens
+from .rows import estimate_tokens, hermes_value
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +21,9 @@ THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
 TAIL_MAX = 25_000
-# The summary row in tokens: the handoff (the instruction asks for at most 600 words, about 1,000 tokens) and
-# the carrier headings.
-SUMMARY_RESERVE_TOKENS = 2_000
+# The summary row without the summary text and the copies: the header, the headings, the end marker, and the
+# quote marks, with a margin for the estimate.
+CARRIER_TOKENS = 500
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
 
@@ -65,15 +65,6 @@ def tail_budget(setting: int, context_length: int, threshold_tokens: int = 0) ->
         return setting
     budget = max(TAIL_MIN, min(TAIL_MAX, int(context_length * TAIL_SHARE)))
     return min(budget, threshold_tokens // 2) if threshold_tokens > 0 else budget
-
-
-def hermes_value(module: str, name: str, default: Any) -> Any:
-    """Read one Hermes value. Return the default when the read fails or the type is not the default type."""
-    try:
-        value = getattr(importlib.import_module(module), name)
-    except Exception:
-        return default
-    return value if isinstance(value, type(default)) else default
 
 
 def sanitize_memory(memory_context: Any) -> str:
@@ -195,7 +186,7 @@ class WarmCompactionEngine(ContextEngine):
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=self._copy_tokens())
+            copy_tokens=self._copy_tokens(messages[start:], summary))
         self.compression_count += 1
         self._finish(record, started)
         return new
@@ -227,25 +218,33 @@ class WarmCompactionEngine(ContextEngine):
         return text
 
     def _execute(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Send the warm request through the Hermes llm_execution middleware, as Hermes sends a main request.
-        A middleware can audit, change, block, or replace the request. A block or a replaced reply stops the
-        warm request; the fallback summary then runs."""
+        """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
+        main request. A request middleware can change the request, for example to redact the new rows. An
+        execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
+        stops the warm request; the fallback summary then runs."""
         try:
-            from hermes_cli.middleware import run_llm_execution_middleware
+            from hermes_cli.middleware import apply_llm_request_middleware, run_llm_execution_middleware
         except Exception as error:
             raise warm.WarmRefusal("middleware_unavailable") from error
+        context = {"purpose": NAME, "api_request_id": None, "session_id": self._wc_session_id,
+                   "model": self._wc_route[0], "base_url": self._wc_route[1], "api_mode": self._wc_route[2]}
+        try:
+            body = apply_llm_request_middleware(body, **context).payload
+        except Exception as error:
+            raise warm.WarmRefusal("middleware_refused") from error
+        if not isinstance(body, dict):
+            raise warm.WarmRefusal("middleware_refused")
+        # A copy that no middleware can change in place.
+        base = copy.deepcopy(body)
 
         def terminal(request: Any) -> dict[str, Any]:
-            # The capture keeps the body before later middleware. A middleware that rewrites this request can
-            # also have rewritten the captured request, so the warm request is not sent.
-            if request != body:
+            # The capture keeps the body before the execution middleware. An execution middleware that rewrites
+            # this request can also have rewritten the captured request, so the warm request is not sent.
+            if request != base:
                 raise warm.WarmRefusal("middleware_rewrite")
-            return warm.send(request, self._wc_route[1], self._wc_api_key, post=self._post)
+            return warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post)
         try:
-            reply = run_llm_execution_middleware(
-                body, terminal, original_request=body, purpose=NAME, api_request_id=None,
-                session_id=self._wc_session_id, model=self._wc_route[0], base_url=self._wc_route[1],
-                api_mode=self._wc_route[2])
+            reply = run_llm_execution_middleware(body, terminal, original_request=base, **context)
         except warm.WarmRefusal:
             raise
         except Exception as error:
@@ -264,14 +263,15 @@ class WarmCompactionEngine(ContextEngine):
         return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
                            int(self.threshold_tokens or 0))
 
-    def _copy_tokens(self) -> int:
-        """Token allowance for the copied user messages: at most the tail size, and small enough that the tail,
-        the copies, and the summary row fit below the compaction threshold."""
+    def _copy_tokens(self, tail_rows: list, summary: str) -> int:
+        """Token allowance for the copied user messages: at most the tail size, and small enough that the tail
+        rows, the summary, the summary row headings, and the copies fit below the compaction threshold."""
         tail = self._tail_tokens()
         threshold = int(self.threshold_tokens or 0)
         if threshold <= 0:
             return tail
-        return max(0, min(tail, threshold - tail - SUMMARY_RESERVE_TOKENS))
+        used = estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS
+        return max(0, min(tail, threshold - used))
 
     def _cancelled(self) -> bool:
         check = getattr(self, "_compression_cancelled_check", None)

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import copy
+import functools
 from typing import Any, Iterable
 
 from .handoff import LEGACY_PREFIX
-from .rows import attr, estimate_tokens, plain_text, visible_text
+from .rows import attr, estimate_tokens, hermes_value, plain_text, visible_text
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -21,6 +22,56 @@ SYNTHETIC_PREFIXES = (
     "[Your active task list was preserved across context compression]",
     "[IMPORTANT: Background process ",
 )
+# Hermes recovery nudges and continuation markers. The Hermes compressor matches them by exact text
+# (ContextCompressor._is_synthetic_compression_user_turn). The Hermes value applies when Hermes has it; the
+# text here is the value of Hermes 45871e10.
+_COMPRESSOR = "agent.context_compressor"
+_LOOP = "agent.conversation_loop"
+HOST_NUDGES = (
+    (_COMPRESSOR, "COMPRESSION_CONTINUATION_USER_CONTENT",
+     "Continue from the compressed conversation context above. This marker exists because no human user turn "
+     "was available."),
+    (_COMPRESSOR, "_LEGACY_COMPRESSION_CONTINUATION_USER_CONTENT",
+     "Continue from the compressed conversation context above. This marker exists because the compacted "
+     "transcript contained no preserved user turn."),
+    (_COMPRESSOR, "MAX_ITERATIONS_SUMMARY_REQUEST",
+     "You've reached the maximum number of tool-calling iterations allowed. Please provide a final response "
+     "summarizing what you've found and accomplished so far, without calling any more tools."),
+    (_LOOP, "_CODEX_INCOMPLETE_NUDGE",
+     "[System: Your previous response contained only internal reasoning and never produced a visible answer or "
+     "tool call. Do not keep thinking. Produce your final answer as plain text now (or make the tool call you "
+     "were planning).]"),
+    (_LOOP, "_CODEX_ACK_CONTINUATION_NUDGE",
+     "[System: Continue now. Execute the required tool calls and only send your final answer after completing "
+     "the task.]"),
+    (_LOOP, "_DEGENERATE_FINAL_NUDGE",
+     "[System: Your previous message ended the turn with a fragment that is not a usable answer. If the task is "
+     "unfinished, continue it and then give the complete answer. If that fragment WAS your complete answer, send "
+     "it again exactly as before.]"),
+    (_LOOP, "_DROPPED_TOOLCALL_NUDGE_CONTENT",
+     "Your previous turn indicated a tool call but none was included. Do not narrate a plan or restate intent — "
+     "issue the actual tool call now to continue the task."),
+    (_LOOP, "_EMPTY_TOOL_RESPONSE_NUDGE",
+     "You just executed tool calls but returned an empty response. Please process the tool results above and "
+     "continue with the task."),
+    (_LOOP, "_LENGTH_CONTINUATION_NETWORK_STUB",
+     "[System: The previous response was cut off by a network error mid-stream — a transport interruption, NOT a "
+     "change in your capabilities. Your tools are still fully available; call them as normal and ignore any "
+     "earlier claim that you lack tool access. Continue the task from where you left off. Do not restart or "
+     "repeat prior text.]"),
+    (_LOOP, "_LEGACY_LENGTH_CONTINUATION_NETWORK_STUB",
+     "[System: The previous response was cut off by a network error mid-stream. Continue exactly where you left "
+     "off. Do not restart or repeat prior text. Finish the answer directly.]"),
+    (_LOOP, "_LENGTH_CONTINUATION_OUTPUT_LIMIT",
+     "[System: Your previous response was truncated by the output length limit. Continue exactly where you left "
+     "off. Do not restart or repeat prior text. Finish the answer directly.]"),
+)
+
+
+@functools.lru_cache(maxsize=1)
+def nudge_texts() -> frozenset[str]:
+    """Return the exact texts of the Hermes recovery nudges. Read one time: the values do not change."""
+    return frozenset(hermes_value(module, name, default).strip() for module, name, default in HOST_NUDGES)
 
 
 def is_summary(row: Any, prefixes: Iterable[str]) -> bool:
@@ -43,7 +94,7 @@ def is_real_user(row: Any, prefixes: Iterable[str]) -> bool:
     if row.get("display_kind") and row.get("display_kind") != STEER_KIND:
         return False
     text = visible_text(row.get("content")).strip()
-    if not text or text.startswith(SYNTHETIC_PREFIXES):
+    if not text or text.startswith(SYNTHETIC_PREFIXES) or text in nudge_texts():
         return False
     return not is_summary(row, prefixes)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import abc
 import copy
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 SUMMARY_PREFIX = "[HERMES PREFIX] Earlier turns were compacted."
@@ -102,6 +102,20 @@ PLUGINS = _module("hermes_cli.plugins", VALID_HOOKS={
     "pre_api_request", "post_api_request", "on_session_start", "on_session_end", "on_session_finalize",
     "on_session_reset"})
 EXECUTION_MIDDLEWARE = []
+REQUEST_MIDDLEWARE = []
+
+
+def apply_llm_request_middleware(request, **context):
+    """The llm_request chain of Hermes 45871e10: a middleware can return {"request": {...}} to replace it."""
+    current = copy.deepcopy(request)
+    trace = []
+    for middleware in REQUEST_MIDDLEWARE:
+        result = middleware(request=copy.deepcopy(current), original_request=request, **context)
+        if isinstance(result, dict) and isinstance(result.get("request"), dict):
+            current = copy.deepcopy(result["request"])
+            trace.append({"source": "plugin"})
+    return SimpleNamespace(payload=current if trace else request, original_payload=request, changed=bool(trace),
+                           trace=trace)
 
 
 def run_llm_execution_middleware(request, next_call, **context):
@@ -125,7 +139,8 @@ def run_llm_execution_middleware(request, next_call, **context):
 
 MIDDLEWARE = _module("hermes_cli.middleware", VALID_MIDDLEWARE={
     "tool_request", "tool_execution", "llm_request", "llm_execution"},
-    run_llm_execution_middleware=run_llm_execution_middleware)
+    run_llm_execution_middleware=run_llm_execution_middleware,
+    apply_llm_request_middleware=apply_llm_request_middleware)
 HERMES_CLI.plugins = PLUGINS
 HERMES_CLI.middleware = MIDDLEWARE
 MODULES = {
@@ -140,3 +155,4 @@ def install(test_case):
     patcher.start()
     test_case.addCleanup(patcher.stop)
     test_case.addCleanup(EXECUTION_MIDDLEWARE.clear)
+    test_case.addCleanup(REQUEST_MIDDLEWARE.clear)

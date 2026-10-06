@@ -38,6 +38,13 @@ class TranscriptTest(unittest.TestCase):
         self.assertIn("[first user message]", text)
         self.assertTrue(text.endswith("\u597d"))
 
+    def test_a_reused_call_id_takes_the_name_of_its_own_turn(self):
+        rows = [user("go"), assistant("", [("call_0", "read", "{}")]), tool("call_0", "old"),
+                assistant("", [("call_0", "write", "{}")]), tool("call_0", "new")]
+        text = transcript(rows, PREFIXES)
+        self.assertIn("[tool result call_0 read]\nold", text)
+        self.assertIn("[tool result call_0 write]\nnew", text)
+
     def test_think_blocks_are_removed_only_from_assistant_rows(self):
         text = "<think>keep me</think> body"
         self.assertNotIn("keep me", render_row(assistant(text)))

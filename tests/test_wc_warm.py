@@ -61,6 +61,13 @@ class WireRowTest(unittest.TestCase):
         self.assertEqual(wire_row(tool("c1", "out", name="read")),
                          {"role": "tool", "content": "out", "tool_call_id": "c1", "name": "read"})
 
+    def test_sends_the_api_content_of_user_and_assistant_rows(self):
+        self.assertEqual(wire_row(user("hi", api_content="ctx\n\nhi")), {"role": "user", "content": "ctx\n\nhi"})
+        self.assertEqual(wire_row(assistant("", api_content="answer")), {"role": "assistant", "content": "answer"})
+        self.assertEqual(wire_row(assistant("shown", api_content="")), {"role": "assistant", "content": "shown"})
+        row = dict(tool("c1", "out"), api_content="other")
+        self.assertEqual(wire_row(row), {"role": "tool", "content": "out", "tool_call_id": "c1"})
+
 
 class SettingsTest(unittest.TestCase):
     def test_refuses_settings_that_change_the_reply_form(self):
@@ -153,18 +160,49 @@ class BuildRequestTest(unittest.TestCase):
                 self.build(capture)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
-    def test_refuses_a_renamed_row_and_accepts_a_removed_name(self):
-        self.rows = [user("u1", name="alice"), assistant("a1"), user("u2")]
+    def test_refuses_a_renamed_or_unnamed_user_row_and_accepts_an_unnamed_tool_row(self):
+        self.rows = [user("u1", name="alice"), assistant("", [("c0", "read", "{}")]), tool("c0", "r0", name="read"),
+                     user("u2")]
         self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
-        renamed = capture_for(self.rows, self.reply)
-        renamed["body"]["messages"][1]["name"] = "bob"
-        with self.assertRaises(WarmRefusal) as caught:
-            self.build(renamed)
-        self.assertEqual(caught.exception.code, "source_transform_unsupported")
-        # The Hermes transport removes the name from some rows. That is not a rewrite.
+        for change in (lambda sent: sent[1].update(name="bob"), lambda sent: sent[1].pop("name")):
+            capture = capture_for(self.rows, self.reply)
+            change(capture["body"]["messages"])
+            with self.subTest(), self.assertRaises(WarmRefusal) as caught:
+                self.build(capture)
+            self.assertEqual(caught.exception.code, "source_transform_unsupported")
+        # The Hermes transport removes the name from tool rows only. That is not a rewrite.
         stripped = capture_for(self.rows, self.reply)
-        stripped["body"]["messages"][1].pop("name")
+        stripped["body"]["messages"][3].pop("name")
         self.build(stripped)
+
+    def test_refuses_moved_media_parts(self):
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        self.rows = [user([{"type": "text", "text": "first"}, image, {"type": "text", "text": "caption"}]),
+                     assistant("a1"), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        capture = capture_for(self.rows, self.reply)
+        capture["body"]["messages"][1]["content"] = [image, {"type": "text", "text": "first"},
+                                                     {"type": "text", "text": "caption"}]
+        with self.assertRaises(WarmRefusal) as caught:
+            self.build(capture)
+        self.assertEqual(caught.exception.code, "source_transform_unsupported")
+        # Text that Hermes adds inside a text run is not a move.
+        capture = capture_for(self.rows, self.reply)
+        capture["body"]["messages"][1]["content"][0]["text"] = "[context] first"
+        self.build(capture)
+
+    def test_the_stored_api_content_is_the_sent_text(self):
+        self.rows = [user("hi", api_content="[recalled: short answers]\n\nhi"),
+                     assistant("", api_content="The answer is 4."), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        capture = capture_for(self.rows, self.reply)
+        for row in capture["body"]["messages"][1:3]:
+            row["content"] = row.pop("api_content")
+        self.build(capture)
+        capture["body"]["messages"][2]["content"] = "The answer is 5."
+        with self.assertRaises(WarmRefusal) as caught:
+            self.build(capture)
+        self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
     def test_refuses_changed_media_parts(self):
         image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}

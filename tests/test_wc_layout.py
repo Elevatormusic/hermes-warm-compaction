@@ -27,6 +27,21 @@ class PredicateTest(unittest.TestCase):
             with self.subTest(row=row):
                 self.assertFalse(is_real_user(row, PREFIXES))
 
+    def test_hermes_recovery_nudges_are_not_real_user_rows(self):
+        for text in (
+                "You've reached the maximum number of tool-calling iterations allowed. Please provide a final "
+                "response summarizing what you've found and accomplished so far, without calling any more tools.",
+                "You just executed tool calls but returned an empty response. Please process the tool results above "
+                "and continue with the task.",
+                "[System: Continue now. Execute the required tool calls and only send your final answer after "
+                "completing the task.]",
+                "Continue from the compressed conversation context above. This marker exists because no human user "
+                "turn was available."):
+            with self.subTest(text=text[:30]):
+                self.assertFalse(is_real_user(user(text), PREFIXES))
+                self.assertFalse(is_real_user(user("  " + text + "\n"), PREFIXES))
+        self.assertTrue(is_real_user(user("Continue now."), PREFIXES))
+
     def test_summary_detection(self):
         self.assertTrue(is_summary(assistant("[CONTEXT SUMMARY]: s"), PREFIXES))
         self.assertTrue(is_summary(user("plain", _compressed_summary=True), PREFIXES))
