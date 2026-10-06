@@ -59,7 +59,7 @@ The plugin does this for manual `/compress` and for automatic compaction.
 | Ollama (`/v1`) | yes | no |
 | LM Studio | yes | no |
 
-From the server documentation and issue trackers; tested here only on DGX and LM Studio. Where the server does not report the counter, `cached_tokens` shows as unknown in the log. With llama.cpp `--parallel` above 1, the warm request can go to a different slot and miss the cache.
+From the server documentation and issue trackers; tested here only on DGX and LM Studio. Where the server does not report the counter, the log shows `cached_tokens=None` (unknown). With llama.cpp `--parallel` above 1, the warm request can go to a different slot and miss the cache.
 
 ## Requirements
 
