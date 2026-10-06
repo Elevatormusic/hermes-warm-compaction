@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from warm_compaction.rows import estimate_tokens
 from warm_compaction.warm import (
-    DEFAULT_RESERVE, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
+    DEFAULT_RESERVE, HANDOFF_MAX_TOKENS, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
     wire_row,
 )
 from wc_fixtures import ROUTE, assistant, capture_for, tool, user
@@ -186,6 +186,24 @@ class BuildRequestTest(unittest.TestCase):
         body = self.build(capture_for(self.rows, self.reply, body_extra={"stop": ["\n## Next"], "temperature": 0.2}))
         self.assertNotIn("stop", body)
         self.assertEqual(body["temperature"], 0.2)
+
+    def test_the_handoff_has_its_own_reply_limit(self):
+        # The reply limit of the main request is for another task: a small one cuts the handoff, a large one
+        # reserves space that the handoff does not need.
+        cases = (({"max_tokens": 128}, {"max_tokens": HANDOFF_MIN_TOKENS}),
+                 ({"max_tokens": 3_000}, {"max_tokens": 3_000}),
+                 ({"max_tokens": 60_000}, {"max_tokens": HANDOFF_MAX_TOKENS}),
+                 ({"max_completion_tokens": 500}, {"max_completion_tokens": HANDOFF_MIN_TOKENS}),
+                 ({}, {}))
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                body = self.build(capture_for(self.rows, self.reply, body_extra=extra))
+                self.assertEqual({key: body[key] for key in ("max_tokens", "max_completion_tokens") if key in body},
+                                 expected)
+
+    def test_a_large_main_reply_limit_does_not_refuse_a_handoff_that_fits(self):
+        capture = capture_for(self.rows, self.reply, body_extra={"max_tokens": 60_000})
+        self.build(capture, context_length=20_000)
 
     def test_sends_every_trailing_user_row(self):
         # The tail can keep only the newest of several user rows. The handoff must see the older ones too.

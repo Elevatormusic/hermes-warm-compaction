@@ -85,7 +85,10 @@ def request_overhead(capture: dict[str, Any] | None, messages: list | None = Non
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
         if messages is None or type(current_tokens) is not int or current_tokens <= 0:
             return None
-        return max(0, current_tokens - estimate_tokens(messages))
+        # The estimate and the server count do not use the same tokenizer. An estimate that takes all of the
+        # count (compressible text, for example) says nothing about the overhead.
+        overhead = current_tokens - estimate_tokens(messages)
+        return overhead if overhead > 0 else None
     count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
     return estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
 

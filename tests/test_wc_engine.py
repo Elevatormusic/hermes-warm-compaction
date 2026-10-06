@@ -357,7 +357,9 @@ class EngineTest(unittest.TestCase):
         self.assertIsNone(request_overhead(None))
         self.assertIsNone(request_overhead({"body": None}, rows, None))
         self.assertEqual(request_overhead(None, rows, estimate_tokens(rows) + 45_000), 45_000)
-        self.assertEqual(request_overhead(None, rows, 10), 0)
+        # An estimate that takes all of the measured count is not a measurement of the overhead.
+        self.assertIsNone(request_overhead(None, rows, 10))
+        self.assertIsNone(request_overhead(None, rows, estimate_tokens(rows)))
 
     def test_without_a_capture_the_copies_leave_room_for_the_system_prompt_and_tools(self):
         # After a restart there is no capture. The system prompt and the tool schemas still take their space.
@@ -366,8 +368,8 @@ class EngineTest(unittest.TestCase):
         engine = self.make(threshold=0.95, tail_tokens=2_000)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        for current, copied in ((estimate_tokens(rows), True), (estimate_tokens(rows) + 60_000, False),
-                                (None, False)):
+        for current, copied in ((estimate_tokens(rows) + 1_000, True), (estimate_tokens(rows) + 60_000, False),
+                                (estimate_tokens(rows) // 2, False), (None, False)):
             with self.subTest(current=current):
                 new = engine.compress(rows, current_tokens=current)
                 summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))

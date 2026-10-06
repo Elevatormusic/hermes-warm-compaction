@@ -17,6 +17,10 @@ from .rows import (
 )
 
 DEFAULT_RESERVE = 4096
+# The reply limit of the handoff. The instruction asks for at most 600 words; the upper limit leaves room for a
+# thinking model that counts its reasoning in the same limit.
+HANDOFF_MIN_TOKENS = 2048
+HANDOFF_MAX_TOKENS = 8192
 TIMEOUT_S = 120.0
 SAFETY = 1.1
 SYSTEM_ROLES = ("system", "developer")
@@ -309,6 +313,12 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request.pop("stream_options", None)
     # A stop sequence of the main request could cut the handoff after the five headings.
     request.pop("stop", None)
+    # The reply limit of the main request is for another task: a small one cuts the handoff, a large one reserves
+    # space that the handoff does not need. Keep the field that the route uses.
+    for key in ("max_tokens", "max_completion_tokens"):
+        value = body.get(key)
+        if type(value) is int and value > 0:
+            request[key] = min(max(value, HANDOFF_MIN_TOKENS), HANDOFF_MAX_TOKENS)
     if not fits(request, context_length, capture.get("prompt_tokens"), len(body["messages"])):
         raise WarmRefusal("capacity")
     return request

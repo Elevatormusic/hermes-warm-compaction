@@ -112,7 +112,7 @@ plugins:
         threshold: 0.5
 ```
 
-The warm request sends the whole earlier request again, plus the new rows and the reply reserve. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
+The warm request sends the whole earlier request again, plus the new rows and the reply reserve. The reply limit of the warm request is the `max_tokens` or `max_completion_tokens` value of the earlier request, kept between 2,048 and 8,192 tokens. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
 
 ## Fallback model and keys
 

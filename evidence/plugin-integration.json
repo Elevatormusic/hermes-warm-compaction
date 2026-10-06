@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T10:34:19Z",
+  "started_utc": "2026-10-06T10:45:47Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -10,20 +10,20 @@
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
     "warm_compaction/capture.py": "387a5bda2c97530c6e9114e810ac062199e3731c12a582d75598d2bdb95e8c57",
-    "warm_compaction/engine.py": "e0778987d455048b8aa31e36dfd9308b89d54ae756fb66ec944271863fb5af0c",
+    "warm_compaction/engine.py": "db2a26b90325105cac5ccae248a831faa8c979c474e826cb30675cc2ab3c93d9",
     "warm_compaction/fallback.py": "fe6bfbd18359b84a9ebc0519b73a865fa5736a62f87e06f83535968b49317972",
     "warm_compaction/handoff.py": "3ce85d76fce4afbefec0d9c2e91b100e09ac677a28e50ea749f4d25533d68c7e",
     "warm_compaction/layout.py": "5e730211647eed0beec1e6819dfc008b0855a0866dc920bb0cf8d6d8ab2dfa92",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
     "warm_compaction/rows.py": "cc2a8a3d0561559f24fc40881453441d938ea9d7803e1df81a107a5e05e5f00a",
-    "warm_compaction/warm.py": "1ceb52115da6186dccd9b6000224940a119b788858721bb2c144cb5e3ff20f18"
+    "warm_compaction/warm.py": "1a8c12dabf17a1de36ba5f891f0c58230b7752aca3dee6aea10f7d41d864147e"
   },
   "privacy": "metadata only: names, counts, codes, booleans, and times; no message text",
   "scenarios": [
     {
       "scenario": "enable_manual_warm",
       "python": "3.14.7",
-      "status": "passed",
+      "status": "failed",
       "checks": {
         "listed_in_engine_picker": true,
         "engine_selected": true,
@@ -37,7 +37,7 @@
         "warm_new_rows": true,
         "warm_instruction_last": true,
         "warm_not_streamed": true,
-        "warm_settings_kept": true,
+        "warm_settings_kept": false,
         "handoff_in_summary": true,
         "no_fallback_request": true,
         "history_saved": true,
@@ -75,11 +75,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.101,
+      "compress_seconds": 0.1,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.023,
+        "elapsed_s": 0.022,
         "prompt_tokens": 33883,
         "cached_tokens": 16941
       },
@@ -87,10 +87,11 @@
       "final_session_id": "wc-enable_manual_warm",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "network_host_blocked": 1,
-        "child_process_blocked": 3
+        "child_process_blocked": 4,
+        "network_host_blocked": 1
       },
       "fence_blocked_programs": [
+        "git",
         "pip",
         "python",
         "python3"
@@ -99,6 +100,7 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -186,7 +188,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 56.287
+      "process_seconds": 54.278
     },
     {
       "scenario": "manual_fallback",
@@ -245,11 +247,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.239,
+      "compress_seconds": 0.325,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.11,
+        "elapsed_s": 0.141,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -358,7 +360,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 35.614
+      "process_seconds": 33.415
     },
     {
       "scenario": "manual_fixed",
@@ -416,11 +418,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.291,
+      "compress_seconds": 0.236,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.141,
+        "elapsed_s": 0.094,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -529,12 +531,12 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.777
+      "process_seconds": 34.263
     },
     {
       "scenario": "auto_tool_loop",
       "python": "3.11.14",
-      "status": "passed",
+      "status": "failed",
       "checks": {
         "listed_in_engine_picker": true,
         "engine_selected": true,
@@ -546,7 +548,7 @@
         "auto1_new_rows": true,
         "auto1_instruction_last": true,
         "auto1_not_streamed": true,
-        "auto1_settings_kept": true,
+        "auto1_settings_kept": false,
         "auto1_tool_rows_sent": true,
         "first_summary_rows": true,
         "wait_flag_cleared": true,
@@ -557,7 +559,7 @@
         "auto2_new_rows": true,
         "auto2_instruction_last": true,
         "auto2_not_streamed": true,
-        "auto2_settings_kept": true,
+        "auto2_settings_kept": false,
         "auto2_tool_rows_sent": true,
         "no_fallback_request": true,
         "plugin_made_no_blocked_call": true
@@ -615,14 +617,14 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.0,
         "prompt_tokens": 35201,
         "cached_tokens": 17600
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.0,
         "prompt_tokens": 18427,
         "cached_tokens": 9213
       },
@@ -732,7 +734,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 34.717
+      "process_seconds": 34.129
     },
     {
       "scenario": "rollback",
@@ -782,7 +784,7 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.149,
+      "compress_seconds": 0.182,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
@@ -968,10 +970,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 39.397
+      "process_seconds": 46.293
     }
   ],
-  "finished_utc": "2026-10-06T10:37:38Z",
-  "passed": true,
+  "finished_utc": "2026-10-06T10:49:09Z",
+  "passed": false,
   "run_folder": "outside repository"
 }
