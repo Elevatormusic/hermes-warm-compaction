@@ -7,7 +7,8 @@ import functools
 from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
-from .rows import api_content, attr, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text, visible_text
+from .rows import (api_content, attr, compact_json, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text,
+                   visible_text)
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -224,47 +225,112 @@ def _tail_row(row: Any, marker: str) -> Any:
     return clean
 
 
+# The sent text fields of an assistant row that a model can make large: its reasoning.
+REASONING_KEYS = ("reasoning_content", "reasoning")
+
+
+def _tail_parts(row: Any) -> list[tuple[tuple, Any]]:
+    """Return the sent payloads of a tail row that a cut can make smaller, as (key, value): the content (text, or
+    each part of a list), the arguments of each tool call, and the reasoning text of an assistant row."""
+    if not isinstance(row, dict):
+        return []
+    role = row.get("role")
+    content = api_content(row) if role in ("user", "assistant") else row.get("content")
+    parts: list[tuple[tuple, Any]] = []
+    if isinstance(content, str):
+        parts.append((("content",), content))
+    elif isinstance(content, list):
+        for index, item in enumerate(content):
+            if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
+                parts.append((("content", index), item["text"]))
+            elif isinstance(item, dict):
+                parts.append((("media", index), item))
+    if role == "assistant":
+        for index, call in enumerate(row.get("tool_calls") or ()):
+            function = call.get("function") if isinstance(call, dict) else None
+            if isinstance(function, dict) and function.get("arguments") is not None:
+                arguments = function["arguments"]
+                parts.append((("arguments", index), arguments if isinstance(arguments, str) else compact_json(arguments)))
+        parts.extend(((key,), row[key]) for key in REASONING_KEYS if isinstance(row.get(key), str))
+    return parts
+
+
+def _set_part(row: dict[str, Any], key: tuple, value: Any) -> dict[str, Any]:
+    """Return a copy of the row with one payload replaced. A changed content drops the api_content sidecar: the
+    new content is the sent text."""
+    new = dict(row)
+    if key[0] in ("content", "media"):
+        content = api_content(row) if row.get("role") in ("user", "assistant") else row.get("content")
+        new.pop("api_content", None)
+        if len(key) == 1:
+            new["content"] = value
+        else:
+            items = list(content)
+            items[key[1]] = {**items[key[1]], "text": value} if key[0] == "content" else value
+            new["content"] = items
+    elif key[0] == "arguments":
+        calls = [dict(call) for call in row["tool_calls"]]
+        # A cut JSON text is not JSON: the start and the end go into a JSON object, so that the call stays valid.
+        calls[key[1]] = {**calls[key[1]], "function": {**calls[key[1]]["function"],
+                                                       "arguments": compact_json({"truncated_arguments": value})}}
+        new["tool_calls"] = calls
+    else:
+        new[key[0]] = value
+    return new
+
+
 def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
     """Return the tail rows in about tokens estimated tokens. The tail keeps whole units, so the newest unit can
-    be larger than the tail budget (a large user message, assistant reply, or tool result). Then the largest text
-    rows (as Hermes sent them) are cut to their start and end, until the rows fit or no row has more than
-    MIN_COPY_CHARS characters. An assistant row keeps its tool calls. Other rows stay as they are.
+    be larger than the tail budget (a large user message, assistant reply, tool call, or tool result). Then the
+    largest sent payloads (_tail_parts) are cut to their start and end, until the rows fit or no payload has more
+    than MIN_COPY_CHARS characters. A tool call keeps its id and name, and its arguments stay a JSON object. A
+    media part (an image, for example) is replaced by a short text. Other rows and fields stay as they are; signed
+    reasoning_details stay, because a cut breaks the signature.
 
-    With a removed list, one row for each cut row is added to it: the removed middle after CUT_NOTE, with the role
-    (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""
+    With a removed list, one row for each cut payload is added to it: the removed middle after CUT_NOTE, with the
+    role (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""
     rows = list(rows)
-    originals: dict[int, str] = {}
-    limits: dict[int, int] = {}
-
-    def text_of(row: Any) -> Any:
-        return api_content(row) if attr(row, "role") in ("user", "assistant") else attr(row, "content")
-
+    originals: dict[tuple, Any] = {}
+    current: dict[tuple, Any] = {}
+    limits: dict[tuple, int] = {}
     while sum(estimate_tokens(row) for row in rows) > tokens:
-        cuttable = [(estimate_tokens(row), index) for index, row in enumerate(rows)
-                    if isinstance(row, dict) and attr(row, "role") in ("user", "assistant", "tool")
-                    and isinstance(text_of(row), str) and len(text_of(row)) > MIN_COPY_CHARS]
+        cuttable = []
+        for index, row in enumerate(rows):
+            for key, value in _tail_parts(row):
+                value = current.get((index, key), value)
+                if (isinstance(value, str) and len(value) > MIN_COPY_CHARS) or (
+                        key[0] == "media" and (index, key) not in current
+                        and estimate_tokens(value) > MIN_COPY_CHARS // 4):
+                    cuttable.append((estimate_tokens(value), index, key, value))
         if not cuttable:
             break
-        cost, index = max(cuttable)
-        text = text_of(rows[index])
-        target = cost - (sum(estimate_tokens(row) for row in rows) - tokens)
-        limit = max(MIN_COPY_CHARS, min(len(text) - 1, len(text) * max(target, 0) // max(cost, 1)))
-        # Cut the original text again: the kept start and end are then parts of the original text.
-        original = originals.setdefault(index, text)
-        limits[index] = limit
-        cut = {key: value for key, value in rows[index].items() if key != "api_content"}
-        cut["content"] = cut_middle(original, limit)
-        rows[index] = cut
+        cost, index, key, value = max(cuttable, key=lambda item: (item[0], -item[1]))
+        originals.setdefault((index, key), value)
+        if key[0] == "media":
+            new_value: Any = {"type": "text", "text": f"[{value.get('type') or 'media'} removed]"}
+        else:
+            target = cost - (sum(estimate_tokens(row) for row in rows) - tokens)
+            limit = max(MIN_COPY_CHARS, min(len(value) - 1, len(value) * max(target, 0) // max(cost, 1)))
+            # Cut the original text again: the kept start and end are then parts of the original text.
+            limits[(index, key)] = limit
+            new_value = cut_middle(originals[(index, key)], limit)
+        current[(index, key)] = new_value
+        rows[index] = _set_part(rows[index], key, new_value)
     if removed is not None:
-        for index in sorted(originals):
-            original = originals[index]
-            first, second = cut_bounds(original, limits[index])
-            part = {"role": attr(rows[index], "role"), "content": CUT_NOTE + original[first:second]}
+        for index, key in sorted(originals, key=lambda item: (item[0], repr(item[1]))):
+            original = originals[(index, key)]
+            if key[0] == "media":
+                text = f"(a {original.get('type') or 'media'} part was removed)"
+            else:
+                first, second = cut_bounds(original, limits[(index, key)])
+                label = {"arguments": "tool call arguments: ", "reasoning_content": "reasoning: ",
+                         "reasoning": "reasoning: "}.get(key[0], "")
+                text = label + original[first:second]
+            part = {"role": attr(rows[index], "role"), "content": CUT_NOTE + text}
             if part["role"] == "tool":
                 part["tool_call_id"] = attr(rows[index], "tool_call_id")
             removed.append(part)
     return rows
-
 
 def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, Any] | None, copy_chars: int,
           header_prefix: str, prefixes: Iterable[str], end_marker: str,

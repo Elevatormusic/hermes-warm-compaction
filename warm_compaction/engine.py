@@ -27,6 +27,8 @@ CARRIER_TOKENS = 500
 # The summary size that the tail cap keeps free before the fallback summary is known: two times its reply
 # limit, because the estimate and the server count do not use the same tokenizer.
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
+# The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
+UNKNOWN_RESERVE_MAX = 65_536
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
 
@@ -79,19 +81,14 @@ def sanitize_memory(memory_context: Any) -> str:
         return ""
 
 
-def request_overhead(capture: dict[str, Any] | None, messages: list | None = None,
-                     current_tokens: Any = None) -> int | None:
+def request_overhead(capture: dict[str, Any] | None, messages: list | None = None) -> int | None:
     """Estimated tokens of the request parts that are not history rows: the system rows and the tool schemas of
-    the captured request. Without a captured request body (for example, after a restart), the host's token
-    count of the request less the history estimate. None when neither is known."""
+    the captured request. None without a captured request body (for example, after a restart). The host's token
+    count less the history estimate is not used: the two do not use the same tokenizer, and a compressible
+    history can have an estimate far above the server count, so the difference can be much too small."""
     body = (capture or {}).get("body")
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
-        if messages is None or type(current_tokens) is not int or current_tokens <= 0:
-            return None
-        # The estimate and the server count do not use the same tokenizer. An estimate that takes all of the
-        # count (compressible text, for example) says nothing about the overhead.
-        overhead = current_tokens - estimate_tokens(messages)
-        return overhead if overhead > 0 else None
+        return None
     count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
     overhead = estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
     if messages is not None:
@@ -102,9 +99,14 @@ def request_overhead(capture: dict[str, Any] | None, messages: list | None = Non
     return overhead
 
 
-def request_reserve(capture: dict[str, Any] | None) -> int:
-    """The reply reserve of the captured request (warm.reply_reserve), else the default."""
-    return warm.reply_reserve((capture or {}).get("body"))
+def request_reserve(capture: dict[str, Any] | None, context_length: int = 0) -> int:
+    """The reply reserve of the captured request (warm.reply_reserve). Without a captured body, the reply limit
+    of the next request is unknown (Hermes does not give it to a context engine): a quarter of the window, at most
+    UNKNOWN_RESERVE_MAX, and at least the default."""
+    body = (capture or {}).get("body")
+    if isinstance(body, dict) and isinstance(body.get("messages"), list):
+        return warm.reply_reserve(body)
+    return max(warm.DEFAULT_RESERVE, min(context_length // 4, UNKNOWN_RESERVE_MAX))
 
 
 def _int(value: Any) -> int:
@@ -202,8 +204,8 @@ class WarmCompactionEngine(ContextEngine):
         # An unknown overhead can be most of the window: then no copies. A capture of another route says nothing
         # about the system prompt, the tools, and the reply limit of this one.
         budget = self._budget_capture(capture, messages)
-        overhead = request_overhead(budget, messages, current_tokens)
-        reserve = request_reserve(budget)
+        overhead = request_overhead(budget, messages)
+        reserve = request_reserve(budget, int(self.context_length or 0))
         summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record)
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []

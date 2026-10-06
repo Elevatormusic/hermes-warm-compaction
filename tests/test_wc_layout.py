@@ -187,6 +187,44 @@ class BoundTailTest(unittest.TestCase):
         self.assertTrue(bounded[1]["content"].startswith("start ") and bounded[1]["content"].endswith(" end"))
         self.assertIn(MIDDLE_MARK, bounded[1]["content"])
 
+    def test_large_tool_call_arguments_are_cut_to_valid_json(self):
+        import json
+        from warm_compaction.layout import CUT_NOTE, bound_tail
+        from warm_compaction.rows import estimate_tokens
+        arguments = json.dumps({"path": "a.txt", "text": "start " + "w" * 40_000 + " end"})
+        rows = [user("write"), assistant("", [("c1", "write", arguments)]), tool("c1", "ok")]
+        removed = []
+        bounded = bound_tail(rows, 2_000, removed)
+        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        call = bounded[1]["tool_calls"][0]
+        self.assertEqual((call["id"], call["function"]["name"]), ("c1", "write"))
+        kept = json.loads(call["function"]["arguments"])["truncated_arguments"]
+        self.assertTrue(kept.startswith('{"path": "a.txt"') and kept.endswith(' end"}'))
+        self.assertEqual(rows[1]["tool_calls"][0]["function"]["arguments"], arguments)
+        self.assertEqual(len(removed), 1)
+        self.assertTrue(removed[0]["content"].startswith(CUT_NOTE) and "w" * 100 in removed[0]["content"])
+
+    def test_large_reasoning_text_is_cut(self):
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
+        rows = [user("think"), assistant("ok", reasoning_content="r-start " + "t" * 40_000 + " r-end")]
+        bounded = bound_tail(rows, 2_000)
+        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        self.assertIn(MIDDLE_MARK, bounded[1]["reasoning_content"])
+        self.assertTrue(bounded[1]["reasoning_content"].endswith(" r-end"))
+
+    def test_list_content_is_cut_and_a_large_image_is_replaced(self):
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import estimate_tokens
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 100_000}}
+        rows = [user([{"type": "text", "text": "look " + "l" * 20_000 + " end"}, image]), assistant("ok")]
+        bounded = bound_tail(rows, 2_000)
+        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        text, note = bounded[0]["content"]
+        self.assertTrue(text["text"].startswith("look ") and text["text"].endswith(" end"))
+        self.assertEqual(note, {"type": "text", "text": "[image_url removed]"})
+        self.assertIs(rows[0]["content"][1], image)
+
     def test_the_cut_middles_are_given_back(self):
         # The fallback summary gets the parts that the tail cuts: they are not lost.
         from warm_compaction.layout import CUT_NOTE, bound_tail

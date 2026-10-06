@@ -381,6 +381,12 @@ class EngineTest(unittest.TestCase):
         from warm_compaction.engine import request_reserve
         from warm_compaction.warm import DEFAULT_RESERVE
         self.assertEqual(request_reserve(None), DEFAULT_RESERVE)
+        # Without a usable capture the reply limit of the next request is unknown: keep a quarter of the window,
+        # at most 65,536 tokens (the Hermes default of a native Gemini route), at least the default.
+        self.assertEqual(request_reserve(None, 200_000), 50_000)
+        self.assertEqual(request_reserve(None, 1_000_000), 65_536)
+        self.assertEqual(request_reserve(None, 8_000), DEFAULT_RESERVE)
+        self.assertEqual(request_reserve({"body": {"messages": [], "max_tokens": 1_000}}, 200_000), 1_000)
         self.assertEqual(request_reserve({"body": {"messages": [], "max_tokens": 1_000}}), 1_000)
         self.assertEqual(request_reserve({"body": {"messages": [], "max_completion_tokens": 2_000}}), 2_000)
 
@@ -391,13 +397,10 @@ class EngineTest(unittest.TestCase):
         self.seed(rows, assistant("final"))
         capture = self.store.latest("s1")
         self.assertEqual(request_overhead(capture), estimate_tokens({"messages": [SYSTEM], "tools": None}))
-        # Without a captured body: the host's token count less the history estimate, or unknown.
+        # Without a captured body the overhead is unknown: the host's token count and the plugin estimate do not
+        # use the same tokenizer, so their difference is not a measurement.
         self.assertIsNone(request_overhead(None))
-        self.assertIsNone(request_overhead({"body": None}, rows, None))
-        self.assertEqual(request_overhead(None, rows, estimate_tokens(rows) + 45_000), 45_000)
-        # An estimate that takes all of the measured count is not a measurement of the overhead.
-        self.assertIsNone(request_overhead(None, rows, 10))
-        self.assertIsNone(request_overhead(None, rows, estimate_tokens(rows)))
+        self.assertIsNone(request_overhead({"body": None}, rows))
 
     def test_request_overhead_counts_text_that_a_middleware_added_to_a_captured_row(self):
         from warm_compaction.engine import request_overhead
@@ -433,8 +436,7 @@ class EngineTest(unittest.TestCase):
                             provider="custom", api_mode=ROUTE[2])
         new = engine.compress(rows, current_tokens=estimate_tokens(rows) + 1_000)
         self.assertEqual(engine.warm_last["reason"], "route_changed")
-        summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
-        self.assertFalse(summary.split("## Copied user messages", 1)[1].strip().startswith("(none)"))
+        self.assertIsNone(engine._budget_capture(self.store.latest("s1"), rows))
 
     def test_a_large_prepended_user_row_is_cut_to_fit(self):
         # The newest user message is before the tail (it is larger than the tail) and goes in front of it. It
@@ -471,7 +473,8 @@ class EngineTest(unittest.TestCase):
         engine = self.make(threshold=0.95, tail_tokens=2_000)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        for current, copied in ((estimate_tokens(rows) + 1_000, True), (estimate_tokens(rows) + 60_000, False),
+        # The host count is not used: a compressible history can have an estimate above it.
+        for current, copied in ((estimate_tokens(rows) + 1_000, False), (estimate_tokens(rows) + 60_000, False),
                                 (estimate_tokens(rows) // 2, False), (None, False)):
             with self.subTest(current=current):
                 new = engine.compress(rows, current_tokens=current)
@@ -542,18 +545,19 @@ class EngineTest(unittest.TestCase):
     def test_an_unknown_overhead_caps_the_tail(self):
         # Without a known overhead (no capture and no host count), the tail takes at most half of the free room:
         # the other half is for the system rows and the tool schemas.
-        from warm_compaction.engine import CARRIER_TOKENS
+        from warm_compaction.engine import CARRIER_TOKENS, request_reserve
         from warm_compaction.rows import estimate_tokens
-        from warm_compaction.warm import DEFAULT_RESERVE
         rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
                 tool("c1", "head " + "r" * 200_000 + " tail")]
         engine = self.make(threshold=0.95, tail_tokens=9_500, warm=False)
         engine.update_model(model=ROUTE[0], context_length=20_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        limit = min(engine.threshold_tokens, 20_000 - DEFAULT_RESERVE)
-        for current, capped in ((estimate_tokens(rows) + 1_000, False), (None, True)):
-            with self.subTest(current=current):
-                new = engine.compress(list(rows), current_tokens=current)
+        limit = min(engine.threshold_tokens, 20_000 - request_reserve(None, 20_000))
+        for captured, capped in ((False, True), (True, False)):
+            with self.subTest(captured=captured):
+                if captured:
+                    self.seed(rows[:-2], rows[-2])
+                new = engine.compress(list(rows), current_tokens=estimate_tokens(rows) + 1_000)
                 tail = [row for row in new if not row.get("_compressed_summary")]
                 self.assertEqual(estimate_tokens(tail) <= (limit - CARRIER_TOKENS) // 2, capped)
 

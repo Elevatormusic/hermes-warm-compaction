@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T12:35:21Z",
+  "started_utc": "2026-10-06T12:56:31Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -10,10 +10,10 @@
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
     "warm_compaction/capture.py": "387a5bda2c97530c6e9114e810ac062199e3731c12a582d75598d2bdb95e8c57",
-    "warm_compaction/engine.py": "c70f188a789215e70d1252ea350d1f8433a1f989572b174a316447011a0d71d1",
+    "warm_compaction/engine.py": "d910f67fab4eb1fbfc108216b4bc7f47d583135c537043be73d1f3548b1dbf32",
     "warm_compaction/fallback.py": "30ef046f0511491175d99a772afcc2c9a8f3a9920d0c077821a89f19147682f9",
     "warm_compaction/handoff.py": "3ce85d76fce4afbefec0d9c2e91b100e09ac677a28e50ea749f4d25533d68c7e",
-    "warm_compaction/layout.py": "8e05c88f13c29330e1bd1a3bdb4410cd1c0a8a6ce30fcf8a118bd88a8e0a55e4",
+    "warm_compaction/layout.py": "ba910e9df1ee04bb4f9d5c9ab6dda48e3975634e6b7b05dd930f273d3cea2b74",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
     "warm_compaction/rows.py": "689c0619df6a7f8b89ef05ae87ec81b62c812ce34f81bfe557eb653158effac4",
     "warm_compaction/warm.py": "081642f19498b379551af33b70ad01dae3902e1e805c360a08be9f74242d320f"
@@ -76,11 +76,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.098,
+      "compress_seconds": 0.117,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.025,
+        "elapsed_s": 0.038,
         "prompt_tokens": 33883,
         "cached_tokens": 16941
       },
@@ -88,10 +88,11 @@
       "final_session_id": "wc-enable_manual_warm",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "network_host_blocked": 1,
-        "child_process_blocked": 3
+        "child_process_blocked": 4,
+        "network_host_blocked": 1
       },
       "fence_blocked_programs": [
+        "git",
         "pip",
         "python",
         "python3"
@@ -100,6 +101,7 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -187,7 +189,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 53.236
+      "process_seconds": 52.454
     },
     {
       "scenario": "manual_fallback",
@@ -246,7 +248,7 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.227,
+      "compress_seconds": 0.22,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
@@ -359,7 +361,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.914
+      "process_seconds": 31.415
     },
     {
       "scenario": "manual_fixed",
@@ -417,11 +419,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.241,
+      "compress_seconds": 0.246,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.125,
+        "elapsed_s": 0.109,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -530,7 +532,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 29.487
+      "process_seconds": 29.036
     },
     {
       "scenario": "auto_tool_loop",
@@ -618,14 +620,14 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.0,
+        "elapsed_s": 0.016,
         "prompt_tokens": 35201,
         "cached_tokens": 17600
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.015,
         "prompt_tokens": 18427,
         "cached_tokens": 9213
       },
@@ -735,7 +737,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.249
+      "process_seconds": 32.294
     },
     {
       "scenario": "rollback",
@@ -785,7 +787,7 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.163,
+      "compress_seconds": 0.154,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
@@ -971,10 +973,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 37.327
+      "process_seconds": 39.378
     }
   ],
-  "finished_utc": "2026-10-06T12:38:26Z",
+  "finished_utc": "2026-10-06T12:59:36Z",
   "passed": true,
   "run_folder": "outside repository"
 }
