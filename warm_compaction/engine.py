@@ -177,16 +177,20 @@ class WarmCompactionEngine(ContextEngine):
 
     def should_compress_preflight(self, messages: list) -> bool:
         """The history estimate, with the system rows and tool schemas of a usable capture, reaches the threshold;
-        or with the reply reserve it does not fit in the window."""
+        or with the reply reserve it does not fit in the window. Without a usable capture (after a restart, for
+        example) the overhead is unknown: as in compress, half of the room (the window less the reply reserve) is
+        for the system rows and the tool schemas."""
         if self.threshold_tokens <= 0:
             return False
         tokens = estimate_tokens(messages)
+        window = int(self.context_length or 0)
         budget = self._budget_capture(self._store.latest(self._wc_session_id), messages)
         if budget is not None:
             tokens += request_overhead(budget, messages) or 0
-            window = int(self.context_length or 0)
             if window > 0 and tokens + request_reserve(budget, window) > window:
                 return True
+        elif window > 0 and tokens >= (window - request_reserve(None, window)) // 2:
+            return True
         return tokens >= self.threshold_tokens
 
     def has_content_to_compress(self, messages: list) -> bool:

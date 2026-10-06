@@ -255,6 +255,24 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(engine.should_compress_preflight(messages))
         self.assertFalse(self.make(threshold=0.95).should_compress_preflight([user("hi")]))
 
+    def test_preflight_without_a_usable_capture_keeps_half_of_the_room_for_the_overhead(self):
+        # After a restart the system prompt and tool schemas are unknown: as in compress, half of the room
+        # (the window less the unknown reply reserve) is for them.
+        from warm_compaction.engine import request_reserve
+        from warm_compaction.rows import estimate_tokens
+        engine = self.make(threshold=0.95)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        half = (64_000 - request_reserve(None, 64_000)) // 2
+        rows = old_turns(26)
+        self.assertGreaterEqual(estimate_tokens(rows), half)
+        self.assertLess(estimate_tokens(rows), engine.threshold_tokens)
+        self.assertTrue(engine.should_compress_preflight(rows))
+        self.assertFalse(engine.should_compress_preflight(old_turns(4)))
+        # A usable capture with a small overhead: the threshold applies.
+        self.seed(rows[:-1], rows[-1])
+        self.assertFalse(engine.should_compress_preflight([*rows, user("next")]))
+
     def test_a_second_send_is_refused_before_it_sends(self):
         def twice(request=None, next_call=None, **context):
             first = next_call()
