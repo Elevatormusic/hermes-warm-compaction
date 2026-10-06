@@ -5,11 +5,13 @@ import unittest
 from types import SimpleNamespace
 
 import wc_hermes_stub
+from warm_compaction.fallback import END_LINE
 from wc_fixtures import HEADINGS_TEXT, ROUTE, SYSTEM, assistant, tool, user, wire
 
 
 class FakeLlm:
-    def __init__(self, text=HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary."), error=None):
+    def __init__(self, text=HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary.") + "\n" + END_LINE,
+                 error=None):
         self.text, self.error, self.calls = text, error, []
 
     def complete(self, messages, **kwargs):
@@ -234,6 +236,42 @@ class EngineTest(unittest.TestCase):
         self.seed(rows, reply)
         self.engine.compress([*rows, reply])
         self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]), ("fallback", "capacity"))
+        self.assertEqual(self.post.calls, [])
+
+    def test_the_warm_request_has_the_default_headers_of_the_hermes_client(self):
+        # Provider headers (attribution, a WAF User-Agent, credentials) go with every request of the route.
+        wc_hermes_stub.HOST_HEADERS.update({"X-Title": "Hermes Agent"})
+        wc_hermes_stub.USER_HEADERS.update({"User-Agent": "allowed-agent"})
+        wc_hermes_stub.CUSTOM_HEADERS.update({"X-Gateway-Key": "synthetic-header-secret"})
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(self.engine.warm_last["path"], "warm")
+        headers = self.post.calls[0]["headers"]
+        self.assertEqual((headers["X-Title"], headers["User-Agent"], headers["X-Gateway-Key"], headers["Authorization"]),
+                         ("Hermes Agent", "allowed-agent", "synthetic-header-secret", "Bearer k"))
+        self.assertNotIn("synthetic-header-secret", json.dumps(self.engine.warm_last))
+        # Without a host factory, the provider profile gives the headers.
+        wc_hermes_stub.HOST_HEADERS.clear()
+        wc_hermes_stub.PROFILE_HEADERS.update({"User-Agent": "profile-agent"})
+        wc_hermes_stub.USER_HEADERS.clear()
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(self.post.calls[1]["headers"]["User-Agent"], "profile-agent")
+
+    def test_an_unreadable_header_source_stops_the_warm_request(self):
+        def broken(base_url):
+            raise AttributeError("changed")
+        self.addCleanup(setattr, wc_hermes_stub.AGENT_INIT, "_host_default_headers_factory",
+                        wc_hermes_stub.AGENT_INIT._host_default_headers_factory)
+        wc_hermes_stub.AGENT_INIT._host_default_headers_factory = broken
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "headers_unknown"))
         self.assertEqual(self.post.calls, [])
 
     def test_a_request_middleware_that_removes_the_instruction_stops_the_warm_request(self):

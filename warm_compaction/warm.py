@@ -360,19 +360,59 @@ def _api_key_text(api_key: Any) -> str:
     return api_key if isinstance(api_key, str) else ""
 
 
+_FINISH_ALIASES = {"max_tokens": "length", "end": "stop", "function_call": "tool_calls"}
+
+
+def _normalize_finish_reason(raw: Any) -> Any:
+    """The rule of Hermes 45871e10 (agent.message_sanitization.normalize_finish_reason): the lowercase OpenAI
+    value, with the aliases of other providers. Hermes applies it in its transport; this request does not use it."""
+    if not isinstance(raw, str) or not raw:
+        return raw
+    lowered = raw.lower()
+    return _FINISH_ALIASES.get(lowered, lowered)
+
+
+def route_headers(api_key: Any, base_url: Any, provider: Any) -> dict[str, str]:
+    """Return the default headers that the Hermes OpenAI client sends on this route, in the order of Hermes
+    45871e10 (agent.agent_init): the host headers or the provider profile headers, then model.default_headers,
+    then providers.<name>.extra_headers. Provider headers go with every request (attribution, a User-Agent for a
+    WAF, gateway credentials). Raise WarmRefusal("headers_unknown") when a source cannot be read: a request
+    without them can be refused or go to another cache. Per-request headers (session affinity) are in the
+    captured request and refused there. The values can be credentials: never log them."""
+    url = str(base_url or "")
+    try:
+        from agent.agent_init import _host_default_headers_factory
+        from agent.auxiliary_client import _apply_user_default_headers
+        from hermes_cli.config_providers import get_custom_provider_extra_headers
+        factory = _host_default_headers_factory(url)
+        if factory is not None:
+            headers = dict(factory(_api_key_text(api_key), url) or {})
+        else:
+            from providers import get_provider_profile
+            profile = get_provider_profile(provider) if provider else None
+            headers = dict(getattr(profile, "default_headers", None) or {})
+        headers = dict(_apply_user_default_headers(headers) or {})
+        headers.update(get_custom_provider_extra_headers(url) or {})
+    except Exception as error:
+        raise WarmRefusal("headers_unknown") from error
+    return {str(key): str(value) for key, value in headers.items()}
+
+
 def _optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = TIMEOUT_S,
-         post: Post | None = None) -> dict[str, Any]:
-    """Send the warm request one time. Return the reply fields and the usage, or raise WarmRefusal."""
+         post: Post | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+    """Send the warm request one time. Return the reply fields and the usage, or raise WarmRefusal.
+    extra_headers are the client default headers of the route (route_headers); they win, as in the SDK."""
     if not base_url:
         raise WarmRefusal("provider_error")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     key = _api_key_text(api_key)
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    headers.update(extra_headers or {})
     data = json.dumps(body).encode("utf-8")
     started = time.monotonic()
     try:
@@ -392,7 +432,8 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
         details = usage.get("prompt_tokens_details") or {}
         return {
             "content": message.get("content"),
-            "finish_reason": choice.get("finish_reason"),
+            "finish_reason": hermes_value("agent.message_sanitization", "normalize_finish_reason",
+                                          _normalize_finish_reason)(choice.get("finish_reason")),
             "tool_calls": bool(message.get("tool_calls")),
             "refusal": bool(message.get("refusal")),
             "prompt_tokens": _optional_int(usage.get("prompt_tokens")),

@@ -112,11 +112,11 @@ plugins:
         threshold: 0.5
 ```
 
-The warm request sends the whole earlier request again, plus the new rows and the reply reserve. The reply limit of the warm request is the `max_tokens` or `max_completion_tokens` value of the earlier request, kept between 2,048 and 8,192 tokens. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
+The warm request sends the whole earlier request again, plus the new rows and the reply reserve. The reply limit of the warm request is the `max_tokens` or `max_completion_tokens` value of the earlier request, kept between 2,048 and 8,192 tokens. The warm request sends the default headers of the Hermes client for the route: the provider headers, `model.default_headers`, and `providers.<name>.extra_headers`. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
 
 ## Fallback model and keys
 
-The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` uses the main model route. The fallback request is at most about 11,000 tokens: a transcript of about 8,000 tokens, the instruction, and a 2,048-token reply. The focus topic and the memory context are cut to about 1,000 tokens and take their size from the transcript. A fallback model needs a context window of at least 16,000 tokens. Hermes accepts main models with 64,000 tokens or more, so the default route has enough space.
+The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` uses the main model route. The fallback reply must end with the line `[END OF SUMMARY]`: the auxiliary route reports no finish reason, so a reply without that line counts as cut off. The fallback request is at most about 11,000 tokens: a transcript of about 8,000 tokens, the instruction, and a 2,048-token reply. The focus topic and the memory context are cut to about 1,000 tokens and take their size from the transcript. A fallback model needs a context window of at least 16,000 tokens. Hermes accepts main models with 64,000 tokens or more, so the default route has enough space.
 
 For a custom endpoint that needs a key, put the key name in the model settings:
 
@@ -138,7 +138,7 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 ```
 
 - `path` is `warm`, `fallback`, or `fixed`.
-- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
+- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
 The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.

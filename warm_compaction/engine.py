@@ -125,6 +125,7 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_session_id = ""
         self._wc_route: tuple = (None, None, None)
         self._wc_api_key: Any = ""
+        self._wc_provider: str = ""
 
     @property
     def name(self) -> str:
@@ -146,6 +147,7 @@ class WarmCompactionEngine(ContextEngine):
                              api_mode=api_mode)
         self._wc_route = (model, base_url, api_mode)
         self._wc_api_key = api_key
+        self._wc_provider = provider
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         usage = usage or {}
@@ -255,6 +257,8 @@ class WarmCompactionEngine(ContextEngine):
             from hermes_cli.middleware import apply_llm_request_middleware, run_llm_execution_middleware
         except Exception as error:
             raise warm.WarmRefusal("middleware_unavailable") from error
+        # Before any middleware sees the request: a route without its headers does not send it.
+        headers = warm.route_headers(self._wc_api_key, self._wc_route[1], self._wc_provider)
         context = {"purpose": NAME, "api_request_id": None, "session_id": self._wc_session_id,
                    "model": self._wc_route[0], "base_url": self._wc_route[1], "api_mode": self._wc_route[2]}
         try:
@@ -289,7 +293,7 @@ class WarmCompactionEngine(ContextEngine):
                 # attempt stops even when the middleware catches this refusal.
                 repeated.append(True)
                 raise warm.WarmRefusal("middleware_repeated")
-            result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post)
+            result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post, extra_headers=headers)
             sent.append((result, dict(result)))
             return result
         try:

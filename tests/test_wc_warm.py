@@ -403,6 +403,21 @@ def fake_post(status, payload, calls):
 
 
 class SendTest(unittest.TestCase):
+    def test_the_finish_reason_is_normalized(self):
+        # Some OpenAI-compatible servers send STOP or MAX_TOKENS. The gate needs the contract value.
+        for raw, expected in (("STOP", "stop"), ("MAX_TOKENS", "length"), ("end", "stop"), ("stop", "stop")):
+            payload = {"choices": [{"message": {"content": "text"}, "finish_reason": raw}], "usage": {}}
+            with self.subTest(raw=raw):
+                reply = send({"messages": []}, "http://h/v1", "k", post=fake_post(200, payload, []))
+                self.assertEqual(reply["finish_reason"], expected)
+
+    def test_extra_headers_are_sent(self):
+        calls = []
+        payload = {"choices": [{"message": {"content": "text"}, "finish_reason": "stop"}], "usage": {}}
+        send({"messages": []}, "http://h/v1", "k", post=fake_post(200, payload, calls),
+             extra_headers={"X-Title": "Hermes Agent"})
+        self.assertEqual((calls[0][2]["X-Title"], calls[0][2]["Authorization"]), ("Hermes Agent", "Bearer k"))
+
     def test_reads_the_reply_and_the_usage(self):
         calls = []
         payload = {"choices": [{"message": {"content": "text"}, "finish_reason": "stop"}],

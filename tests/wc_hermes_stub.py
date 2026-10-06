@@ -97,6 +97,20 @@ CONTEXT_COMPRESSOR = _module(
     resolve_model_threshold=resolve_model_threshold)
 AGENT.context_engine = CONTEXT_ENGINE
 AGENT.context_compressor = CONTEXT_COMPRESSOR
+# The sources of the default headers of the Hermes OpenAI client, in the order of agent.agent_init: a host
+# factory or the provider profile, then model.default_headers, then providers.<name>.extra_headers.
+HOST_HEADERS: dict = {}
+PROFILE_HEADERS: dict = {}
+USER_HEADERS: dict = {}
+CUSTOM_HEADERS: dict = {}
+AGENT_INIT = _module("agent.agent_init", _host_default_headers_factory=lambda base_url: (
+    (lambda api_key, base: dict(HOST_HEADERS)) if HOST_HEADERS else None))
+AUXILIARY_CLIENT = _module("agent.auxiliary_client", _apply_user_default_headers=lambda headers: (
+    {**(headers or {}), **USER_HEADERS} if USER_HEADERS else headers))
+PROVIDERS = _module("providers", get_provider_profile=lambda name: (
+    SimpleNamespace(default_headers=dict(PROFILE_HEADERS)) if PROFILE_HEADERS else None))
+AGENT.agent_init = AGENT_INIT
+AGENT.auxiliary_client = AUXILIARY_CLIENT
 HERMES_CLI = _module("hermes_cli")
 PLUGINS = _module("hermes_cli.plugins", VALID_HOOKS={
     "pre_api_request", "post_api_request", "on_session_start", "on_session_end", "on_session_finalize",
@@ -145,11 +159,16 @@ MIDDLEWARE = _module("hermes_cli.middleware", VALID_MIDDLEWARE={
     "tool_request", "tool_execution", "llm_request", "llm_execution"},
     run_llm_execution_middleware=run_llm_execution_middleware,
     apply_llm_request_middleware=apply_llm_request_middleware)
+CONFIG_PROVIDERS = _module("hermes_cli.config_providers",
+                           get_custom_provider_extra_headers=lambda base_url, *args, **kwargs: dict(CUSTOM_HEADERS))
+HERMES_CLI.config_providers = CONFIG_PROVIDERS
 HERMES_CLI.plugins = PLUGINS
 HERMES_CLI.middleware = MIDDLEWARE
 MODULES = {
     "agent": AGENT, "agent.context_engine": CONTEXT_ENGINE, "agent.context_compressor": CONTEXT_COMPRESSOR,
     "hermes_cli": HERMES_CLI, "hermes_cli.plugins": PLUGINS, "hermes_cli.middleware": MIDDLEWARE,
+    "agent.agent_init": AGENT_INIT, "agent.auxiliary_client": AUXILIARY_CLIENT, "providers": PROVIDERS,
+    "hermes_cli.config_providers": CONFIG_PROVIDERS,
 }
 
 
@@ -161,3 +180,5 @@ def install(test_case):
     test_case.addCleanup(EXECUTION_MIDDLEWARE.clear)
     test_case.addCleanup(REQUEST_MIDDLEWARE.clear)
     test_case.addCleanup(CAPTURE_CHAIN.clear)
+    for headers in (HOST_HEADERS, PROFILE_HEADERS, USER_HEADERS, CUSTOM_HEADERS):
+        test_case.addCleanup(headers.clear)

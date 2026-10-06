@@ -38,6 +38,8 @@ ROW_TOKENS = ROW_CHARS // 4
 EXTRAS_CHARS = 4_000
 EXTRAS_TOKENS = EXTRAS_CHARS // 4
 MARK_TOKENS = 8
+# The last line of a complete fallback reply. ctx.llm reports no finish reason.
+END_LINE = "[END OF SUMMARY]"
 
 FALLBACK_INSTRUCTION = """\
 Write a handoff summary of the conversation transcript in the next message. The host program will replace the \
@@ -69,6 +71,9 @@ Identifiers, names, values, and results that the next step needs.
 
 ## Next step
 The next action that the user asked for and its exact target. Describe it. Do not do it.
+
+End the summary with this line:
+[END OF SUMMARY]
 """
 
 
@@ -165,14 +170,17 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
     return "\n\n".join([*head, *recent])
 
 
-def _finish_reason(result: Any, text: str) -> str:
-    """Return "length" for a reply that can be cut off, else "stop". ctx.llm reports no finish reason. A reply
-    at the max_tokens limit can be cut off; the instruction asks for about 1,000 tokens. Without an output count,
-    a reply with an estimate above three quarters of the limit counts as cut off."""
+def _complete_reply(result: Any, raw: str) -> tuple[str, str]:
+    """Return (finish reason, text without the end line). ctx.llm reports no finish reason, and an output count
+    below the limit does not show a complete reply: a content filter or a provider limit can stop it. Only a
+    reply that ends with END_LINE, below the max_tokens limit, counts as complete ("stop")."""
     output = getattr(getattr(result, "usage", None), "output_tokens", None)
-    if isinstance(output, int) and not isinstance(output, bool) and output > 0:
-        return "length" if output >= MAX_TOKENS else "stop"
-    return "length" if estimate_tokens(text) >= MAX_TOKENS * 3 // 4 else "stop"
+    lines = strip_think(raw).rstrip().splitlines()
+    if not lines or lines[-1].strip() != END_LINE:
+        return "length", raw
+    if isinstance(output, int) and not isinstance(output, bool) and output >= MAX_TOKENS:
+        return "length", raw
+    return "stop", "\n".join(lines[:-1])
 
 
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
@@ -196,7 +204,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     # The same checks as the warm reply: the five headings, the byte limit, and no summary markers. A reply
     # without them (cut off, or an answer to the conversation) must not replace the history.
     raw = str(getattr(result, "text", "") or "")
-    text, reason = gate({"content": raw, "finish_reason": _finish_reason(result, raw)}, prefixes)
+    finish, body = _complete_reply(result, raw)
+    text, reason = gate({"content": body, "finish_reason": finish}, prefixes)
     if text is None:
         logger.warning("warm_compaction: the fallback summary was refused (%s)", reason)
         return None, None

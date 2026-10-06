@@ -46,7 +46,8 @@ HANDOFF = (
     "## Next step\nReport the code word BLUE-7."
 )
 HANDOFF_GOAL = "Finish the synthetic test task."
-FALLBACK_SUMMARY = HANDOFF.replace("Finish the synthetic test task.", "Finish the synthetic test task (fallback).")
+FALLBACK_SUMMARY = HANDOFF.replace("Finish the synthetic test task.", "Finish the synthetic test task (fallback).") + (
+    "\n[END OF SUMMARY]")
 TOOL_PLUGIN = {
     "plugin.yaml": (
         "manifest_version: 2\nname: wc_test_tools\nversion: 0.0.1\n"

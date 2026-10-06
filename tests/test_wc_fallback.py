@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from warm_compaction.fallback import (
-    FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
+    END_LINE, FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
     fixed_summary, llm_summary, render_row, transcript,
 )
 from warm_compaction.rows import estimate_tokens
@@ -18,7 +18,7 @@ SUMMARY = "## Goal\nG\n## User instructions\n- none\n## Current state\n- [OPEN] 
 
 
 class FakeLlm:
-    def __init__(self, text=SUMMARY, error=None, output_tokens=None):
+    def __init__(self, text=SUMMARY + "\n" + END_LINE, error=None, output_tokens=None):
         self.text, self.error, self.calls, self.output_tokens = text, error, [], output_tokens
 
     def complete(self, messages, **kwargs):
@@ -169,10 +169,20 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertLessEqual(estimate_tokens(extra) + estimate_tokens(messages[1]["content"]),
                              TRANSCRIPT_TOKENS + 16)
 
+    def test_a_reply_without_the_end_line_is_refused(self):
+        # ctx.llm reports no finish reason. A content filter or a provider limit can stop a reply below
+        # MAX_TOKENS; the five headings can already be there. Only the end line shows a complete reply.
+        self.assertTrue(FALLBACK_INSTRUCTION.rstrip().endswith(END_LINE))
+        for text in (SUMMARY, SUMMARY + "\n" + END_LINE + "\nmore text", END_LINE + "\n" + SUMMARY):
+            with self.subTest(text=text[-20:]), self.assertLogs("warm_compaction.fallback", level="WARNING"):
+                self.assertEqual(llm_summary(FakeLlm(text=text, output_tokens=300), [user("hi")], PREFIXES),
+                                 (None, None))
+        text = "<think>plan</think>\n" + SUMMARY + "\n\n  " + END_LINE + "  \n"
+        self.assertEqual(llm_summary(FakeLlm(text=text), [user("hi")], PREFIXES), (SUMMARY, 321))
+
     def test_a_reply_that_reached_the_token_limit_is_refused(self):
         # ctx.llm reports no finish reason. A reply at the max_tokens limit can be cut off.
-        long_summary = SUMMARY + "\n" + "- fact\n" * 1_000
-        for llm in (FakeLlm(output_tokens=MAX_TOKENS), FakeLlm(text=long_summary)):
+        for llm in (FakeLlm(output_tokens=MAX_TOKENS),):
             with self.subTest(), self.assertLogs("warm_compaction.fallback", level="WARNING"):
                 self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (None, None))
         self.assertEqual(llm_summary(FakeLlm(output_tokens=300), [user("hi")], PREFIXES), (SUMMARY, 321))
