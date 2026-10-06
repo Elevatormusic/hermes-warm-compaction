@@ -9,7 +9,8 @@ from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
 from .rows import (api_content, attr, compact_json, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text,
-                   SendPolicy, attachment_mark, sent_reasoning_key, sent_tokens, visible_text)
+                   SendPolicy, attachment_mark, has_thought_signature, sent_reasoning_key, sent_tokens,
+                   visible_text)
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -302,6 +303,11 @@ def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple
     if role == "assistant":
         for index, call in enumerate(row.get("tool_calls") or ()):
             function = call.get("function") if isinstance(call, dict) else None
+            # Gemini needs a function call with a thought signature back as it was: on a route that sends the
+            # signature, its arguments are not a payload.
+            if policy.signatures and has_thought_signature(call.get("extra_content") if isinstance(call, dict)
+                                                           else None):
+                continue
             if isinstance(function, dict) and function.get("arguments") is not None:
                 arguments = function["arguments"]
                 parts.append((("arguments", index), arguments if isinstance(arguments, str) else compact_json(arguments)))

@@ -460,6 +460,24 @@ class EngineTest(unittest.TestCase):
         summary = next(row["content"] for row in new if row.get("_compressed_summary") and row["role"] == "assistant")
         self.assertLessEqual(estimate_tokens(summary), SUMMARY_RESERVE + 100)
 
+    def test_a_window_change_before_the_result_is_used_discards_it(self):
+        # The same route with a smaller window: the result was sized for the old window and threshold.
+        from warm_compaction import layout
+        engine = self.make(warm=False)
+        real = layout.build
+
+        def build(*args, **kwargs):
+            engine.update_model(model=ROUTE[0], context_length=32_000, base_url=ROUTE[1], api_key="k",
+                                provider="custom", api_mode=ROUTE[2])
+            return real(*args, **kwargs)
+        layout.build = build
+        try:
+            history = [*old_turns(), assistant("done")]
+            self.assertIs(engine.compress(history), history)
+        finally:
+            layout.build = real
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.

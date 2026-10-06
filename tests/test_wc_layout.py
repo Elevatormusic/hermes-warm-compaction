@@ -295,6 +295,20 @@ class BoundTailTest(unittest.TestCase):
         self.assertLess(len(bounded[1]["reasoning"]), 60_000)
         self.assertIn("SENT", str(removed))
 
+    def test_a_signed_gemini_tool_call_stays_whole(self):
+        # Gemini needs a function call with a thought signature back as it was: its arguments are not cut on a
+        # route that sends the signature. On another route the signature is not sent, and the cut is safe.
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import SendPolicy
+        arguments = '{"text": "' + "a" * 40_000 + '"}'
+        call = {"id": "c1", "type": "function", "function": {"name": "write", "arguments": arguments},
+                "extra_content": {"google": {"thought_signature": "sig"}}}
+        rows = [user("go"), {"role": "assistant", "content": "", "tool_calls": [call]}, tool("c1", "ok")]
+        kept = bound_tail(rows, 2_000, policy=SendPolicy(signatures=True))
+        self.assertEqual(kept[1]["tool_calls"][0], call)
+        cut = bound_tail(rows, 2_000, policy=SendPolicy(signatures=False))
+        self.assertNotEqual(cut[1]["tool_calls"][0]["function"]["arguments"], arguments)
+
     def test_a_large_assistant_row_is_cut_and_keeps_its_tool_calls(self):
         from warm_compaction.layout import bound_tail
         from warm_compaction.rows import MIDDLE_MARK, estimate_tokens

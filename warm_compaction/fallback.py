@@ -239,16 +239,22 @@ def _tool_lines(counts: collections.Counter, max_tokens: int) -> list[str]:
 
 
 def cut_quote(rows: list, max_tokens: int) -> str:
-    """The cut middles of rows (after CUT_NOTE) as one labeled block quote in about max_tokens estimated tokens,
-    each with its start and end. Empty without cut middles or room."""
+    """The cut middles of rows (after CUT_NOTE) as one labeled block quote in at most max_tokens estimated
+    tokens with its label and quote marks, each with its start and end. Empty without cut middles or room."""
     texts = [text[len(CUT_NOTE):] for text in (attr(row, "content") for row in rows)
              if isinstance(text, str) and text.startswith(CUT_NOTE)]
-    if not texts or max_tokens < MIN_QUOTE_TOKENS:
-        return ""
-    each = max_tokens // len(texts)
-    return "\n".join(["- Parts that the tail cut from the newest rows (their start and end):",
-                      *[quote(_bound(text, max(MIN_PART_CHARS, CUT_QUOTE_CHARS // len(texts)), each, middle=True))
-                        for text in texts]])
+    label = "- Parts that the tail cut from the newest rows (their start and end):"
+    # The text share: the budget less the label and the quote marks, smaller until the whole block fits.
+    share = max_tokens - estimate_tokens(label) - 2 * len(texts)
+    while texts and share // len(texts) >= MIN_QUOTE_TOKENS:
+        each = share // len(texts)
+        block = "\n".join([label, *[quote(_bound(text, max(MIN_PART_CHARS, CUT_QUOTE_CHARS // len(texts)), each,
+                                                 middle=True)) for text in texts]])
+        size = estimate_tokens(block)
+        if size <= max_tokens:
+            return block
+        share -= size - max_tokens
+    return ""
 
 
 def fixed_summary(messages: list, prefixes: Iterable[str] = (), focus_topic: str | None = None,

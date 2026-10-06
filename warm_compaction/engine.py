@@ -390,8 +390,10 @@ class WarmCompactionEngine(ContextEngine):
                               request_reserve(budget, int(self.context_length or 0)))
 
     def _attempt(self) -> tuple:
-        """(route, api key, provider, session id) now."""
-        return tuple(self._wc_route), self._wc_api_key, self._wc_provider, self._wc_session_id
+        """(route, api key, provider, session id, window, threshold) now. The result of an attempt is sized for
+        the window and threshold: a change of them also stops it."""
+        return (tuple(self._wc_route), self._wc_api_key, self._wc_provider, self._wc_session_id,
+                int(self.context_length or 0), int(self.threshold_tokens or 0))
 
     def _warm_summary(self, messages: list, capture: dict[str, Any] | None, focus_topic: str | None, memory: str,
                       prefixes: tuple[str, ...], record: dict[str, Any], attempt: tuple) -> str | None:
@@ -431,7 +433,7 @@ class WarmCompactionEngine(ContextEngine):
         except Exception as error:
             raise warm.WarmRefusal("middleware_unavailable") from error
         # Before any middleware sees the request: a route without its headers does not send it.
-        route, api_key, provider, session_id = attempt
+        route, api_key, provider, session_id = attempt[:4]
         headers = warm.route_headers(api_key, route[1], provider)
         tls = warm.route_tls(route[1])
         context = {"purpose": NAME, "api_request_id": None, "session_id": session_id,

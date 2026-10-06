@@ -257,6 +257,17 @@ class FixedSummaryTest(unittest.TestCase):
         self.assertIn("- Tool calls: read x2", text)
         self.assertIn("- Other tool calls:", text)
 
+    def test_the_cut_quote_block_fits_its_budget_with_its_label(self):
+        from warm_compaction.fallback import cut_quote
+        from warm_compaction.layout import CUT_NOTE
+        from warm_compaction.rows import estimate_tokens
+        rows = [user(CUT_NOTE + "m" * 40_000), tool("c1", CUT_NOTE + "t" * 40_000)]
+        for budget in (16, 40, 200, 2_000):
+            with self.subTest(budget=budget):
+                block = cut_quote(rows, budget)
+                self.assertLessEqual(estimate_tokens(block), budget)
+        self.assertIn("m" * 50, cut_quote(rows, 2_000))
+
     def test_no_tool_calls(self):
         self.assertIn("- No tool calls.", fixed_summary([user("x")]))
 
