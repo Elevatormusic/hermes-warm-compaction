@@ -191,6 +191,17 @@ class EngineTest(unittest.TestCase):
                          ("fallback", "middleware_rewrite"))
         self.assertEqual(self.post.calls, [])
 
+    def test_copy_allowance_leaves_room_for_the_summary(self):
+        from warm_compaction.engine import SUMMARY_RESERVE_TOKENS
+        self.engine.update_model(model=ROUTE[0], context_length=20_000, base_url=ROUTE[1], api_key="k",
+                                 provider="custom", api_mode=ROUTE[2])
+        tail = self.engine._tail_tokens()
+        allowance = self.engine._copy_tokens()
+        self.assertEqual((self.engine.threshold_tokens, tail), (10_000, 5_000))
+        self.assertLessEqual(tail + allowance + SUMMARY_RESERVE_TOKENS, self.engine.threshold_tokens)
+        engine = self.make()  # A large window keeps the full allowance.
+        self.assertEqual(engine._copy_tokens(), engine._tail_tokens())
+
     def test_fixed_summary_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("down"))
         engine = self.make()

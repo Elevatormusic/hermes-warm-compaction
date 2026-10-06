@@ -21,6 +21,9 @@ THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
 TAIL_MAX = 25_000
+# The summary row in tokens: the handoff (the instruction asks for at most 600 words, about 1,000 tokens) and
+# the carrier headings.
+SUMMARY_RESERVE_TOKENS = 2_000
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
 
@@ -192,7 +195,7 @@ class WarmCompactionEngine(ContextEngine):
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=self._tail_tokens())
+            copy_tokens=self._copy_tokens())
         self.compression_count += 1
         self._finish(record, started)
         return new
@@ -260,6 +263,15 @@ class WarmCompactionEngine(ContextEngine):
     def _tail_tokens(self) -> int:
         return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
                            int(self.threshold_tokens or 0))
+
+    def _copy_tokens(self) -> int:
+        """Token allowance for the copied user messages: at most the tail size, and small enough that the tail,
+        the copies, and the summary row fit below the compaction threshold."""
+        tail = self._tail_tokens()
+        threshold = int(self.threshold_tokens or 0)
+        if threshold <= 0:
+            return tail
+        return max(0, min(tail, threshold - tail - SUMMARY_RESERVE_TOKENS))
 
     def _cancelled(self) -> bool:
         check = getattr(self, "_compression_cancelled_check", None)

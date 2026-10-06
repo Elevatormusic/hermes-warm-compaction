@@ -51,8 +51,8 @@ class TranscriptTest(unittest.TestCase):
                 tool("c1", "y" * (TOOL_CHARS + 100)), assistant("done")]
         text = transcript(rows, PREFIXES)
         self.assertTrue(text.startswith("[earlier summary]\nold summary\n\n[first user message]\nfirst ask"))
-        self.assertIn("(tool call read: {\"p\":1})", text)
-        self.assertIn("[tool result]\n" + "y" * TOOL_CHARS + " [cut]", text)
+        self.assertIn("(tool call c1 read: {\"p\":1})", text)
+        self.assertIn("[tool result c1 read]\n" + "y" * TOOL_CHARS + " [cut]", text)
         self.assertTrue(text.endswith("[assistant]\ndone"))
 
     def test_size_is_bounded(self):

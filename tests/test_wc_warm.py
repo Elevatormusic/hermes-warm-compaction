@@ -261,8 +261,21 @@ class SendTest(unittest.TestCase):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        # Only a followed redirect comes here.
+        self.server.redirect_hits.append((self.path, self.headers.get("Authorization")))
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path.endswith("/moved"):
+            self.send_response(302)
+            self.send_header("Location", "/elsewhere")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         status = 500 if self.path.endswith("/fail") else 200
         data = json.dumps({"size": len(body), "auth": self.headers.get("Authorization")}).encode("utf-8")
         self.send_response(status)
@@ -282,6 +295,7 @@ class UrllibPostTest(unittest.TestCase):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         self.base = f"http://127.0.0.1:{self.server.server_port}"
+        self.server.redirect_hits = self.redirect_hits = []
 
     def test_posts_and_returns_status_and_body(self):
         status, raw = urllib_post(self.base + "/v1/chat/completions", b"{}", {"Authorization": "Bearer k"}, 5.0)
@@ -290,6 +304,12 @@ class UrllibPostTest(unittest.TestCase):
     def test_http_error_returns_the_status(self):
         status, _raw = urllib_post(self.base + "/fail", b"{}", {}, 5.0)
         self.assertEqual(status, 500)
+
+    def test_a_redirect_is_not_followed(self):
+        # A followed redirect would send the Authorization header to the redirect target.
+        status, _raw = urllib_post(self.base + "/moved", b"{}", {"Authorization": "Bearer k"}, 5.0)
+        self.assertEqual(status, 302)
+        self.assertEqual(self.redirect_hits, [])
 
 
 if __name__ == "__main__":

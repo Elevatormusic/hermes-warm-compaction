@@ -100,19 +100,23 @@ def _summary_text(row: Any, prefixes: tuple[str, ...]) -> str:
     return text.split(END_MARKER, 1)[0].strip()
 
 
-def render_row(row: Any) -> str:
-    """Return one transcript entry for a row."""
+def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
+    """Return one transcript entry for a row. A tool result names its call id and tool, so that results of
+    parallel calls stay linked to their calls."""
     role = str(attr(row, "role") or "unknown")
     text = visible_text(attr(row, "content"))
     text = (strip_think(text) if role == "assistant" else text).strip()
     if role == "tool":
-        return "[tool result]\n" + _cut(text, TOOL_CHARS)
+        call_id = str(attr(row, "tool_call_id") or "")
+        name = str(attr(row, "name") or (call_names or {}).get(call_id) or "")
+        label = " ".join(part for part in ("tool result", call_id, name) if part)
+        return f"[{label}]\n" + _cut(text, TOOL_CHARS)
     lines = [f"[{role}]"]
     if text:
         lines.append(text)
-    for _call_id, name, arguments in tool_calls_of(row):
+    for call_id, name, arguments in tool_calls_of(row):
         shown = arguments if isinstance(arguments, str) else compact_json(arguments)
-        lines.append(f"(tool call {name}: {_cut(shown, ARGUMENT_CHARS)})")
+        lines.append(f"(tool call {' '.join(part for part in (call_id, name) if part)}: {_cut(shown, ARGUMENT_CHARS)})")
     return "\n".join(lines)
 
 
@@ -134,11 +138,12 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
                                                       FIRST_USER_TOKENS))
     budget = TRANSCRIPT_CHARS - sum(len(part) + 2 for part in head)
     tokens = TRANSCRIPT_TOKENS - sum(estimate_tokens(part) + 1 for part in head)
+    call_names = {call_id: name for row in messages for call_id, name, _arguments in tool_calls_of(row) if call_id}
     recent: collections.deque = collections.deque()
     for row in reversed(messages):
         if is_summary(row, prefixes):
             continue
-        part = _bound(render_row(row), ROW_CHARS, ROW_TOKENS, middle=True)
+        part = _bound(render_row(row, call_names), ROW_CHARS, ROW_TOKENS, middle=True)
         cost = estimate_tokens(part) + 1
         if len(part) + 2 > budget or cost > tokens:
             if budget - 2 >= MIN_PART_CHARS and tokens - 1 >= MIN_PART_CHARS // 4:

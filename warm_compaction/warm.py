@@ -187,9 +187,18 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     return request
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Do not follow a redirect. A followed redirect would send the Authorization header to another origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        return None
+
+
 def urllib_post(url: str, data: bytes, headers: dict[str, str], timeout_s: float) -> tuple[int, bytes]:
-    """POST data with the standard library. Return (status, body). Raise TimeoutError on a time-out."""
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request.getproxies_environment()))
+    """POST data with the standard library. Return (status, body). Raise TimeoutError on a time-out. A redirect
+    is not followed: its status comes back, and the caller treats it as a provider error."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request.getproxies_environment()),
+                                         _NoRedirect())
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with opener.open(request, timeout=timeout_s) as response:
