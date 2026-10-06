@@ -160,6 +160,11 @@ class WarmCompactionEngine(ContextEngine):
                      provider: str = "", api_mode: str = "") -> None:
         super().update_model(model, context_length, base_url=base_url, api_key=api_key, provider=provider,
                              api_mode=api_mode)
+        # A capture belongs to the provider and key that sent it: two configurations can share the model, the base
+        # URL, and the API mode, and the old body must not go out with the new key and headers. The first call (no
+        # identity yet) is not a switch.
+        if (self._wc_provider or self._wc_api_key) and (provider, api_key) != (self._wc_provider, self._wc_api_key):
+            self._store.forget(session_id=self._wc_session_id)
         self._wc_route = (model, base_url, api_mode)
         self._wc_api_key = api_key
         self._wc_provider = provider
@@ -255,14 +260,22 @@ class WarmCompactionEngine(ContextEngine):
         if summary is None:
             summary = fallback.fixed_summary([*messages[:start], *removed], prefixes)
             record["path"] = "fixed"
-        copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead, reserve)
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum.
         room = self._room(messages[start:], summary, overhead or 0, reserve)
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
             if estimate_tokens(prepend) > allowed:
-                prepend = layout.fit_user_row(prepend, allowed)
+                if record["path"] != "fixed":
+                    # A model summary had the whole row (in the warm request, or in the fallback transcript).
+                    prepend = layout.fit_user_row(prepend, allowed)
+                else:
+                    # The row is not copied and the fixed summary does not have it: its cut middle goes into the
+                    # summary as a quote. The room keeps space for that quote.
+                    cut: list = []
+                    prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
+                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
+        copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead, reserve)
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve,
                                      estimate_tokens(prepend) if prepend is not None else 0)
         new = layout.build(

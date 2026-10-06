@@ -639,6 +639,41 @@ class EngineTest(unittest.TestCase):
         self.assertIs(self.engine.compress(messages), messages)
         self.assertIsNone(self.engine.warm_last)
 
+    def test_the_fixed_summary_quotes_the_cut_middle_of_the_prepended_row(self):
+        # The prepended row is the latest user message; it is not copied, so its cut middle must stay in the
+        # summary when no model summary is available.
+        from warm_compaction.layout import MIN_COPY_CHARS
+        from warm_compaction.rows import estimate_tokens
+        from warm_compaction.warm import DEFAULT_RESERVE
+        self.llm.error = RuntimeError("down")
+        rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
+        self.assertLessEqual(len(prepended["content"]), MIN_COPY_CHARS)
+        self.assertNotIn("MID-REQ", prepended["content"])
+        self.assertTrue(any("MID-REQ" in str(row.get("content")) for row in new if row.get("_compressed_summary")))
+        self.assertLessEqual(estimate_tokens(new), min(engine.threshold_tokens, 64_000 - DEFAULT_RESERVE))
+
+    def test_a_provider_or_key_switch_forgets_the_capture(self):
+        # Two configurations can share the model, the base URL, and the API mode; the old body must not go out
+        # with the new key and headers.
+        rows = old_turns(1)
+        self.seed(rows, assistant("x"))
+        self.engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key="k",
+                                 provider="custom", api_mode=ROUTE[2])
+        self.assertIsNotNone(self.store.latest("s1"))
+        for change in ({"api_key": "k2", "provider": "custom"}, {"api_key": "k2", "provider": "other"}):
+            self.seed(rows, assistant("x"))
+            with self.subTest(change=change):
+                self.engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1],
+                                         api_mode=ROUTE[2], **change)
+                self.assertIsNone(self.store.latest("s1"))
+
     def test_clone_keeps_the_model_thresholds(self):
         self.engine.model_thresholds = {"fake": 0.25}
         clone = self.engine.clone_for_agent()
