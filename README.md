@@ -112,7 +112,7 @@ plugins:
         threshold: 0.5
 ```
 
-The warm request sends the whole earlier request again, plus the new rows and the reply reserve. The reply limit of the warm request is the `max_tokens` or `max_completion_tokens` value of the earlier request, kept between 2,048 and 8,192 tokens. The warm request sends the default headers of the Hermes client for the route: the provider headers, `model.default_headers`, and `providers.<name>.extra_headers`. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
+The warm request sends the whole earlier request again, plus the new rows and the reply reserve. The reply limit of the warm request is the `max_tokens` or `max_completion_tokens` value of the earlier request, kept between 2,048 and 8,192 tokens. The warm request sends the default headers of the Hermes client for the route: the provider headers, `model.default_headers`, and `providers.<name>.extra_headers`. It uses the `ssl_ca_cert` of a custom provider route. A route with `ssl_verify: false` uses the fallback summary (refusal code `tls_unverified`): the plugin does not send without certificate checks. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
 
 ## Fallback model and keys
 
@@ -138,7 +138,7 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 ```
 
 - `path` is `warm`, `fallback`, or `fixed`.
-- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
+- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `tls_unknown`, `tls_unverified`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
 The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.

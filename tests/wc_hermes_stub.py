@@ -103,6 +103,20 @@ HOST_HEADERS: dict = {}
 PROFILE_HEADERS: dict = {}
 USER_HEADERS: dict = {}
 CUSTOM_HEADERS: dict = {}
+# The value that agent.ssl_verify.resolve_httpx_verify gives (True, False, or an SSL context); an exception
+# in it is raised.
+TLS_VERIFY: list = []
+
+
+def resolve_httpx_verify(*, ca_bundle=None, ssl_verify=None, base_url=""):
+    value = TLS_VERIFY[0] if TLS_VERIFY else True
+    if isinstance(value, Exception):
+        raise value
+    return value
+
+
+SSL_VERIFY = _module("agent.ssl_verify", resolve_httpx_verify=resolve_httpx_verify)
+AGENT.ssl_verify = SSL_VERIFY
 AGENT_INIT = _module("agent.agent_init", _host_default_headers_factory=lambda base_url: (
     (lambda api_key, base: dict(HOST_HEADERS)) if HOST_HEADERS else None))
 AUXILIARY_CLIENT = _module("agent.auxiliary_client", _apply_user_default_headers=lambda headers: (
@@ -160,7 +174,8 @@ MIDDLEWARE = _module("hermes_cli.middleware", VALID_MIDDLEWARE={
     run_llm_execution_middleware=run_llm_execution_middleware,
     apply_llm_request_middleware=apply_llm_request_middleware)
 CONFIG_PROVIDERS = _module("hermes_cli.config_providers",
-                           get_custom_provider_extra_headers=lambda base_url, *args, **kwargs: dict(CUSTOM_HEADERS))
+                           get_custom_provider_extra_headers=lambda base_url, *args, **kwargs: dict(CUSTOM_HEADERS),
+                           get_custom_provider_tls_settings=lambda base_url, *args, **kwargs: {})
 HERMES_CLI.config_providers = CONFIG_PROVIDERS
 HERMES_CLI.plugins = PLUGINS
 HERMES_CLI.middleware = MIDDLEWARE
@@ -168,7 +183,7 @@ MODULES = {
     "agent": AGENT, "agent.context_engine": CONTEXT_ENGINE, "agent.context_compressor": CONTEXT_COMPRESSOR,
     "hermes_cli": HERMES_CLI, "hermes_cli.plugins": PLUGINS, "hermes_cli.middleware": MIDDLEWARE,
     "agent.agent_init": AGENT_INIT, "agent.auxiliary_client": AUXILIARY_CLIENT, "providers": PROVIDERS,
-    "hermes_cli.config_providers": CONFIG_PROVIDERS,
+    "hermes_cli.config_providers": CONFIG_PROVIDERS, "agent.ssl_verify": SSL_VERIFY,
 }
 
 
@@ -180,5 +195,5 @@ def install(test_case):
     test_case.addCleanup(EXECUTION_MIDDLEWARE.clear)
     test_case.addCleanup(REQUEST_MIDDLEWARE.clear)
     test_case.addCleanup(CAPTURE_CHAIN.clear)
-    for headers in (HOST_HEADERS, PROFILE_HEADERS, USER_HEADERS, CUSTOM_HEADERS):
+    for headers in (HOST_HEADERS, PROFILE_HEADERS, USER_HEADERS, CUSTOM_HEADERS, TLS_VERIFY):
         test_case.addCleanup(headers.clear)

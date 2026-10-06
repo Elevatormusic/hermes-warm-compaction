@@ -6,6 +6,7 @@ import collections
 import copy
 import json
 import re
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -128,12 +129,12 @@ def _arguments(value: Any) -> tuple[str, str]:
 
 
 def _in_whole_lines(stored: str, sent: str) -> bool:
-    """True when the stored text is in the sent text as whole lines. Hermes adds request-time context as
-    separate lines ("\n\n" + context); text on the same line can change the meaning ("Delete A" to
-    "Do not Delete A")."""
-    if not stored:
+    """True when the stored text is in the sent text as whole lines, with its white space. Hermes adds
+    request-time context as separate lines ("\n\n" + context); text on the same line can change the meaning
+    ("Delete A" to "Do not Delete A"), and so can changed indentation."""
+    if not stored.strip():
         return True
-    return re.search(r"(?:^|\n)[ \t]*" + re.escape(stored) + r"[ \t]*(?:\n|$)", sent) is not None
+    return re.search(r"(?:^|\n)" + re.escape(stored) + r"(?:\n|$)", sent) is not None
 
 
 def _same_row(wire: Any, row: Any) -> bool:
@@ -149,7 +150,7 @@ def _same_row(wire: Any, row: Any) -> bool:
     sent_runs, sent_media = _parts(attr(wire, "content"))
     stored_runs, stored_media = _parts(api_content(row))
     if sent_media != stored_media or not all(
-            _in_whole_lines(stored.strip(), sent) for stored, sent in zip(stored_runs, sent_runs)):
+            _in_whole_lines(stored, sent) for stored, sent in zip(stored_runs, sent_runs)):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
@@ -283,6 +284,47 @@ def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url
     return wire
 
 
+def _join_content(first: Any, second: Any) -> Any:
+    """The rule of Hermes 45871e10 (agent.agent_runtime_helpers._merge_user_content): two texts join with a blank
+    line; lists append as separate parts. None for another shape."""
+    if isinstance(first, str) and isinstance(second, str):
+        return first + ("\n\n" if first and second else "") + second
+    first_parts = first if isinstance(first, list) else [{"type": "text", "text": first}] if first else []
+    second_parts = second if isinstance(second, list) else [{"type": "text", "text": second}] if second else []
+    if not isinstance(first, (str, list)) or not isinstance(second, (str, list)):
+        return None
+    return [*first_parts, *second_parts]
+
+
+def ends_with_instruction(row: Any, instruction: str) -> bool:
+    """True when the row is a user row whose last block is the host instruction (it can join the last user row
+    of the history; see _join_user_rows)."""
+    if attr(row, "role") != "user":
+        return False
+    content = attr(row, "content")
+    if isinstance(content, str):
+        return content == instruction or content.endswith("\n\n" + instruction)
+    return (isinstance(content, list) and bool(content) and isinstance(content[-1], dict)
+            and content[-1].get("type") == "text" and content[-1].get("text") == instruction)
+
+
+def _join_user_rows(rows: list) -> list:
+    """Join adjacent user rows of the same author (no name, or the same name). The ordinary request has no
+    adjacent user rows (Hermes joins them), and strict chat templates refuse them. The host instruction is the
+    last block of the last user row; it says that it comes from the host."""
+    out: list = []
+    for row in rows:
+        last = out[-1] if out else None
+        if (last is not None and last.get("role") == row.get("role") == "user" and last.get("name") == row.get("name")
+                and set(last) <= {"role", "content", "name"} and set(row) <= {"role", "content", "name"}):
+            joined = _join_content(last.get("content"), row.get("content"))
+            if joined is not None:
+                out[-1] = {**last, "content": joined}
+                continue
+        out.append(row)
+    return out
+
+
 def reply_reserve(body: Any) -> int:
     """The reply reserve of a request: the larger positive max_tokens or max_completion_tokens (a server can
     honor either), else DEFAULT_RESERVE."""
@@ -326,7 +368,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
     echo = needs_reasoning_echo(body, new_rows)
     added = [wire_row(row, echo, body.get("model"), route[1]) for row in (*new_rows, *trailing)]
-    request["messages"] = [*body["messages"], *added, {"role": "user", "content": instruction}]
+    request["messages"] = [*body["messages"], *_join_user_rows([*added, {"role": "user", "content": instruction}])]
     request["stream"] = False
     request.pop("stream_options", None)
     # A stop sequence of the main request could cut the handoff after the five headings.
@@ -351,11 +393,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def urllib_post(url: str, data: bytes, headers: dict[str, str], timeout_s: float) -> tuple[int, bytes]:
+def urllib_post(url: str, data: bytes, headers: dict[str, str], timeout_s: float,
+                context: ssl.SSLContext | None = None) -> tuple[int, bytes]:
     """POST data with the standard library. Return (status, body). Raise TimeoutError on a time-out. A redirect
-    is not followed: its status comes back, and the caller treats it as a provider error."""
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request.getproxies_environment()),
-                                         _NoRedirect())
+    is not followed: its status comes back, and the caller treats it as a provider error. context is the TLS
+    context of the route (route_tls)."""
+    handlers: list = [urllib.request.ProxyHandler(urllib.request.getproxies_environment()), _NoRedirect()]
+    if context is not None:
+        handlers.append(urllib.request.HTTPSHandler(context=context))
+    opener = urllib.request.build_opener(*handlers)
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with opener.open(request, timeout=timeout_s) as response:
@@ -418,12 +464,40 @@ def route_headers(api_key: Any, base_url: Any, provider: Any) -> dict[str, str]:
     return {str(key): str(value) for key, value in headers.items()}
 
 
+def route_tls(base_url: Any) -> ssl.SSLContext | None:
+    """Return the TLS context of an https route as the Hermes client has it (ssl_ca_cert of a custom provider,
+    through agent.ssl_verify.resolve_httpx_verify), or None for the default context. Raise
+    WarmRefusal("tls_unknown") when the setting cannot be read: with another trust setting, the request fails
+    or goes to a server that the main requests do not trust. Raise WarmRefusal("tls_unverified") for
+    ssl_verify: false: the plugin does not send without certificate checks."""
+    url = str(base_url or "")
+    if not url.lower().startswith("https:"):
+        return None
+    try:
+        from agent.ssl_verify import resolve_httpx_verify
+        from hermes_cli.config_providers import get_custom_provider_tls_settings
+        tls = get_custom_provider_tls_settings(url) or {}
+        verify = resolve_httpx_verify(ca_bundle=tls.get("ssl_ca_cert"), ssl_verify=tls.get("ssl_verify"),
+                                      base_url=url)
+    except Exception as error:
+        raise WarmRefusal("tls_unknown") from error
+    if isinstance(verify, ssl.SSLContext):
+        return verify
+    if verify is False:
+        # ssl_verify: false. The plugin does not send without certificate checks; the fallback runs.
+        raise WarmRefusal("tls_unverified")
+    if verify is True:
+        return None
+    raise WarmRefusal("tls_unknown")
+
+
 def _optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = TIMEOUT_S,
-         post: Post | None = None, extra_headers: dict[str, str] | None = None) -> dict[str, Any]:
+         post: Post | None = None, extra_headers: dict[str, str] | None = None,
+         ssl_context: ssl.SSLContext | None = None) -> dict[str, Any]:
     """Send the warm request one time. Return the reply fields and the usage, or raise WarmRefusal.
     extra_headers are the client default headers of the route (route_headers); they win, as in the SDK."""
     if not base_url:
@@ -436,7 +510,11 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
     data = json.dumps(body).encode("utf-8")
     started = time.monotonic()
     try:
-        status, raw = (post or urllib_post)(str(base_url).rstrip("/") + "/chat/completions", data, headers, timeout_s)
+        url = str(base_url).rstrip("/") + "/chat/completions"
+        if ssl_context is None:
+            status, raw = (post or urllib_post)(url, data, headers, timeout_s)
+        else:
+            status, raw = (post or urllib_post)(url, data, headers, timeout_s, context=ssl_context)
     except TimeoutError as error:
         raise WarmRefusal("timeout") from error
     except Exception as error:

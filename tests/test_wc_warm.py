@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from warm_compaction.rows import estimate_tokens
 from warm_compaction.warm import (
-    DEFAULT_RESERVE, HANDOFF_MAX_TOKENS, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
+    DEFAULT_RESERVE, HANDOFF_MAX_TOKENS, ends_with_instruction, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
     wire_row,
 )
 from wc_fixtures import ROUTE, assistant, capture_for, tool, user
@@ -148,9 +148,11 @@ class BuildRequestTest(unittest.TestCase):
         body = self.build(capture)
         sent = capture["body"]["messages"]
         self.assertEqual(json.dumps(body["messages"][: len(sent)]), json.dumps(sent))
+        # The instruction joins the trailing user row: no two adjacent user rows.
         self.assertEqual(body["messages"][len(sent):], [
-            wire_row(self.reply), wire_row(tool("c1", "r1")), wire_row(user("u3")),
-            {"role": "user", "content": INSTRUCTION}])
+            wire_row(self.reply), wire_row(tool("c1", "r1")), {"role": "user", "content": "u3\n\n" + INSTRUCTION}])
+        self.assertTrue(ends_with_instruction(body["messages"][-1], INSTRUCTION))
+        self.assertFalse(ends_with_instruction({"role": "user", "content": "u3"}, INSTRUCTION))
         self.assertEqual((body["stream"], body["temperature"]), (False, 0.2))
         self.assertNotIn("stream_options", body)
 
@@ -218,9 +220,21 @@ class BuildRequestTest(unittest.TestCase):
 
     def test_sends_every_trailing_user_row(self):
         # The tail can keep only the newest of several user rows. The handoff must see the older ones too.
+        # Strict chat templates refuse two adjacent user rows: they are joined, as Hermes joins them, and the
+        # host instruction is the last block of the last user row.
         self.messages = [*self.messages, user("u4 " + "x" * 5_000)]
         body = self.build(capture_for(self.rows, self.reply))
-        self.assertEqual(body["messages"][-3:-1], [wire_row(user("u3")), wire_row(user("u4 " + "x" * 5_000))])
+        self.assertEqual(body["messages"][-1], {"role": "user",
+                                                "content": "u3\n\nu4 " + "x" * 5_000 + "\n\n" + INSTRUCTION})
+        self.assertEqual(body["messages"][-2]["role"], "tool")
+        roles = [row["role"] for row in body["messages"]]
+        self.assertFalse(any(a == b == "user" for a, b in zip(roles, roles[1:])))
+
+    def test_a_named_trailing_user_row_is_not_joined(self):
+        self.messages = [*self.messages[:-1], user("u3", name="alice")]
+        body = self.build(capture_for(self.rows, self.reply))
+        self.assertEqual(body["messages"][-2:], [wire_row(user("u3", name="alice")),
+                                                 {"role": "user", "content": INSTRUCTION}])
 
     def test_refusal_codes(self):
         good = capture_for(self.rows, self.reply)
@@ -378,7 +392,23 @@ class BuildRequestTest(unittest.TestCase):
         self.rows = [user("Delete A"), assistant("a1"), user("u2")]
         self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
         for sent, accepted in (("Do not Delete A", False), ("Delete A now", False), ("Delete A\n\n[context]", True),
-                               ("[context]\nDelete A", True), ("[a]\n\nDelete A  \n\n[b]", True)):
+                               ("[context]\nDelete A", True), ("[a]\n\nDelete A\n\n[b]", True),
+                               ("[a]\n\nDelete A  \n\n[b]", False)):
+            capture = capture_for(self.rows, self.reply)
+            capture["body"]["messages"][1]["content"] = sent
+            with self.subTest(sent=sent):
+                if accepted:
+                    self.build(capture)
+                    continue
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_refuses_changed_white_space_around_the_stored_text(self):
+        # A middleware that dedents the first line of a code fragment changes its meaning.
+        self.rows = [user("    return 1\nx = 2"), assistant("a1"), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        for sent, accepted in (("return 1\nx = 2", False), ("[ctx]\n\n    return 1\nx = 2", True)):
             capture = capture_for(self.rows, self.reply)
             capture["body"]["messages"][1]["content"] = sent
             with self.subTest(sent=sent):
@@ -428,6 +458,48 @@ def fake_post(status, payload, calls):
         calls.append((url, json.loads(data), headers, timeout_s))
         return status, payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
     return post
+
+
+class RouteTlsTest(unittest.TestCase):
+    def setUp(self):
+        import wc_hermes_stub
+        wc_hermes_stub.install(self)
+        self.stub = wc_hermes_stub
+
+    def test_tls_of_the_route(self):
+        import ssl
+        from warm_compaction.warm import route_tls
+        self.assertIsNone(route_tls("http://127.0.0.1:9/v1"))
+        self.stub.TLS_VERIFY.append(True)
+        self.assertIsNone(route_tls("https://h/v1"))
+        # The plugin does not send without certificate checks (ssl_verify: false): the warm path stops.
+        self.stub.TLS_VERIFY[:] = [False]
+        with self.assertRaises(WarmRefusal) as caught:
+            route_tls("https://h/v1")
+        self.assertEqual(caught.exception.code, "tls_unverified")
+        own = ssl.create_default_context()
+        self.stub.TLS_VERIFY[:] = [own]
+        self.assertIs(route_tls("https://h/v1"), own)
+
+    def test_an_unreadable_tls_setting_stops_the_warm_request(self):
+        from warm_compaction.warm import route_tls
+        self.stub.TLS_VERIFY[:] = [RuntimeError("changed")]
+        with self.assertRaises(WarmRefusal) as caught:
+            route_tls("https://h/v1")
+        self.assertEqual(caught.exception.code, "tls_unknown")
+
+    def test_the_context_goes_to_the_post(self):
+        import ssl
+        context = ssl.create_default_context()
+        seen = []
+
+        def post(url, data, headers, timeout_s, context=None):
+            seen.append(context)
+            return 200, json.dumps({"choices": [{"message": {"content": "t"}, "finish_reason": "stop"}]}).encode()
+        send({"messages": []}, "https://h/v1", "k", post=post, ssl_context=context)
+        send({"messages": []}, "http://h/v1", "k", post=fake_post(200, {"choices": [
+            {"message": {"content": "t"}, "finish_reason": "stop"}]}, []))
+        self.assertEqual(seen, [context])
 
 
 class SendTest(unittest.TestCase):

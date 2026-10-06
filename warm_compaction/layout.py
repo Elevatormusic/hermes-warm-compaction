@@ -180,6 +180,21 @@ def _fit_copy(text: str, chars: int, tokens: int | None) -> str | None:
     return None
 
 
+def fit_user_row(row: dict[str, Any], tokens: int) -> dict[str, Any]:
+    """Return the user row cut to its start and end, at most tokens estimated tokens (the text that Hermes
+    sent; an attachment becomes a mark). At least MIN_COPY_CHARS characters stay: the tail starts with it."""
+    text = visible_text(api_content(row)).strip()
+    limit = len(text)
+    while True:
+        out = {"role": "user", "content": cut_middle(text, limit)}
+        if attr(row, "name"):
+            out["name"] = attr(row, "name")
+        cost = estimate_tokens(out)
+        if cost <= tokens or limit <= MIN_COPY_CHARS:
+            return out
+        limit = max(MIN_COPY_CHARS, min(limit - 1, limit * max(tokens, 0) // cost))
+
+
 def quote(text: str) -> str:
     """Return the text as a Markdown block quote."""
     return "\n".join(">" + (" " + line if line else "") for line in text.splitlines()) or ">"

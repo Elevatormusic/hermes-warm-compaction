@@ -217,6 +217,10 @@ class WarmCompactionEngine(ContextEngine):
         overhead = request_overhead(budget, messages, current_tokens)
         copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead,
                                                                     request_reserve(budget))
+        # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
+        room = self._room(messages[start:], summary, overhead or 0, request_reserve(budget))
+        if prepend is not None and room is not None and estimate_tokens(prepend) > room:
+            prepend = layout.fit_user_row(prepend, room)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
@@ -235,11 +239,12 @@ class WarmCompactionEngine(ContextEngine):
                 raise warm.WarmRefusal("disabled")
             if capture is None:
                 raise warm.WarmRefusal("no_capture")
-            body = warm.build_request(capture, messages, self._wc_route, self.context_length,
-                                      handoff.build_instruction(focus_topic, memory))
+            instruction = handoff.build_instruction(focus_topic, memory)
+            body = warm.build_request(capture, messages, self._wc_route, self.context_length, instruction)
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
-            reply = self._execute(body, len(capture["body"]["messages"]), capture.get("prompt_tokens"))
+            reply = self._execute(body, instruction, len(capture["body"]["messages"]),
+                                  capture.get("prompt_tokens"))
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
             if text is None:
@@ -253,7 +258,8 @@ class WarmCompactionEngine(ContextEngine):
         record.update(path="warm", reason="accepted")
         return text
 
-    def _execute(self, body: dict[str, Any], captured: int, measured: int | None = None) -> dict[str, Any]:
+    def _execute(self, body: dict[str, Any], instruction: str, captured: int,
+                 measured: int | None = None) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
         execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
@@ -265,6 +271,7 @@ class WarmCompactionEngine(ContextEngine):
             raise warm.WarmRefusal("middleware_unavailable") from error
         # Before any middleware sees the request: a route without its headers does not send it.
         headers = warm.route_headers(self._wc_api_key, self._wc_route[1], self._wc_provider)
+        tls = warm.route_tls(self._wc_route[1])
         context = {"purpose": NAME, "api_request_id": None, "session_id": self._wc_session_id,
                    "model": self._wc_route[0], "base_url": self._wc_route[1], "api_mode": self._wc_route[2]}
         try:
@@ -277,8 +284,9 @@ class WarmCompactionEngine(ContextEngine):
         # example, adds a system row) would apply twice and change the cached prefix. It can change the new rows.
         if ({k: v for k, v in changed.items() if k != "messages"} != {k: v for k, v in body.items() if k != "messages"}
                 or changed["messages"][:captured] != body["messages"][:captured]
-                # The host instruction must stay the last row: without it, the reply is not a handoff.
-                or changed["messages"][-1:] != body["messages"][-1:]):
+                # The host instruction must stay the last block of the last row: without it, the reply is not a
+                # handoff. The user text in front of it (a trailing user row) can change, as the other new rows.
+                or not changed["messages"] or not warm.ends_with_instruction(changed["messages"][-1], instruction)):
             raise warm.WarmRefusal("middleware_rewrite")
         body = changed
         # A request middleware can add text to the new rows. Check the size again before the request is sent.
@@ -299,7 +307,8 @@ class WarmCompactionEngine(ContextEngine):
                 # attempt stops even when the middleware catches this refusal.
                 repeated.append(True)
                 raise warm.WarmRefusal("middleware_repeated")
-            result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post, extra_headers=headers)
+            result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post, extra_headers=headers,
+                               ssl_context=tls)
             sent.append((result, dict(result)))
             return result
         try:
@@ -325,18 +334,23 @@ class WarmCompactionEngine(ContextEngine):
         return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
                            int(self.threshold_tokens or 0))
 
-    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int:
-        """Token allowance for the copied user messages: at most the tail size, and small enough that the request
-        overhead (system rows and tool schemas), the tail rows, the summary, the summary row headings, and the
-        copies fit below the compaction threshold, and below the context window less the reply reserve."""
-        tail = self._tail_tokens()
+    def _room(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int | None:
+        """Tokens that stay free below the compaction threshold, and below the context window less the reply
+        reserve, after the request overhead (system rows and tool schemas), the tail rows, the summary, and the
+        summary row headings. None without a threshold."""
         threshold = int(self.threshold_tokens or 0)
         if threshold <= 0:
-            return tail
+            return None
         window = int(self.context_length or 0)
         limit = min(threshold, window - reserve) if window > 0 else threshold
-        used = overhead + estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS
-        return max(0, min(tail, limit - used))
+        return limit - (overhead + estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS)
+
+    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int:
+        """Token allowance for the copied user messages and the prepended user row: at most the tail size, and
+        the free room (_room)."""
+        tail = self._tail_tokens()
+        room = self._room(tail_rows, summary, overhead, reserve)
+        return tail if room is None else max(0, min(tail, room))
 
     def _cancelled(self) -> bool:
         check = getattr(self, "_compression_cancelled_check", None)

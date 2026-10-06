@@ -436,6 +436,22 @@ class EngineTest(unittest.TestCase):
         summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
         self.assertFalse(summary.split("## Copied user messages", 1)[1].strip().startswith("(none)"))
 
+    def test_a_large_prepended_user_row_is_cut_to_fit(self):
+        # The newest user message is before the tail (it is larger than the tail) and goes in front of it. It
+        # must fit below the threshold and the window less the reply reserve.
+        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
+        from warm_compaction.warm import DEFAULT_RESERVE
+        rows = [*old_turns(4), user("BIG start " + "q" * 240_000 + " big end"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows, current_tokens=estimate_tokens(rows) + 1_000)
+        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
+        self.assertIn(MIDDLE_MARK, prepended["content"])
+        self.assertTrue(prepended["content"].endswith(" big end"))
+        self.assertLessEqual(estimate_tokens(new) + 1_000, min(engine.threshold_tokens, 64_000 - DEFAULT_RESERVE))
+
     def test_without_a_capture_the_copies_leave_room_for_the_system_prompt_and_tools(self):
         # After a restart there is no capture. The system prompt and the tool schemas still take their space.
         from warm_compaction.rows import estimate_tokens
