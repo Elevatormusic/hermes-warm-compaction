@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import re
 from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
@@ -20,12 +21,24 @@ CUT_NOTE = "[The middle of a newest row; its start and end stay after the summar
 NO_COPIES = "(none)"
 STEER_KIND = "steer"
 SYNTHETIC_FLAGS = ("_dropped_toolcall_nudge",)
-SYNTHETIC_PREFIXES = (
-    "[System: Your previous response was truncated",
-    "[System: The previous response was cut off",
-    "[System: Your previous tool call",
-    "[Your active task list was preserved across context compression]",
-    "[IMPORTANT: Background process ",
+# Hermes 45871e10 rows from templates with variable parts: the whole text must match the template (Hermes itself
+# matches only the start; a user message that only starts like one is a real request). The fixed nudges are in
+# HOST_NUDGES.
+_DROPPED_TOOLS_TAIL = (
+    " was too large and the stream timed out before it could be delivered. Do NOT retry the same tool call with "
+    "the same large content. Instead, break the content into multiple smaller tool calls (e.g. use multiple patch "
+    "calls or write smaller files). Each tool call's arguments must be under ~8K tokens to avoid stream timeouts. "
+    "The cut was a transport interruption, not a capability change \u2014 your tools remain fully available.]")
+SYNTHETIC_TEMPLATES = (
+    # agent.conversation_loop._get_continuation_prompt, with the dropped tool names.
+    re.compile(re.escape("[System: Your previous tool call ") + r"\([^\n]*\)" + re.escape(_DROPPED_TOOLS_TAIL)),
+    # tools.process_registry_notifications.format_process_notification (and the gateway copy): a completion or a
+    # watch match, an optional attribution line, the command, and the output.
+    re.compile(r'\[IMPORTANT: Background process \S+ (?:matched watch pattern "[^\n]*"|[^\n]*\(exit code [^\n]*\))'
+               r"\.\n(?:[^\n]*\n)?Command: [^\n]*\n(?:Matched output|Output):\n.*\]", re.S),
+    # tools.todo_tool.TodoStore.format_for_injection: the header and one line for each task.
+    re.compile(re.escape("[Your active task list was preserved across context compression]")
+               + r"(?:\n *- \[[^\]\n]*\] [^\n]*)+"),
 )
 # Hermes recovery nudges and continuation markers. The Hermes compressor matches them by exact text
 # (ContextCompressor._is_synthetic_compression_user_turn). The Hermes value applies when Hermes has it; the
@@ -126,7 +139,7 @@ def is_real_user(row: Any, prefixes: Iterable[str]) -> bool:
     if row.get("display_kind") and row.get("display_kind") != STEER_KIND:
         return False
     text = visible_text(row.get("content")).strip()
-    if not text or text.startswith(SYNTHETIC_PREFIXES) or text in nudge_texts():
+    if not text or text in nudge_texts() or any(template.fullmatch(text) for template in SYNTHETIC_TEMPLATES):
         return False
     return not is_summary(row, prefixes)
 
@@ -287,7 +300,7 @@ def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple
             if isinstance(function, dict) and function.get("arguments") is not None:
                 arguments = function["arguments"]
                 parts.append((("arguments", index), arguments if isinstance(arguments, str) else compact_json(arguments)))
-        key = sent_reasoning_key(row, policy)
+        key = sent_reasoning_key(row, policy) if policy.cut_reasoning else None
         if key is not None:
             parts.append(((key,), row[key]))
     return parts

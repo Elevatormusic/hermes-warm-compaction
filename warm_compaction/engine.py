@@ -276,8 +276,11 @@ class WarmCompactionEngine(ContextEngine):
             summary = fallback.fixed_summary([*messages[:start], *removed], prefixes)
             record["path"] = "fixed"
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
-        # With an unknown overhead, the room is unknown too: the row keeps only its minimum.
-        room = self._room(messages[start:], summary, overhead or 0, reserve, policy)
+        # With an unknown overhead, the room is unknown too: the row keeps only its minimum. The room is after the
+        # tail as the cap cuts it: an uncut large tool result would leave no room.
+        bounded = layout.bound_tail(messages[start:], self._tail_cap(estimate_tokens(summary), overhead, reserve),
+                                    policy=policy)
+        room = self._room(bounded, summary, overhead or 0, reserve, policy)
         cut: list = []
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
@@ -333,7 +336,8 @@ class WarmCompactionEngine(ContextEngine):
                 else warm.needs_reasoning_echo({}, messages))
         module = "agent.transports.chat_completions"
         return SendPolicy(
-            echo=echo,
+            # Without a capture, stored reasoning can be of an earlier route: count it, but do not cut it.
+            echo=echo, cut_reasoning=echo and bool(sent),
             details=bool(hermes_value(module, "_route_replays_reasoning_details",
                                       warm._route_replays_reasoning_details)(self._wc_route[1])),
             signatures=bool(hermes_value(module, "_model_consumes_thought_signature",

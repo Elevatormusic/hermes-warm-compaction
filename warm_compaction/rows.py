@@ -108,10 +108,13 @@ SENT_FIELDS = ("role", "content", "name", "tool_call_id", "reasoning_content")
 class SendPolicy(NamedTuple):
     """The route-dependent fields of warm.wire_row: reasoning_details (a route that replays them), the tool-call
     thought signature, extra_content (a model that reads it), and reasoning_content (a route that needs it back,
-    apply_reasoning_content_policy). The default counts all of them."""
+    apply_reasoning_content_policy). The default counts all of them. cut_reasoning: a cut can take reasoning
+    (layout.bound_tail) only when a capture of the route shows that the route sends it; else stored reasoning can
+    be of an earlier route, and a cut would give it to the fallback model."""
     details: bool = True
     signatures: bool = True
     echo: bool = True
+    cut_reasoning: bool = True
 
 
 def reasoning_policy(source: dict, wire: dict, needs_pad: bool) -> None:

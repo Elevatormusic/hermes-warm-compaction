@@ -738,6 +738,31 @@ class EngineTest(unittest.TestCase):
         summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
         self.assertIn("ask 0 ", summary)
 
+    def test_reasoning_of_an_earlier_route_does_not_reach_the_fallback_model(self):
+        # No capture of this route: old rows with reasoning_content (of a thinking route before a model switch)
+        # do not show that this route sends it.
+        rows = [*old_turns(4), user("go"),
+                assistant("c" * 40_000, reasoning_content="r" * 40_000 + " SECRET " + "r" * 40_000)]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        sent = json.dumps([call[0] for call in self.llm.calls])
+        self.assertNotIn("SECRET", sent)
+        self.assertNotIn("r" * 100, sent)
+
+    def test_the_prepended_request_is_fitted_against_the_bounded_tail(self):
+        # A huge tool result is cut to the tail cap: the room after it keeps the whole active request.
+        request = "REQ start " + "q" * 6_000 + " REQ end"
+        rows = [*old_turns(4), user(request)]
+        reply = assistant("", [("c1", "read", "{}")])
+        self.seed(rows, reply)
+        engine = self.make(threshold=0.95, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress([*rows, reply, tool("c1", "t" * 400_000)])
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        self.assertTrue(any(row.get("role") == "user" and row.get("content") == request for row in new))
+
     def test_unsent_reasoning_does_not_reach_the_fallback_model(self):
         # The route does not send reasoning: the auxiliary model must not get the private reasoning of a cut row.
         rows = [*old_turns(4), user("go"), assistant("c" * 40_000, reasoning="r" * 40_000 + " SECRET " + "r" * 40_000)]

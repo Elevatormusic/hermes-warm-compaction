@@ -16,13 +16,21 @@ def build_with(rows, start, prepend=None, summary="S"):
                  prefixes=PREFIXES, end_marker=END)
 
 
+DROPPED_TOOLS_TEXT = (
+    "[System: Your previous tool call (write_file) was too large and the stream timed out before it could be "
+    "delivered. Do NOT retry the same tool call with the same large content. Instead, break the content into "
+    "multiple smaller tool calls (e.g. use multiple patch calls or write smaller files). Each tool call's arguments "
+    "must be under ~8K tokens to avoid stream timeouts. The cut was a transport interruption, not a capability "
+    "change \u2014 your tools remain fully available.]")
+
+
 class PredicateTest(unittest.TestCase):
     def test_real_user_excludes_scaffolding_and_summaries(self):
         self.assertTrue(is_real_user(user("hi"), PREFIXES))
         self.assertTrue(is_real_user(user("x", display_kind="steer"), PREFIXES))
         for row in (user("x", _todo_snapshot_synthetic=True), user("x", _dropped_toolcall_nudge=True),
                     user("x", display_kind="hidden"), user("  "), user("[HERMES PREFIX]\n\n" + HEADER_TEXT),
-                    user("x", _compressed_summary=True), user("[System: Your previous tool call failed"),
+                    user("x", _compressed_summary=True), user(DROPPED_TOOLS_TEXT),
                     assistant("hi")):
             with self.subTest(row=row):
                 self.assertFalse(is_real_user(row, PREFIXES))
@@ -41,6 +49,33 @@ class PredicateTest(unittest.TestCase):
                 self.assertFalse(is_real_user(user(text), PREFIXES))
                 self.assertFalse(is_real_user(user("  " + text + "\n"), PREFIXES))
         self.assertTrue(is_real_user(user("Continue now."), PREFIXES))
+
+    def test_hermes_scaffolding_rows_match_their_whole_template(self):
+        # Hermes writes these rows from fixed templates. A user message that only starts like one (a pasted log,
+        # for example) is a real request.
+        scaffolding = (
+            DROPPED_TOOLS_TEXT,
+            "[IMPORTANT: Background process proc_1 completed normally (exit code 0).\nCommand: make\nOutput:\nok]",
+            "[IMPORTANT: Background process proc_1 exited (exit code 2, SIGTERM).\nDelegated by task 7\n"
+            "Command: make test\nOutput:\nline 1\nline 2]",
+            "[IMPORTANT: Background process proc_2 matched watch pattern \"ERROR\".\nCommand: tail -f log\n"
+            "Matched output:\nERROR x\n(2 earlier matches were suppressed by rate limit)]",
+            "[Your active task list was preserved across context compression]\n- [>] 1. Fix the parser (in_progress)\n"
+            "  - [ ] 2. Add a test (pending)",
+        )
+        for text in scaffolding:
+            with self.subTest(text=text[:40]):
+                self.assertFalse(is_real_user(user(text), PREFIXES))
+        real = (
+            "[IMPORTANT: Background process ids in this log are wrong. Please fix the parser.",
+            "[System: Your previous tool call log follows; why did it fail?\n...",
+            "[Your active task list was preserved across context compression] is shown twice; remove one.",
+            "[System: Your previous response was truncated in the UI. Explain why.",
+            "[System: The previous response was cut off at 4K. Is that the limit?",
+        )
+        for text in real:
+            with self.subTest(text=text[:40]):
+                self.assertTrue(is_real_user(user(text), PREFIXES))
 
     def test_summary_detection(self):
         # Without the flag (the Hermes session store drops it), only the whole carrier is a summary: a prefix and
@@ -223,6 +258,17 @@ class BoundTailTest(unittest.TestCase):
         from warm_compaction.rows import SendPolicy
         rows = [user("o" * 4_000), assistant("a"), user("q"), assistant("b", reasoning="r" * 40_000)]
         self.assertEqual(tail_start(rows, 900, PREFIXES, SendPolicy(echo=False)), (2, None))
+
+    def test_reasoning_is_not_cut_when_the_route_is_not_known_to_send_it(self):
+        # Without a capture of this route, stored reasoning_content can be of an earlier route: it is counted, but
+        # not cut and not given to the fallback.
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import SendPolicy
+        rows = [user("go"), assistant("c" * 20_000, reasoning_content="r" * 30_000 + " SECRET " + "r" * 30_000)]
+        removed = []
+        bounded = bound_tail(rows, 2_000, removed, SendPolicy(echo=True, cut_reasoning=False))
+        self.assertEqual(bounded[1]["reasoning_content"], rows[1]["reasoning_content"])
+        self.assertNotIn("SECRET", str(removed))
 
     def test_unsent_reasoning_is_not_cut_or_given_back(self):
         # A route that does not send reasoning: the private reasoning must not go to the fallback model or into
