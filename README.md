@@ -48,7 +48,18 @@ If the warm request cannot run, or if its reply fails the gate, the same compact
 
 The plugin does this for manual `/compress` and for automatic compaction.
 
-**The speedup needs the same model.** The warm request goes to the main model route. The cache gain occurs only when the server keeps a prefix cache for that route (for example vLLM, SGLang, llama.cpp, or LM Studio with prefix caching). The fallback summary can use a different model.
+**The speedup needs the same model and a prefix cache.** The warm request goes to the main model route. It runs on any OpenAI-compatible server, but it is faster only when that server reuses its prefix cache. The fallback summary can use a different model.
+
+| Server | Prefix cache | Reports `cached_tokens` |
+| --- | --- | --- |
+| Hosted APIs with prompt caching | yes | yes |
+| vLLM | yes (default) | only with `--enable-prompt-tokens-details` |
+| llama.cpp `llama-server` | yes, per slot | yes |
+| MLX `mlx_lm.server` | yes | yes |
+| Ollama (`/v1`) | yes | no |
+| LM Studio | yes | no |
+
+From the server documentation and issue trackers; tested here only on DGX and LM Studio. Where the server does not report the counter, `cached_tokens` shows as unknown in the log. With llama.cpp `--parallel` above 1, the warm request can go to a different slot and miss the cache.
 
 ## Requirements
 
