@@ -80,6 +80,21 @@ class CopyTest(unittest.TestCase):
         self.assertEqual(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=100), [])
 
 
+class CopyFormTest(unittest.TestCase):
+    def test_copies_use_the_sent_api_content(self):
+        self.assertEqual(copied_user_messages([user("hi", api_content="[ctx]\n\nhi")], 1_000, PREFIXES),
+                         ["[ctx]\n\nhi"])
+
+    def test_the_token_budget_counts_the_quote_marks(self):
+        from warm_compaction.layout import quote
+        from warm_compaction.rows import estimate_tokens
+        text = "a\n" * 1_000
+        rows = [user(text)]
+        self.assertEqual(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=estimate_tokens(text) + 10), [])
+        quoted = estimate_tokens(quote(text.strip()))
+        self.assertEqual(len(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=quoted)), 1)
+
+
 class AttachmentAndPrependTest(unittest.TestCase):
     def test_an_image_only_user_row_is_real_and_copied_as_a_mark(self):
         row = user([{"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}])

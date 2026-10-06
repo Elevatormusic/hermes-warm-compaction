@@ -135,8 +135,9 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
     head = []
     summaries = [row for row in messages if is_summary(row, prefixes)]
     if summaries:
+        # The start and the end: "## Key facts", "## Next step", and the newest copies are at the end.
         head.append("[earlier summary]\n" + _bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS,
-                                                   EARLIER_SUMMARY_TOKENS))
+                                                   EARLIER_SUMMARY_TOKENS, middle=True))
     first = next((row for row in messages if is_real_user(row, prefixes)), None)
     if first is not None:
         head.append("[first user message]\n" + _bound(visible_text(api_content(first)).strip(), FIRST_USER_CHARS,

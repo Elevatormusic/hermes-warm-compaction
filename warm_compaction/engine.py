@@ -248,20 +248,24 @@ class WarmCompactionEngine(ContextEngine):
             raise warm.WarmRefusal("middleware_refused")
         # A copy that no middleware can change in place.
         base = copy.deepcopy(body)
+        sent: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
         def terminal(request: Any) -> dict[str, Any]:
             # The capture keeps the body before the execution middleware. An execution middleware that rewrites
             # this request can also have rewritten the captured request, so the warm request is not sent.
             if request != base:
                 raise warm.WarmRefusal("middleware_rewrite")
-            return warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post)
+            result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post)
+            sent.append((result, dict(result)))
+            return result
         try:
             reply = run_llm_execution_middleware(body, terminal, original_request=base, **context)
         except warm.WarmRefusal:
             raise
         except Exception as error:
             raise warm.WarmRefusal("middleware_refused") from error
-        if not isinstance(reply, dict) or not {"content", "finish_reason", "prompt_tokens"} <= reply.keys():
+        # Only the reply of this request: a middleware that skipped the request or changed its reply stops it.
+        if not sent or reply is not sent[0][0] or reply != sent[0][1]:
             raise warm.WarmRefusal("middleware_changed_reply")
         return reply
 

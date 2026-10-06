@@ -7,7 +7,7 @@ import functools
 from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
-from .rows import attr, estimate_tokens, hermes_value, plain_text, visible_text
+from .rows import api_content, attr, estimate_tokens, hermes_value, plain_text, visible_text
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -143,15 +143,16 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
 def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[str],
                          max_tokens: int | None = None) -> list[str]:
     """Return the newest real user messages that fit in total_chars and in max_tokens (estimated), each cut
-    to COPY_EACH characters. The token limit keeps dense text, such as CJK text, inside the window."""
+    to COPY_EACH characters. Each copy is the text that Hermes sent (api_content when the row has it). The token
+    limit counts the quoted form and keeps dense text, such as CJK text, inside the window."""
     prefixes = tuple(prefixes)
     chosen: list[str] = []
     used = tokens = 0
     for row in reversed(messages):
         if not is_real_user(row, prefixes):
             continue
-        text = visible_text(row.get("content")).strip()[:COPY_EACH]
-        cost = estimate_tokens(text)
+        text = visible_text(api_content(row)).strip()[:COPY_EACH]
+        cost = estimate_tokens(quote(text))
         if used + len(text) > total_chars or (max_tokens is not None and tokens + cost > max_tokens):
             break
         chosen.append(text)

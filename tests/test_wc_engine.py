@@ -187,6 +187,25 @@ class EngineTest(unittest.TestCase):
                                  ("fallback", reason))
                 self.assertEqual(self.post.calls, [])
 
+    def test_a_replacement_reply_of_the_right_shape_stops_the_warm_request(self):
+        def replace(request=None, next_call=None, **context):
+            return {"content": HEADINGS_TEXT, "finish_reason": "stop", "prompt_tokens": 10, "completion_tokens": 5,
+                    "cached_tokens": 0, "tool_calls": False, "refusal": False, "elapsed_s": 0.0}
+
+        def change(request=None, next_call=None, **context):
+            reply = next_call()
+            reply["content"] = HEADINGS_TEXT.replace("report.txt", "other.txt")
+            return reply
+        for middleware in (replace, change):
+            with self.subTest(middleware.__name__):
+                wc_hermes_stub.EXECUTION_MIDDLEWARE[:] = [middleware]
+                rows = old_turns()
+                reply = assistant("final")
+                self.seed(rows, reply)
+                self.engine.compress([*rows, reply])
+                self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                                 ("fallback", "middleware_changed_reply"))
+
     def test_a_rewriting_middleware_stops_the_warm_request(self):
         # The capture keeps the body before later middleware. A middleware that rewrites requests can have
         # rewritten the captured request too, so the warm request is not sent.

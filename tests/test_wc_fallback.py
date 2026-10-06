@@ -68,6 +68,12 @@ class TranscriptTest(unittest.TestCase):
         text = transcript(rows, PREFIXES)
         self.assertIn("[first user message]\n[ctx]\n\nfirst", text)
 
+    def test_a_long_earlier_summary_keeps_its_end(self):
+        old = "[CONTEXT SUMMARY]:\n## Goal\n" + "x" * 10_000 + "\n## Next step\nthe final step"
+        text = transcript([assistant(old, _compressed_summary=True), user("go"), assistant("ok")], PREFIXES)
+        self.assertIn("## Goal", text)
+        self.assertIn("## Next step\nthe final step", text)
+
     def test_names_are_in_the_transcript_labels(self):
         text = transcript([user("ship it", name="alice"), user("wait", name="bob"), assistant("ok", name="lead")],
                           PREFIXES)

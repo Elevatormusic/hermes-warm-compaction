@@ -81,20 +81,16 @@ def _shape(row: Any) -> tuple:
     return attr(row, "role"), attr(row, "tool_call_id") or None, calls
 
 
-def _words(text: str) -> str:
-    return " ".join(text.split())
-
-
 def _is_text(part: Any) -> bool:
     return isinstance(part, str) or (
         isinstance(part, dict) and part.get("type", "text") == "text" and isinstance(part.get("text"), str))
 
 
 def _parts(content: Any) -> tuple[list[str], list]:
-    """Return the text runs between the non-text parts (as words) and the non-text parts, in order. A message
-    with n image, audio, or file parts has n + 1 text runs."""
+    """Return the text runs between the non-text parts and the non-text parts, in order. A message with n image,
+    audio, or file parts has n + 1 text runs. White space stays: it can change code, tables, or commands."""
     if not isinstance(content, list):
-        return [_words(plain_text(content))], []
+        return [plain_text(content)], []
     runs: list[str] = []
     media: list = []
     current: list[str] = []
@@ -102,10 +98,10 @@ def _parts(content: Any) -> tuple[list[str], list]:
         if _is_text(part):
             current.append(part if isinstance(part, str) else part["text"])
         else:
-            runs.append(_words(" ".join(current)))
+            runs.append("\n".join(current))
             media.append(part)
             current = []
-    runs.append(_words(" ".join(current)))
+    runs.append("\n".join(current))
     return runs, media
 
 
@@ -131,7 +127,8 @@ def _same_row(wire: Any, row: Any) -> bool:
         return False
     sent_runs, sent_media = _parts(attr(wire, "content"))
     stored_runs, stored_media = _parts(api_content(row))
-    if sent_media != stored_media or not all(stored in sent for stored, sent in zip(stored_runs, sent_runs)):
+    if sent_media != stored_media or not all(
+            stored.strip() in sent for stored, sent in zip(stored_runs, sent_runs)):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]

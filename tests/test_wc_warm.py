@@ -240,6 +240,15 @@ class BuildRequestTest(unittest.TestCase):
         sent[-3]["tool_calls"][0]["function"]["arguments"] = "{ \"path\": \"a\" }"
         self.assertEqual(self.build(capture)["messages"][: len(sent)], sent)
 
+    def test_refuses_changed_whitespace_inside_the_text(self):
+        self.rows = [user("def f():\n    return 1"), assistant("a1"), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        capture = capture_for(self.rows, self.reply)
+        capture["body"]["messages"][1]["content"] = "def f():\n  return 1"
+        with self.assertRaises(WarmRefusal) as caught:
+            self.build(capture)
+        self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
     def test_refuses_when_the_window_is_too_small(self):
         with self.assertRaises(WarmRefusal) as caught:
             self.build(capture_for(self.rows, self.reply), context_length=4_096)
