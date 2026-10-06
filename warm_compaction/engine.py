@@ -209,7 +209,7 @@ class WarmCompactionEngine(ContextEngine):
             self._finish(record, started)
             return messages
         if summary is None:
-            summary = fallback.fixed_summary(messages[:start])
+            summary = fallback.fixed_summary(messages[:start], prefixes)
             record["path"] = "fixed"
         # An unknown overhead can be most of the window: then no copies. A capture of another route says
         # nothing about the system prompt, the tools, and the reply limit of this one.
@@ -218,16 +218,19 @@ class WarmCompactionEngine(ContextEngine):
         copy_tokens = 0 if overhead is None else self._copy_tokens(messages[start:], summary, overhead,
                                                                     request_reserve(budget))
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
+        # With an unknown overhead, the room is unknown too: the row keeps only its minimum.
         room = self._room(messages[start:], summary, overhead or 0, request_reserve(budget))
-        if prepend is not None and room is not None and estimate_tokens(prepend) > room:
-            prepend = layout.fit_user_row(prepend, room)
+        if prepend is not None and room is not None:
+            allowed = room if overhead is not None else 0
+            if estimate_tokens(prepend) > allowed:
+                prepend = layout.fit_user_row(prepend, allowed)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=copy_tokens)
+            copy_tokens=copy_tokens, tail_tokens=self._tail_tokens())
         self.compression_count += 1
         self._finish(record, started)
         return new

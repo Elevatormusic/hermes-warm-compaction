@@ -212,6 +212,16 @@ class FixedSummaryTest(unittest.TestCase):
         self.assertIn("- Tool calls: read x2", text)
         self.assertIn("[OPEN] Continue from the latest user message.", text)
 
+    def test_keeps_the_earlier_summary(self):
+        # Goals and rules that only the earlier summary has must not be lost when both summary requests fail.
+        old = assistant("[CONTEXT SUMMARY]:\n## Goal\nShip the old goal.\n## Next step\nold step\n\n"
+                        "--- END OF CONTEXT SUMMARY x", _compressed_summary=True)
+        text = fixed_summary([old, user("x")], PREFIXES)
+        self.assertIn("> ## Goal\n> Ship the old goal.", text)
+        self.assertNotIn("END OF CONTEXT SUMMARY", text)
+        self.assertEqual([line for line in text.splitlines() if line == "## Goal"], ["## Goal"])
+        self.assertNotIn("earlier summary", fixed_summary([user("x")], PREFIXES))
+
     def test_no_tool_calls(self):
         self.assertIn("- No tool calls.", fixed_summary([user("x")]))
 

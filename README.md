@@ -44,7 +44,7 @@ Start a new Hermes session. Each compaction writes one `warm_compaction:` line t
 
 At each compaction, the plugin sends the last main-model request of the session again. It adds the rows that came after that request and one handoff instruction at the end. This is the *warm request*. The server can reuse the cached prefix of the earlier request, so it reads only the new rows. The reply is a Markdown handoff with five headings: Goal, User instructions, Current state, Key facts, and Next step. The plugin replaces the older rows with the handoff and keeps a verbatim tail of recent rows.
 
-If the warm request cannot run, or if its reply fails the gate, the same compaction attempt uses a fallback summary through the Hermes auxiliary model route. If that also fails, the plugin writes a fixed-format summary without a model request. When Hermes cancels an attempt, the history stays unchanged.
+If the warm request cannot run, or if its reply fails the gate, the same compaction attempt uses a fallback summary through the Hermes auxiliary model route. If that also fails, the plugin writes a fixed-format summary without a model request; it keeps the newest earlier summary as a quote. When Hermes cancels an attempt, the history stays unchanged.
 
 The plugin does this for manual `/compress` and for automatic compaction.
 

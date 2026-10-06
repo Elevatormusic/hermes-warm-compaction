@@ -452,6 +452,18 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(prepended["content"].endswith(" big end"))
         self.assertLessEqual(estimate_tokens(new) + 1_000, min(engine.threshold_tokens, 64_000 - DEFAULT_RESERVE))
 
+    def test_an_unknown_overhead_cuts_the_prepended_row_to_its_minimum(self):
+        from warm_compaction.layout import MIN_COPY_CHARS
+        rows = [*old_turns(4), user("BIG start " + "q" * 40_000 + " big end"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows, current_tokens=None)
+        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
+        self.assertLessEqual(len(prepended["content"]), MIN_COPY_CHARS)
+        self.assertTrue(prepended["content"].endswith(" big end"))
+
     def test_without_a_capture_the_copies_leave_room_for_the_system_prompt_and_tools(self):
         # After a restart there is no capture. The system prompt and the tool schemas still take their space.
         from warm_compaction.rows import estimate_tokens

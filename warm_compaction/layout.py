@@ -223,10 +223,37 @@ def _tail_row(row: Any, marker: str) -> Any:
     return clean
 
 
+def bound_tail(rows: list, tokens: int) -> list:
+    """Return the tail rows in about tokens estimated tokens. The tail keeps whole units, so the newest unit can
+    be larger than the tail budget (a large user message or tool result). Then the largest text rows (tool
+    results and user messages, as Hermes sent them) are cut to their start and end, until the rows fit or no
+    row has more than MIN_COPY_CHARS characters. Other rows stay as they are."""
+    rows = list(rows)
+
+    def text_of(row: Any) -> Any:
+        return api_content(row) if attr(row, "role") == "user" else attr(row, "content")
+
+    while sum(estimate_tokens(row) for row in rows) > tokens:
+        cuttable = [(estimate_tokens(row), index) for index, row in enumerate(rows)
+                    if isinstance(row, dict) and attr(row, "role") in ("user", "tool")
+                    and isinstance(text_of(row), str) and len(text_of(row)) > MIN_COPY_CHARS]
+        if not cuttable:
+            break
+        cost, index = max(cuttable)
+        text = text_of(rows[index])
+        target = cost - (sum(estimate_tokens(row) for row in rows) - tokens)
+        limit = max(MIN_COPY_CHARS, min(len(text) - 1, len(text) * max(target, 0) // max(cost, 1)))
+        cut = {key: value for key, value in rows[index].items() if key != "api_content"}
+        cut["content"] = cut_middle(text, limit)
+        rows[index] = cut
+    return rows
+
+
 def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, Any] | None, copy_chars: int,
           header_prefix: str, prefixes: Iterable[str], end_marker: str,
-          marker: str = "_db_persisted", copy_tokens: int | None = None) -> list | None:
-    """Return the new history, or None when no row comes before the tail."""
+          marker: str = "_db_persisted", copy_tokens: int | None = None, tail_tokens: int | None = None) -> list | None:
+    """Return the new history, or None when no row comes before the tail. With tail_tokens, a tail above it
+    is cut to it (bound_tail)."""
     if start <= 0:
         return None
     prefixes = tuple(prefixes)
@@ -241,7 +268,10 @@ def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, A
             copy_tokens = max(copy_tokens - estimate_tokens(prepend), 0)
     copies = copied_user_messages(earlier, copy_chars, prefixes, copy_tokens)
     body = summary_body(summary_text, copies, end_marker)
-    rest = ([copy.deepcopy(prepend)] if prepend else []) + [_tail_row(row, marker) for row in messages[start:]]
+    tail = [_tail_row(row, marker) for row in messages[start:]]
+    if tail_tokens is not None:
+        tail = bound_tail(tail, tail_tokens)
+    rest = ([copy.deepcopy(prepend)] if prepend else []) + tail
     if attr(rest[0], "role") != "user":
         return [{"role": "user", "content": f"{header}\n\n{body}", "_compressed_summary": True}, *rest]
     return [

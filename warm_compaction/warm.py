@@ -5,7 +5,6 @@ from __future__ import annotations
 import collections
 import copy
 import json
-import re
 import ssl
 import time
 import urllib.error
@@ -128,20 +127,12 @@ def _arguments(value: Any) -> tuple[str, str]:
     return "json", json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
-def _in_whole_lines(stored: str, sent: str) -> bool:
-    """True when the stored text is in the sent text as whole lines, with its white space. Hermes adds
-    request-time context as separate lines ("\n\n" + context); text on the same line can change the meaning
-    ("Delete A" to "Do not Delete A"), and so can changed indentation."""
-    if not stored.strip():
-        return True
-    return re.search(r"(?:^|\n)" + re.escape(stored) + r"(?:\n|$)", sent) is not None
-
-
 def _same_row(wire: Any, row: Any) -> bool:
     """True when the sent row carries the stored row: the same shape; the same name (the Hermes transport
     removes the name from tool rows only); the same image, audio, and file parts in the same order; each stored
-    text run inside the sent text run at the same place, as whole lines (Hermes can add request-time context to a
-    row); and the same tool-call arguments. The stored text is the api_content sidecar when the row has one."""
+    text run equal to the sent text run at the same place (Hermes stores the text that it sends, with its
+    request-time context, in api_content; other text is a rewrite, on the same line or on its own line); and the
+    same tool-call arguments. The stored text is the api_content sidecar when the row has one."""
     if _shape(wire) != _shape(row):
         return False
     name = attr(wire, "name")
@@ -150,7 +141,7 @@ def _same_row(wire: Any, row: Any) -> bool:
     sent_runs, sent_media = _parts(attr(wire, "content"))
     stored_runs, stored_media = _parts(api_content(row))
     if sent_media != stored_media or not all(
-            _in_whole_lines(stored, sent) for stored, sent in zip(stored_runs, sent_runs)):
+            stored == sent for stored, sent in zip(stored_runs, sent_runs)):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
@@ -308,10 +299,11 @@ def ends_with_instruction(row: Any, instruction: str) -> bool:
             and content[-1].get("type") == "text" and content[-1].get("text") == instruction)
 
 
-def _join_user_rows(rows: list) -> list:
-    """Join adjacent user rows of the same author (no name, or the same name). The ordinary request has no
-    adjacent user rows (Hermes joins them), and strict chat templates refuse them. The host instruction is the
-    last block of the last user row; it says that it comes from the host."""
+def _join_user_rows(rows: list, instruction: str) -> list:
+    """Join adjacent user rows of the same author (no name, or the same name), then join the host instruction
+    to the last user row (it keeps its name: the ordinary request also ended with that row). The ordinary
+    request has no adjacent user rows (Hermes joins them), and strict chat templates refuse them. The
+    instruction is the last block; it says that it comes from the host."""
     out: list = []
     for row in rows:
         last = out[-1] if out else None
@@ -322,7 +314,13 @@ def _join_user_rows(rows: list) -> list:
                 out[-1] = {**last, "content": joined}
                 continue
         out.append(row)
-    return out
+    last = out[-1] if out else None
+    if last is not None and last.get("role") == "user" and set(last) <= {"role", "content", "name"}:
+        joined = _join_content(last.get("content"), instruction)
+        if joined is not None:
+            out[-1] = {**last, "content": joined}
+            return out
+    return [*out, {"role": "user", "content": instruction}]
 
 
 def reply_reserve(body: Any) -> int:
@@ -368,7 +366,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
     echo = needs_reasoning_echo(body, new_rows)
     added = [wire_row(row, echo, body.get("model"), route[1]) for row in (*new_rows, *trailing)]
-    request["messages"] = [*body["messages"], *_join_user_rows([*added, {"role": "user", "content": instruction}])]
+    request["messages"] = [*body["messages"], *_join_user_rows(added, instruction)]
     request["stream"] = False
     request.pop("stream_options", None)
     # A stop sequence of the main request could cut the handoff after the five headings.

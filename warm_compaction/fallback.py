@@ -7,7 +7,7 @@ import logging
 from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX, extras, gate
-from .layout import is_real_user, is_summary
+from .layout import is_real_user, is_summary, quote
 from .rows import (  # noqa: F401 - MIDDLE_MARK is part of this module's names.
     MIDDLE_MARK, cut_middle as _cut_middle,
     api_content, attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text,
@@ -213,11 +213,18 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     return text, tokens if isinstance(tokens, int) and tokens > 0 else None
 
 
-def fixed_summary(messages: list) -> str:
-    """Return a five-heading summary without a model request."""
+def fixed_summary(messages: list, prefixes: Iterable[str] = ()) -> str:
+    """Return a five-heading summary without a model request. The newest earlier summary goes under Key facts as
+    a quote (its start and end): the goals and rules that only it has must stay."""
+    prefixes = tuple(prefixes)
     counts = collections.Counter(
         name for row in messages for _call_id, name, _arguments in tool_calls_of(row) if name)
     facts = [f"- Tool calls: {name} x{count}" for name, count in sorted(counts.items())] or ["- No tool calls."]
+    summaries = [row for row in messages if is_summary(row, prefixes)]
+    if summaries:
+        earlier = _bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS,
+                         middle=True)
+        facts += ["- The earlier summary follows. It was not updated:", quote(earlier)]
     return "\n".join([
         "## Goal", "Summary unavailable.", "",
         "## User instructions", "- See the copied user messages below.", "",

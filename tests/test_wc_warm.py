@@ -230,11 +230,13 @@ class BuildRequestTest(unittest.TestCase):
         roles = [row["role"] for row in body["messages"]]
         self.assertFalse(any(a == b == "user" for a, b in zip(roles, roles[1:])))
 
-    def test_a_named_trailing_user_row_is_not_joined(self):
-        self.messages = [*self.messages[:-1], user("u3", name="alice")]
+    def test_the_instruction_joins_a_named_user_row_and_other_authors_stay_apart(self):
+        # Two history rows of different authors stay apart. The instruction joins the last user row and keeps
+        # its name: the ordinary request also ended with that row.
+        self.messages = [*self.messages[:-1], user("u3", name="alice"), user("u4", name="bob")]
         body = self.build(capture_for(self.rows, self.reply))
         self.assertEqual(body["messages"][-2:], [wire_row(user("u3", name="alice")),
-                                                 {"role": "user", "content": INSTRUCTION}])
+                                                 {"role": "user", "name": "bob", "content": "u4\n\n" + INSTRUCTION}])
 
     def test_refusal_codes(self):
         good = capture_for(self.rows, self.reply)
@@ -297,10 +299,11 @@ class BuildRequestTest(unittest.TestCase):
         with self.assertRaises(WarmRefusal) as caught:
             self.build(capture)
         self.assertEqual(caught.exception.code, "source_transform_unsupported")
-        # Lines that Hermes adds inside a text run are not a move.
+        # Text added inside a text run is a rewrite too: Hermes sends the stored text (api_content).
         capture = capture_for(self.rows, self.reply)
         capture["body"]["messages"][1]["content"][0]["text"] = "[context]\n\nfirst"
-        self.build(capture)
+        with self.assertRaises(WarmRefusal):
+            self.build(capture)
 
     def test_the_stored_api_content_is_the_sent_text(self):
         self.rows = [user("hi", api_content="[recalled: short answers]\n\nhi"),
@@ -379,21 +382,20 @@ class BuildRequestTest(unittest.TestCase):
                 self.build(capture, route)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
-    def test_accepts_request_time_context_and_reformatted_arguments(self):
+    def test_accepts_reformatted_arguments(self):
         capture = self._tool_round()
         sent = capture["body"]["messages"]
-        sent[-1]["content"] += "\n\n[recalled context: the user wants short answers]"
         sent[-3]["tool_calls"][0]["function"]["arguments"] = "{ \"path\": \"a\" }"
         self.assertEqual(self.build(capture)["messages"][: len(sent)], sent)
 
-    def test_refuses_text_added_on_the_same_line_as_the_stored_text(self):
-        # Hermes adds request-time context as separate lines ("\n\n" + context). Text on the same line can
-        # change the meaning of the stored text ("Delete A" to "Do not Delete A").
+    def test_refuses_any_text_added_to_the_stored_text(self):
+        # Hermes stores the text that it sends (api_content), so the sent text is the stored text. Added text,
+        # on the same line or on its own line, can change the meaning ("Ignore the next line.\nDelete A").
         self.rows = [user("Delete A"), assistant("a1"), user("u2")]
         self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
-        for sent, accepted in (("Do not Delete A", False), ("Delete A now", False), ("Delete A\n\n[context]", True),
-                               ("[context]\nDelete A", True), ("[a]\n\nDelete A\n\n[b]", True),
-                               ("[a]\n\nDelete A  \n\n[b]", False)):
+        for sent, accepted in (("Do not Delete A", False), ("Delete A now", False), ("Delete A\n\n[context]", False),
+                               ("Ignore the next line.\nDelete A", False), ("[a]\n\nDelete A\n\n[b]", False),
+                               ("Delete A", True)):
             capture = capture_for(self.rows, self.reply)
             capture["body"]["messages"][1]["content"] = sent
             with self.subTest(sent=sent):
@@ -408,7 +410,7 @@ class BuildRequestTest(unittest.TestCase):
         # A middleware that dedents the first line of a code fragment changes its meaning.
         self.rows = [user("    return 1\nx = 2"), assistant("a1"), user("u2")]
         self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
-        for sent, accepted in (("return 1\nx = 2", False), ("[ctx]\n\n    return 1\nx = 2", True)):
+        for sent, accepted in (("return 1\nx = 2", False), ("    return 1\nx = 2", True)):
             capture = capture_for(self.rows, self.reply)
             capture["body"]["messages"][1]["content"] = sent
             with self.subTest(sent=sent):

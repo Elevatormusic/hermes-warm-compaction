@@ -160,6 +160,32 @@ class AttachmentAndPrependTest(unittest.TestCase):
         self.assertNotIn("older ask", new[1]["content"])
 
 
+class BoundTailTest(unittest.TestCase):
+    def test_a_newest_unit_larger_than_the_tail_is_cut(self):
+        # A large user message or tool result alone above the tail budget would stay above the threshold after
+        # the compaction. Its start and end stay.
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
+        rows = [assistant("", [("c1", "read", "{}")]), tool("c1", "head " + "r" * 40_000 + " tail"),
+                user("ask " + "u" * 20_000 + " end", api_content="[ctx]\n\nask " + "u" * 20_000 + " end")]
+        bounded = bound_tail(rows, 2_000)
+        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        self.assertEqual(bounded[0], rows[0])
+        self.assertTrue(bounded[1]["content"].startswith("head ") and bounded[1]["content"].endswith(" tail"))
+        self.assertIn(MIDDLE_MARK, bounded[1]["content"])
+        self.assertTrue(bounded[2]["content"].startswith("[ctx]") and bounded[2]["content"].endswith(" end"))
+        self.assertNotIn("api_content", bounded[2])
+        self.assertIs(bound_tail(rows[:1], 2_000)[0], rows[0])
+
+    def test_build_bounds_the_tail(self):
+        from warm_compaction.rows import estimate_tokens
+        rows = [user("old"), assistant("a"), user("huge " + "z" * 40_000 + " end")]
+        new = build(rows, "S", start=2, prepend=None, copy_chars=1000, header_prefix="[HERMES PREFIX]",
+                    prefixes=PREFIXES, end_marker=END, tail_tokens=1_000)
+        self.assertLessEqual(estimate_tokens(new[-1]), 1_000)
+        self.assertTrue(new[-1]["content"].endswith(" end"))
+
+
 class BuildTest(unittest.TestCase):
     def test_two_summary_rows_then_the_tail_without_the_marker(self):
         rows = [user("goal"), assistant("a1"), user("next", _db_persisted=True), assistant("a2", _db_persisted=True)]
