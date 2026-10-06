@@ -203,6 +203,15 @@ class LlmSummaryTest(unittest.TestCase):
 
 
 class FixedSummaryTest(unittest.TestCase):
+    def test_the_fixed_summary_quotes_the_cut_middles(self):
+        # Without a model summary, the middles that the tail cut are not lost: a bounded quote keeps them.
+        from warm_compaction.layout import CUT_NOTE
+        rows = [user("old"), assistant("a"), tool("c1", CUT_NOTE + "REQ-42 must stay " + "m" * 40_000 + " REQ-END")]
+        text = fixed_summary(rows)
+        self.assertIn("REQ-42 must stay", text)
+        self.assertIn("REQ-END", text)
+        self.assertLess(len(text), 12_000)
+
     def test_five_headings_and_tool_counts(self):
         rows = [assistant("", [("c1", "read", "{}"), ("c2", "read", "{}")]), assistant("", [("c3", "ls", "{}")])]
         text = fixed_summary(rows)

@@ -671,10 +671,16 @@ def check_warm_request(server, checks, label, tool_rows=0):
             if key not in {"messages", "stream", "stream_options", *limits}}
     checks[f"{label}_settings_kept"] = all(warm["body"].get(key) == value for key, value in same.items())
     # The handoff has its own reply limit: the main limit kept between HANDOFF_MIN_TOKENS and HANDOFF_MAX_TOKENS.
-    checks[f"{label}_reply_limit"] = all(
-        warm["body"].get(key) == (min(max(value, HANDOFF_MIN_TOKENS), HANDOFF_MAX_TOKENS)
-                                  if type(value) is int and value > 0 else value)
-        for key, value in ((key, main["body"].get(key)) for key in limits))
+    # Without a main limit, the handoff gets HANDOFF_MAX_TOKENS in one field (the field that Hermes uses).
+    if any(type(main["body"].get(key)) is int and main["body"].get(key) > 0 for key in limits):
+        checks[f"{label}_reply_limit"] = all(
+            warm["body"].get(key) == (min(max(value, HANDOFF_MIN_TOKENS), HANDOFF_MAX_TOKENS)
+                                      if type(value) is int and value > 0 else value)
+            for key, value in ((key, main["body"].get(key)) for key in limits))
+    else:
+        checks[f"{label}_reply_limit"] = sorted(
+            key for key in limits if warm["body"].get(key) == HANDOFF_MAX_TOKENS) in (
+            ["max_tokens"], ["max_completion_tokens"])
     if tool_rows:
         roles = [row.get("role") for row in extended[len(sent):]]
         checks[f"{label}_tool_rows_sent"] = roles == ["assistant", *["tool"] * tool_rows, "user"]

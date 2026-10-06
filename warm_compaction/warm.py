@@ -216,6 +216,25 @@ def _signature(extra: Any) -> Any:
 
 
 REPLAY_DETAILS_HOSTS = ("openrouter.ai", "nousresearch.com")
+LIMIT_KEYS = ("max_tokens", "max_completion_tokens")
+
+
+def _forces_completion_field(model: Any) -> bool:
+    """Hermes 45871e10 (utils.model_forces_max_completion_tokens): OpenAI families that reject max_tokens."""
+    name = str(model or "").strip().lower().rsplit("/", 1)[-1]
+    return name.startswith(("gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4"))
+
+
+def limit_field(model: Any, base_url: Any) -> str:
+    """The reply limit field that Hermes 45871e10 sends on the route (AIAgent._max_tokens_param):
+    max_completion_tokens for OpenAI, Azure OpenAI, GitHub Copilot, and the newer OpenAI model families, else
+    max_tokens."""
+    host = (urllib.parse.urlparse(str(base_url or "")).hostname or "").lower()
+    forces = hermes_value("utils", "model_forces_max_completion_tokens", _forces_completion_field)
+    if (host == "api.openai.com" or host == "openai.azure.com" or host.endswith(".openai.azure.com")
+            or host.endswith(".githubcopilot.com") or forces(model)):
+        return "max_completion_tokens"
+    return "max_tokens"
 
 
 def _route_replays_reasoning_details(base_url: Any) -> bool:
@@ -375,10 +394,14 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request.pop("web_search_options", None)
     # The reply limit of the main request is for another task: a small one cuts the handoff, a large one reserves
     # space that the handoff does not need. Keep the field that the route uses.
-    for key in ("max_tokens", "max_completion_tokens"):
+    for key in LIMIT_KEYS:
         value = body.get(key)
         if type(value) is int and value > 0:
             request[key] = min(max(value, HANDOFF_MIN_TOKENS), HANDOFF_MAX_TOKENS)
+    # Without a limit the server default applies: a small one cuts the handoff, a large one can take more space
+    # than the capacity check reserves. The handoff gets HANDOFF_MAX_TOKENS in the field of the route.
+    if not any(type(body.get(key)) is int and body.get(key) > 0 for key in LIMIT_KEYS):
+        request[limit_field(body.get("model"), route[1])] = HANDOFF_MAX_TOKENS
     if not fits(request, context_length, capture.get("prompt_tokens"), len(body["messages"])):
         raise WarmRefusal("capacity")
     return request

@@ -604,6 +604,16 @@ class EngineTest(unittest.TestCase):
         self.assertIn("u" * 100, transcript)
         self.assertTrue(any(str(row.get("content")).endswith(" end") for row in new))
 
+    def test_the_fixed_summary_gets_the_middles_that_the_tail_cuts(self):
+        self.llm.error = RuntimeError("down")
+        rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
+                tool("c1", "head " + "u" * 20_000 + " MIDDLE-FACT " + "u" * 20_000 + " end")]
+        engine = self.make(tail_tokens=2_000, warm=False)
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        self.assertTrue(any("## Key facts" in str(row.get("content")) and "u" * 50 in str(row.get("content"))
+                            for row in new))
+
     def test_a_capture_with_a_changed_source_is_not_used_for_the_budget(self):
         # A middleware removed a stored row: the captured body no longer shows which rows are the system rows.
         from warm_compaction.rows import estimate_tokens

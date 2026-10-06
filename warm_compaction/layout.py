@@ -14,6 +14,8 @@ HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
 COPY_EACH = 4_000
 MIN_COPY_CHARS = 200
+# A payload that even the minimum cut does not fit: it is dropped, and the fallback summary gets all of it.
+DROPPED = "[cut]"
 CUT_NOTE = "[The middle of a newest row; its start and end stay after the summary.]\n"
 NO_COPIES = "(none)"
 STEER_KIND = "steer"
@@ -292,7 +294,9 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
     largest sent payloads (_tail_parts) are cut to their start and end, until the rows fit or no payload has more
     than MIN_COPY_CHARS characters. A tool call keeps its id and name, and its arguments stay a JSON object. A
     media part (an image, for example) is replaced by a short text. Other rows and fields stay as they are; signed
-    reasoning_details stay, because a cut breaks the signature.
+    reasoning_details stay, because a cut breaks the signature. When the minimum cuts are not enough (a small cap,
+    or many small payloads), the payloads are dropped (DROPPED), largest first. Only the row structure (roles, tool
+    call ids and names) can then stay above the cap.
 
     With a removed list, one row for each cut payload is added to it: the removed middle after CUT_NOTE, with the
     role (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""
@@ -300,21 +304,29 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
     originals: dict[tuple, Any] = {}
     current: dict[tuple, Any] = {}
     limits: dict[tuple, int] = {}
+    # First the cuts to start and end (at least MIN_COPY_CHARS), then, when they are not enough, the drops.
+    floor = MIN_COPY_CHARS
     while sum(estimate_tokens(row) for row in rows) > tokens:
         cuttable = []
         for index, row in enumerate(rows):
             for key, value in _tail_parts(row):
                 value = current.get((index, key), value)
-                if (isinstance(value, str) and len(value) > MIN_COPY_CHARS) or (
+                if (isinstance(value, str) and len(value) > max(floor, len(DROPPED))) or (
                         key[0] == "media" and (index, key) not in current
-                        and estimate_tokens(value) > MIN_COPY_CHARS // 4):
+                        and estimate_tokens(value) > floor // 4):
                     cuttable.append((estimate_tokens(value), index, key, value))
         if not cuttable:
+            if floor:
+                floor = 0
+                continue
             break
         cost, index, key, value = max(cuttable, key=lambda item: (item[0], -item[1]))
         originals.setdefault((index, key), value)
         if key[0] == "media":
             new_value: Any = {"type": "text", "text": f"[{value.get('type') or 'media'} removed]"}
+        elif not floor:
+            limits[(index, key)] = 0
+            new_value = DROPPED
         else:
             target = cost - (sum(estimate_tokens(row) for row in rows) - tokens)
             limit = max(MIN_COPY_CHARS, min(len(value) - 1, len(value) * max(target, 0) // max(cost, 1)))

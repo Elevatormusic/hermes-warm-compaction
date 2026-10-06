@@ -7,7 +7,7 @@ import logging
 from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX, extras, gate
-from .layout import is_real_user, is_summary, quote
+from .layout import CUT_NOTE, is_real_user, is_summary, quote
 from .rows import (  # noqa: F401 - MIDDLE_MARK is part of this module's names.
     MIDDLE_MARK, cut_middle as _cut_middle,
     api_content, attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text,
@@ -27,6 +27,8 @@ ARGUMENT_CHARS = 300
 CUT_MARK = " [cut]"
 ROW_CHARS = 4_000
 MIN_PART_CHARS = 200
+# The fixed summary quotes the middles that the tail cut (layout.bound_tail): at most this many characters.
+CUT_QUOTE_CHARS = 8_000
 # Token limits for dense text (CJK text, emoji): the character limits divided by 4. ASCII text meets the two
 # limits at about the same point; dense text meets the token limit first, so a small fallback model can read it.
 TRANSCRIPT_TOKENS = TRANSCRIPT_CHARS // 4
@@ -225,6 +227,14 @@ def fixed_summary(messages: list, prefixes: Iterable[str] = ()) -> str:
         earlier = _bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS,
                          middle=True)
         facts += ["- The earlier summary follows. It was not updated:", quote(earlier)]
+    cut = [text[len(CUT_NOTE):] for text in (attr(row, "content") for row in messages)
+           if isinstance(text, str) and text.startswith(CUT_NOTE)]
+    if cut:
+        # The tail keeps only the start and end of these newest payloads: without a model summary, a bounded quote
+        # of their middles keeps the requirements and the tool output that they have.
+        each = max(MIN_PART_CHARS, CUT_QUOTE_CHARS // len(cut))
+        facts.append("- Parts that the tail cut from the newest rows (their start and end):")
+        facts += [quote(_bound(text, each, each // 4, middle=True)) for text in cut[-(CUT_QUOTE_CHARS // each):]]
     return "\n".join([
         "## Goal", "Summary unavailable.", "",
         "## User instructions", "- See the copied user messages below.", "",

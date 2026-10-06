@@ -241,6 +241,20 @@ class BoundTailTest(unittest.TestCase):
         self.assertEqual(len(removed), 2)
         self.assertTrue(all(part["content"].startswith(CUT_NOTE) for part in removed))
 
+    def test_a_cap_below_the_minimum_cut_drops_the_payloads(self):
+        # Short rows, and many small parts: the minimum cut is not enough, so the payloads are dropped (the
+        # fallback gets them whole). Only the row structure stays.
+        from warm_compaction.layout import CUT_NOTE, DROPPED, bound_tail
+        from warm_compaction.rows import estimate_tokens
+        for rows, tokens, whole in (([user("x" * 150), assistant("y" * 150)], 20, "x" * 150),
+                                    ([user(["p" * 100] * 20), assistant("ok")], 100, "p" * 100)):
+            with self.subTest(tokens=tokens):
+                removed = []
+                bounded = bound_tail(rows, tokens, removed)
+                self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), tokens)
+                self.assertIn(CUT_NOTE + whole, [part["content"] for part in removed])
+                self.assertTrue(any(DROPPED in str(row["content"]) for row in bounded))
+
     def test_the_cut_middles_are_given_back(self):
         # The fallback summary gets the parts that the tail cuts: they are not lost.
         from warm_compaction.layout import CUT_NOTE, bound_tail

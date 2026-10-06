@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from warm_compaction.rows import estimate_tokens
 from warm_compaction.warm import (
-    DEFAULT_RESERVE, HANDOFF_MAX_TOKENS, ends_with_instruction, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
+    HANDOFF_MAX_TOKENS, ends_with_instruction, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
     wire_row,
 )
 from wc_fixtures import ROUTE, assistant, capture_for, tool, user
@@ -207,12 +207,23 @@ class BuildRequestTest(unittest.TestCase):
                  ({"max_tokens": 3_000}, {"max_tokens": 3_000}),
                  ({"max_tokens": 60_000}, {"max_tokens": HANDOFF_MAX_TOKENS}),
                  ({"max_completion_tokens": 500}, {"max_completion_tokens": HANDOFF_MIN_TOKENS}),
-                 ({}, {}))
+                 # Without a limit the server default applies: it can cut the handoff, or reserve more than the
+                 # capacity check does. The handoff gets its own limit in the field that Hermes uses for the route.
+                 ({}, {"max_tokens": HANDOFF_MAX_TOKENS}))
         for extra, expected in cases:
             with self.subTest(extra=extra):
                 body = self.build(capture_for(self.rows, self.reply, body_extra=extra))
                 self.assertEqual({key: body[key] for key in ("max_tokens", "max_completion_tokens") if key in body},
                                  expected)
+
+    def test_a_route_that_needs_max_completion_tokens_gets_it(self):
+        for route in (("gpt-5.1", ROUTE[1], ROUTE[2]), ("m", "https://api.openai.com/v1", ROUTE[2]),
+                      ("m", "https://x.openai.azure.com/v1", ROUTE[2])):
+            with self.subTest(route=route):
+                capture = capture_for(self.rows, self.reply, route=route)
+                body = self.build(capture, route=route)
+                self.assertEqual(body.get("max_completion_tokens"), HANDOFF_MAX_TOKENS)
+                self.assertNotIn("max_tokens", body)
 
     def test_a_large_main_reply_limit_does_not_refuse_a_handoff_that_fits(self):
         capture = capture_for(self.rows, self.reply, body_extra={"max_tokens": 60_000})
@@ -445,13 +456,14 @@ class BuildRequestTest(unittest.TestCase):
         capture = capture_for(self.rows, self.reply)
         body = self.build(capture, context_length=0)
         sent = len(capture["body"]["messages"])
-        whole = estimate_tokens({"messages": body["messages"], "tools": None}) * SAFETY + DEFAULT_RESERVE
+        # The capture has no reply limit: the handoff gets HANDOFF_MAX_TOKENS, and the check reserves it.
+        whole = estimate_tokens({"messages": body["messages"], "tools": None}) * SAFETY + HANDOFF_MAX_TOKENS
         window = int(whole) - 1
         with self.assertRaises(WarmRefusal) as caught:
             self.build(capture, context_length=window)
         self.assertEqual(caught.exception.code, "capacity")
         capture["prompt_tokens"] = 1
-        self.assertLess(1 + estimate_tokens({"messages": body["messages"][sent:]}) * SAFETY + DEFAULT_RESERVE, window)
+        self.assertLess(1 + estimate_tokens({"messages": body["messages"][sent:]}) * SAFETY + HANDOFF_MAX_TOKENS, window)
         self.assertEqual(self.build(capture, context_length=window)["messages"], body["messages"])
 
 
