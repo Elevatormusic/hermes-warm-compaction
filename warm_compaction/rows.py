@@ -60,8 +60,11 @@ def compact_json(value: Any) -> str:
 
 
 def estimate_tokens(value: Any) -> int:
-    """Estimate tokens: the UTF-8 bytes of the compact JSON form, divided by 4."""
-    return math.ceil(len(compact_json(value).encode("utf-8", "surrogatepass")) / 4)
+    """Estimate tokens of the compact JSON form: the ASCII characters divided by 4, plus one token for each
+    other character. CJK text and emoji have about one token or more for each character."""
+    text = compact_json(value)
+    ascii_count = len(text.encode("ascii", "ignore"))
+    return math.ceil(ascii_count / 4) + len(text) - ascii_count
 
 
 def row_digest(row: Any) -> str:

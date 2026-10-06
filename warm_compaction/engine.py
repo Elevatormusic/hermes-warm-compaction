@@ -54,11 +54,14 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
     return settings
 
 
-def tail_budget(setting: int, context_length: int) -> int:
-    """Return the tail size: the setting, or 2.5% of the context window kept between 10,000 and 25,000."""
+def tail_budget(setting: int, context_length: int, threshold_tokens: int = 0) -> int:
+    """Return the tail size: the setting, or 2.5% of the context window kept between 10,000 and 25,000.
+    The automatic size is also at most half of the compaction threshold. Otherwise the tail can hold the
+    whole history when compaction starts, and nothing comes before the tail."""
     if setting > 0:
         return setting
-    return max(TAIL_MIN, min(TAIL_MAX, int(context_length * TAIL_SHARE)))
+    budget = max(TAIL_MIN, min(TAIL_MAX, int(context_length * TAIL_SHARE)))
+    return min(budget, threshold_tokens // 2) if threshold_tokens > 0 else budget
 
 
 def hermes_value(module: str, name: str, default: Any) -> Any:
@@ -226,7 +229,8 @@ class WarmCompactionEngine(ContextEngine):
         return tuple(dict.fromkeys(value for value in values if isinstance(value, str) and value))
 
     def _tail_tokens(self) -> int:
-        return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0))
+        return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
+                           int(self.threshold_tokens or 0))
 
     def _cancelled(self) -> bool:
         check = getattr(self, "_compression_cancelled_check", None)

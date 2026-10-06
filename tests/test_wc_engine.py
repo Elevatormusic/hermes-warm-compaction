@@ -228,6 +228,10 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(self.module.tail_budget(0, 600_000), 15_000)
         self.assertEqual(self.module.tail_budget(0, 2_000_000), 25_000)
         self.assertEqual(self.module.tail_budget(7, 200_000), 7)
+        # The automatic tail stays at or below half of the compaction threshold, so a small window can compact.
+        self.assertEqual(self.module.tail_budget(0, 20_000, 10_000), 5_000)
+        self.assertEqual(self.module.tail_budget(0, 200_000, 100_000), 10_000)
+        self.assertEqual(self.module.tail_budget(7, 20_000, 10), 7)
 
     def test_hermes_value_uses_the_replacement(self):
         read = self.module.hermes_value

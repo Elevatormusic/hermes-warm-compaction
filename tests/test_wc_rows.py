@@ -34,7 +34,12 @@ class RowsTest(unittest.TestCase):
     def test_estimate_tokens_uses_utf8_bytes_of_compact_json(self):
         self.assertEqual(compact_json({"a": [1, 2]}), "{\"a\":[1,2]}")
         self.assertEqual(estimate_tokens("abcd"), 2)
-        self.assertEqual(estimate_tokens("\u00e9"), 1)
+        self.assertEqual(estimate_tokens("\u00e9"), 2)
+
+    def test_estimate_tokens_counts_each_non_ascii_character_as_a_token(self):
+        # CJK text and emoji have about one token or more for each character, not one for each 4 bytes.
+        self.assertEqual(estimate_tokens("\u4f60" * 100), 101)
+        self.assertEqual(estimate_tokens("\U0001f600" * 10), 11)
 
     def test_row_digest_ignores_private_keys_and_sees_calls(self):
         base = {"role": "assistant", "content": "x",

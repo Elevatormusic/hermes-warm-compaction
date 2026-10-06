@@ -153,6 +153,19 @@ class BuildRequestTest(unittest.TestCase):
                 self.build(capture)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
+    def test_refuses_a_renamed_row_and_accepts_a_removed_name(self):
+        self.rows = [user("u1", name="alice"), assistant("a1"), user("u2")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+        renamed = capture_for(self.rows, self.reply)
+        renamed["body"]["messages"][1]["name"] = "bob"
+        with self.assertRaises(WarmRefusal) as caught:
+            self.build(renamed)
+        self.assertEqual(caught.exception.code, "source_transform_unsupported")
+        # The Hermes transport removes the name from some rows. That is not a rewrite.
+        stripped = capture_for(self.rows, self.reply)
+        stripped["body"]["messages"][1].pop("name")
+        self.build(stripped)
+
     def test_accepts_request_time_context_and_reformatted_arguments(self):
         capture = self._tool_round()
         sent = capture["body"]["messages"]
