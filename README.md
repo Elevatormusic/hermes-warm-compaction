@@ -54,6 +54,8 @@ The plugin does this for manual `/compress` and for automatic compaction.
 | --- | --- | --- |
 | Hosted APIs with prompt caching | yes | yes |
 | vLLM | yes (default) | only with `--enable-prompt-tokens-details` |
+| SGLang | yes, radix cache (default) | only with `--enable-cache-report` |
+| TensorRT-LLM `trtllm-serve` | yes, KV block reuse | yes |
 | llama.cpp `llama-server` | yes, per slot | yes |
 | MLX `mlx_lm.server` | yes | yes |
 | Ollama (`/v1`) | yes | no |
