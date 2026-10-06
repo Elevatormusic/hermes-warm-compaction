@@ -64,11 +64,11 @@ class EngineTest(unittest.TestCase):
                             provider="custom", api_mode=ROUTE[2])
         return engine
 
-    def seed(self, rows, reply, session="s1"):
+    def seed(self, rows, reply, session="s1", system=SYSTEM, extra=None):
         """Run one main-model request through the capture store, in the Hermes order."""
         self.store.on_pre_api_request(api_request_id="r1", session_id=session, conversation_history=list(rows),
                                       model=ROUTE[0], base_url=ROUTE[1], api_mode=ROUTE[2])
-        self.store.on_llm_execution(request={"model": ROUTE[0], "messages": [SYSTEM, *wire(rows)]},
+        self.store.on_llm_execution(request={"model": ROUTE[0], "messages": [system, *wire(rows)], **(extra or {})},
                                     next_call=lambda: None, api_request_id="r1")
         self.store.on_post_api_request(api_request_id="r1", session_id=session,
                                        finish_reason="tool_calls" if reply.get("tool_calls") else "stop",
@@ -482,6 +482,10 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(request_reserve({"body": {"messages": [], "max_tokens": 1_000}}, 200_000), 1_000)
         self.assertEqual(request_reserve({"body": {"messages": [], "max_tokens": 1_000}}), 1_000)
         self.assertEqual(request_reserve({"body": {"messages": [], "max_completion_tokens": 2_000}}), 2_000)
+        # A captured request without a positive limit: the provider default of the next request is unknown too.
+        for body in ({"messages": []}, {"messages": [], "max_tokens": 0}, {"messages": [], "max_tokens": None}):
+            with self.subTest(body=body):
+                self.assertEqual(request_reserve({"body": body}, 200_000), 50_000)
 
     def test_request_overhead_comes_from_the_capture(self):
         from warm_compaction.engine import request_overhead
@@ -673,6 +677,51 @@ class EngineTest(unittest.TestCase):
                 self.engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1],
                                          api_mode=ROUTE[2], **change)
                 self.assertIsNone(self.store.latest("s1"))
+
+    def test_the_fixed_path_builds_the_tail_at_the_cap_that_the_summary_quotes(self):
+        # Each quote makes the summary larger and the cap smaller. When the rounds stop before the cap is stable,
+        # the tail must be cut at the cap whose cut the summary quotes, not at a smaller one.
+        from warm_compaction import layout
+        self.llm.error = RuntimeError("down")
+        text = "".join(f"{index:07d}" for index in range(30_000))
+        rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]), tool("c1", text)]
+        engine = self.make(threshold=0.95, tail_tokens=30_000, warm=False)
+        caps = iter(range(30_000, 0, -1_500))
+        engine._tail_cap = lambda *args, **kwargs: next(caps)
+        cuts, built = [], {}
+        real_bound, real_build = layout.bound_tail, layout.build
+
+        def bound(rows, tokens, removed=None, *args, **kwargs):
+            if removed is not None:
+                cuts.append(tokens)
+            return real_bound(rows, tokens, removed, *args, **kwargs)
+
+        def build(*args, **kwargs):
+            built.update(kwargs)
+            return real_build(*args, **kwargs)
+        layout.bound_tail, layout.build = bound, build
+        try:
+            engine.compress(rows)
+        finally:
+            layout.bound_tail, layout.build = real_bound, real_build
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        self.assertEqual(built["tail_tokens"], cuts[-1])
+
+    def test_a_large_captured_overhead_makes_a_short_history_compact(self):
+        # The history fits the nominal tail, but the system rows and tool schemas of the captured request leave no
+        # room for it and the reply reserve.
+        rows = old_turns(4)
+        reply = assistant("final")
+        engine = self.make(threshold=0.95)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        self.seed(rows, reply, system={"role": "system", "content": "s " * 112_000}, extra={"max_tokens": 4_096})
+        history = [*rows, reply]
+        self.assertTrue(engine.should_compress_preflight(history))
+        self.assertTrue(engine.has_content_to_compress(history))
+        new = engine.compress(history)
+        self.assertIsNot(new, history)
+        self.assertLess(len(new), len(history))
 
     def test_clone_keeps_the_model_thresholds(self):
         self.engine.model_thresholds = {"fake": 0.25}

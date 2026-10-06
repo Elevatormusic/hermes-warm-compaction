@@ -7,7 +7,7 @@ import importlib
 import json
 import math
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 THINK_BLOCK = re.compile(r"\A\s*<think>.*?</think>\s*", re.DOTALL)
 
@@ -100,27 +100,45 @@ MIDDLE_MARK = " [cut] "
 
 
 # The fields of a row that Hermes sends (warm.wire_row): a stored reasoning field and metadata are not sent.
-SENT_FIELDS = ("role", "content", "name", "tool_call_id", "tool_calls", "reasoning_content")
+SENT_FIELDS = ("role", "content", "name", "tool_call_id", "reasoning_content")
 
 
-def sent_rows(messages: list, details: bool = True) -> list:
+class SendPolicy(NamedTuple):
+    """The route-dependent fields of warm.wire_row: reasoning_details (a route that replays them) and the
+    tool-call thought signature, extra_content (a model that reads it). The default counts both."""
+    details: bool = True
+    signatures: bool = True
+
+
+def sent_rows(messages: list, policy: SendPolicy = SendPolicy()) -> list:
     """Return the rows as Hermes sends them, for an estimate: the fields of warm.wire_row, with the api_content
-    sidecar in place of the content. reasoning_details only with details (a route that replays it)."""
-    fields = (*SENT_FIELDS, "reasoning_details") if details else SENT_FIELDS
+    sidecar in place of the content, and each tool call as id, type, and function name and arguments."""
+    fields = (*SENT_FIELDS, "reasoning_details") if policy.details else SENT_FIELDS
     out = []
     for row in messages:
         if isinstance(row, dict):
             sent = {key: row[key] for key in fields if key in row}
             sent["content"] = api_content(row)
+            calls = []
+            for (call_id, name, arguments), source in zip(tool_calls_of(row), row.get("tool_calls") or ()):
+                call = {"id": call_id, "type": "function", "function": {"name": name, "arguments": (
+                    arguments if isinstance(arguments, str) else compact_json(
+                        arguments if arguments is not None else {}))}}
+                extra = attr(source, "extra_content")
+                if policy.signatures and isinstance(extra, dict):
+                    call["extra_content"] = extra
+                calls.append(call)
+            if calls:
+                sent["tool_calls"] = calls
             out.append(sent)
         else:
             out.append(row)
     return out
 
 
-def sent_tokens(row: Any, details: bool = True) -> int:
+def sent_tokens(row: Any, policy: SendPolicy = SendPolicy()) -> int:
     """Estimated tokens of one row as Hermes sends it (sent_rows)."""
-    return estimate_tokens(sent_rows([row], details)[0])
+    return estimate_tokens(sent_rows([row], policy)[0])
 
 
 def cut_bounds(text: str, limit: int) -> tuple[int, int]:

@@ -75,5 +75,20 @@ class SentRowsTest(unittest.TestCase):
         self.assertGreater(sent_tokens({**base, "reasoning_content": "r" * 4_000}), small + 900)
         details = {**base, "reasoning_details": [{"type": "reasoning.text", "text": "d" * 4_000}]}
         self.assertGreater(sent_tokens(details), small + 900)
-        self.assertEqual(sent_tokens(details, details=False), small)
+        from warm_compaction.rows import SendPolicy
+        self.assertEqual(sent_tokens(details, SendPolicy(details=False)), small)
+
+    def test_the_estimate_uses_the_tool_call_fields_that_hermes_sends(self):
+        # wire_row: id, type, and function name and arguments; the thought signature only for a model that reads it.
+        from warm_compaction.rows import SendPolicy, sent_tokens
+        call = {"id": "c1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+        base = {"role": "assistant", "content": "", "tool_calls": [call]}
+        small = sent_tokens(base)
+        extra = {"google": {"thought_signature": "s" * 8_000}}
+        noisy = {**base, "tool_calls": [{**call, "index": 0, "response_meta": "m" * 8_000,
+                                         "function": {**call["function"], "trace": "t" * 8_000},
+                                         "extra_content": extra}]}
+        self.assertEqual(sent_tokens(noisy, SendPolicy(signatures=False)), small)
+        self.assertGreater(sent_tokens(noisy, SendPolicy(signatures=True)), small + 1_900)
+        self.assertLess(sent_tokens(noisy, SendPolicy(signatures=True)), small + 2_100)
 
