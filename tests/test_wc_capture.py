@@ -72,6 +72,12 @@ class CaptureStoreTest(unittest.TestCase):
         self.assertEqual(capture["reply"], {"role": "assistant", "content": "done", "tool_calls": []})
         self.assertEqual((capture["finish_reason"], capture["captured_at"]), ("stop", 5.0))
 
+    def test_a_repeated_call_id_gets_the_hermes_rename(self):
+        # Hermes renames a repeated id in one reply (c1, c1 -> c1, c1_d2) after this hook runs.
+        self.run_request(finish="tool_calls", message=reply_object("", [("c1", "read"), ("c1", "ls"), ("c1", "cat")]))
+        self.assertEqual(self.store.latest("s1")["reply"]["tool_calls"],
+                         [["c1", "read"], ["c1_d2", "ls"], ["c1_d3", "cat"]])
+
     def test_keeps_tool_call_ids_and_names(self):
         self.run_request(finish="tool_calls", message=reply_object("", [("c1", "read")]))
         self.assertEqual(self.store.latest("s1")["reply"]["tool_calls"], [["c1", "read"]])

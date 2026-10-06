@@ -38,6 +38,20 @@ def final_body(request: Any) -> dict[str, Any]:
         raise UnsupportedRequest("request_not_json") from error
 
 
+def unique_call_ids(calls: list[list[str]]) -> list[list[str]]:
+    """Give a repeated tool-call id the name that Hermes gives it after this hook runs: the second c1 becomes
+    c1_d2, the third c1_d3 (agent.message_sanitization.uniquify_tool_call_ids of Hermes 45871e10)."""
+    seen: set[str] = set()
+    out = []
+    for call_id, name in calls:
+        if call_id and call_id in seen:
+            call_id = next(f"{call_id}_d{n}" for n in range(2, len(seen) + 3) if f"{call_id}_d{n}" not in seen)
+        if call_id:
+            seen.add(call_id)
+        out.append([call_id, name])
+    return out
+
+
 class CaptureStore:
     """Keeps the latest usable main-model request of each session, in memory only."""
 
@@ -105,7 +119,8 @@ class CaptureStore:
             reply = {
                 "role": "assistant",
                 "content": plain_text(attr(assistant_message, "content")),
-                "tool_calls": [[call_id, name] for call_id, name, _arguments in tool_calls_of(assistant_message)],
+                "tool_calls": unique_call_ids(
+                    [[call_id, name] for call_id, name, _arguments in tool_calls_of(assistant_message)]),
             }
         except Exception:
             return None

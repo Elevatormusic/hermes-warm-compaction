@@ -53,6 +53,19 @@ class SplitHistoryTest(unittest.TestCase):
             self.assertEqual(caught.exception.code, "history_changed")
 
 
+class RepeatedCallIdTest(unittest.TestCase):
+    def test_tool_results_are_counted_by_occurrence(self):
+        rows = history()
+        reply = assistant("", [("c1", "read", "{}"), ("c1", "ls", "{}")])
+        capture = capture_for(rows, reply)
+        new_rows, _trailing = split_history(capture, [*rows, reply, tool("c1", "r1"), tool("c1", "r2")])
+        self.assertEqual(len(new_rows), 3)
+        with self.assertRaises(WarmRefusal):
+            split_history(capture, [*rows, reply, tool("c1", "r1"), tool("c1", "r2"), tool("c1", "r3")])
+        with self.assertRaises(WarmRefusal):
+            split_history(capture, [*rows, reply, tool("c1", "r1")])
+
+
 class ApiContentHistoryTest(unittest.TestCase):
     def test_the_reply_matches_by_its_api_content(self):
         rows = history()
@@ -271,6 +284,28 @@ class BuildRequestTest(unittest.TestCase):
                 with self.subTest(stored=stored, sent=sent), self.assertRaises(WarmRefusal) as caught:
                     self.build(capture)
                 self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_refuses_a_changed_json_type_in_arguments(self):
+        for old, new in (('{"path":"a","force":true}', '{"path":"a","force":1}'),
+                         ('{"path":"a","n":0}', '{"path":"a","n":false}')):
+            rows = [user("u1"), assistant("", [("c0", "read", old)]), tool("c0", "r0"), user("u2")]
+            self.rows, self.messages = rows, [*rows, self.reply, tool("c1", "r1"), user("u3")]
+            capture = capture_for(self.rows, self.reply)
+            capture["body"]["messages"][2]["tool_calls"][0]["function"]["arguments"] = new
+            with self.subTest(new=new), self.assertRaises(WarmRefusal) as caught:
+                self.build(capture)
+            self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_appended_rows_keep_reasoning_details_on_a_replaying_route(self):
+        details = [{"type": "reasoning.encrypted", "data": "abc"}, {"type": "x.native_assistant", "data": "n"}]
+        reply = assistant("", [("c1", "read", "{}")], reasoning_details=details)
+        self.messages = [*self.rows, reply, tool("c1", "r1")]
+        for base_url, expected in (("https://openrouter.ai/api/v1", [details[0]]), ("https://api.example.com/v1", None)):
+            route = (ROUTE[0], base_url, ROUTE[2])
+            sent = build_request(capture_for(self.rows, self.reply, route=route), self.messages, route, 100_000,
+                                 INSTRUCTION)["messages"][-3]
+            with self.subTest(base_url=base_url):
+                self.assertEqual(sent.get("reasoning_details"), expected)
 
     def test_accepts_request_time_context_and_reformatted_arguments(self):
         capture = self._tool_round()

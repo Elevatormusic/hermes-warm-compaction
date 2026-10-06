@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import collections
 import copy
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Callable
 
@@ -49,14 +51,15 @@ def split_history(capture: dict[str, Any], messages: list) -> tuple[list, list]:
     rest = messages[count:]
     if not _matches_reply(rest[0], capture["reply"]):
         raise WarmRefusal("history_changed")
-    expected = {call_id for call_id, _name in capture["reply"]["tool_calls"]}
-    answered: set = set()
+    # A multiset: one tool row for each tool call, also when an id repeats.
+    expected = collections.Counter(call_id for call_id, _name in capture["reply"]["tool_calls"])
+    answered: collections.Counter = collections.Counter()
     index = 1
     while index < len(rest) and attr(rest[index], "role") == "tool":
         call_id = attr(rest[index], "tool_call_id")
-        if call_id not in expected or call_id in answered:
+        if answered[call_id] >= expected[call_id]:
             raise WarmRefusal("history_changed")
-        answered.add(call_id)
+        answered[call_id] += 1
         index += 1
     if answered != expected:
         raise WarmRefusal("history_changed")
@@ -107,14 +110,16 @@ def _parts(content: Any) -> tuple[list[str], list]:
     return runs, media
 
 
-def _arguments(value: Any) -> Any:
-    """Return the JSON value of tool-call arguments, so that a change of spacing or key order is not a change."""
+def _arguments(value: Any) -> tuple[str, str]:
+    """Return a canonical form of tool-call arguments: a change of spacing or key order is not a change, but a
+    change of a JSON type is (true and 1 are different, which Python == does not see). Text that is not JSON
+    stays as it is."""
     if isinstance(value, str):
         try:
-            return json.loads(value)
+            value = json.loads(value)
         except ValueError:
-            return " ".join(value.split())
-    return value
+            return "text", value
+    return "json", json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 
 
 def _same_row(wire: Any, row: Any) -> bool:
@@ -190,10 +195,31 @@ def _signature(extra: Any) -> Any:
     return copy.deepcopy(extra) if isinstance(candidate, str) and candidate.strip() else None
 
 
-def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None) -> dict[str, Any]:
+REPLAY_DETAILS_HOSTS = ("openrouter.ai", "nousresearch.com")
+
+
+def _route_replays_reasoning_details(base_url: Any) -> bool:
+    """Hermes 45871e10 (agent.transports.chat_completions): only OpenRouter and the Nous Portal read replayed
+    reasoning_details; strict routes reject the field."""
+    host = (urllib.parse.urlparse(str(base_url or "")).hostname or "").lower()
+    return any(host == name or host.endswith("." + name) for name in REPLAY_DETAILS_HOSTS)
+
+
+def _replay_details(details: Any) -> list | None:
+    """Return reasoning_details without private native-assistant carriers (the profile that reads them is not
+    known here), or None when nothing is left."""
+    if not isinstance(details, list):
+        return None
+    kept = [copy.deepcopy(item) for item in details if not (
+        isinstance(item, dict) and isinstance(item.get("type"), str) and item["type"].endswith(".native_assistant"))]
+    return kept or None
+
+
+def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url: Any = None) -> dict[str, Any]:
     """Return the wire form of a stored row, as Hermes sends it: only the fields that the API reads, the
     api_content sidecar of a user or assistant row in place of its content, reasoning_content on an assistant
-    row when the route needs it, and the thought signature (extra_content) of a tool call for a Gemini model."""
+    row when the route needs it, the thought signature (extra_content) of a tool call for a Gemini model, and
+    reasoning_details of an assistant row on a route that replays it."""
     wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(api_content(row))}
     for key in ("tool_call_id", "name"):
         value = attr(row, key)
@@ -216,6 +242,12 @@ def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None) -> dict[
             extra = _signature(attr(source, "extra_content")) if consumes else None
             if extra is not None:
                 call["extra_content"] = extra
+    if attr(row, "role") == "assistant" and hermes_value(
+            "agent.transports.chat_completions", "_route_replays_reasoning_details",
+            _route_replays_reasoning_details)(base_url):
+        details = _replay_details(attr(row, "reasoning_details"))
+        if details is not None:
+            wire["reasoning_details"] = details
     if isinstance(row, dict):
         policy = hermes_value("agent.message_sanitization", "apply_reasoning_content_policy", _reasoning_policy)
         policy(row, wire, reasoning_echo)
@@ -256,7 +288,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request = dict(body)
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
     echo = needs_reasoning_echo(body, new_rows)
-    added = [wire_row(row, echo, body.get("model")) for row in (*new_rows, *trailing)]
+    added = [wire_row(row, echo, body.get("model"), route[1]) for row in (*new_rows, *trailing)]
     request["messages"] = [*body["messages"], *added, {"role": "user", "content": instruction}]
     request["stream"] = False
     request.pop("stream_options", None)
