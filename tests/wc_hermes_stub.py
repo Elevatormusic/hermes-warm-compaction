@@ -105,13 +105,21 @@ EXECUTION_MIDDLEWARE = []
 
 
 def run_llm_execution_middleware(request, next_call, **context):
-    """The llm_execution chain of Hermes, without its failure reporting."""
+    """The llm_execution chain of Hermes 45871e10: a callback that raises before next_call is skipped."""
     def call_at(index, payload):
         if index >= len(EXECUTION_MIDDLEWARE):
             return next_call(payload)
-        return EXECUTION_MIDDLEWARE[index](
-            request=payload, next_call=lambda new=None: call_at(index + 1, payload if new is None else new),
-            **context)
+        called = []
+
+        def downstream(new=None):
+            called.append(True)
+            return call_at(index + 1, payload if new is None else new)
+        try:
+            return EXECUTION_MIDDLEWARE[index](request=payload, next_call=downstream, **context)
+        except Exception:
+            if called:
+                raise
+            return call_at(index + 1, payload)
     return call_at(0, request)
 
 

@@ -161,11 +161,11 @@ class EngineTest(unittest.TestCase):
 
     def test_a_blocking_or_mocking_middleware_stops_the_warm_request(self):
         def block(request=None, next_call=None, **context):
-            raise PermissionError("policy")
+            return None  # A policy middleware blocks by not calling next_call.
 
         def mock(request=None, next_call=None, **context):
             return SimpleNamespace(choices=[])
-        for middleware, reason in ((block, "middleware_refused"), (mock, "middleware_changed_reply")):
+        for middleware, reason in ((block, "middleware_changed_reply"), (mock, "middleware_changed_reply")):
             with self.subTest(reason):
                 wc_hermes_stub.EXECUTION_MIDDLEWARE[:] = [middleware]
                 self.post.calls.clear()
