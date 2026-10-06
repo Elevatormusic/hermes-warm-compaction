@@ -45,7 +45,7 @@ class PredicateTest(unittest.TestCase):
     def test_summary_detection(self):
         # Without the flag (the Hermes session store drops it), only the whole carrier is a summary: a prefix and
         # the end marker, or the plugin header row.
-        self.assertTrue(is_summary(assistant("[CONTEXT SUMMARY]: s\n\n--- END OF CONTEXT SUMMARY x"), PREFIXES))
+        self.assertTrue(is_summary(assistant("[CONTEXT SUMMARY]: s\n\n--- END OF CONTEXT SUMMARY x ---"), PREFIXES))
         self.assertTrue(is_summary(user("[HERMES PREFIX]\n\n" + HEADER_TEXT), PREFIXES))
         self.assertTrue(is_summary(user("plain", _compressed_summary=True), PREFIXES))
         self.assertFalse(is_summary(user("plain"), PREFIXES))
@@ -55,6 +55,22 @@ class PredicateTest(unittest.TestCase):
         row = user("[CONTEXT SUMMARY]: please check this text for errors.")
         self.assertFalse(is_summary(row, PREFIXES))
         self.assertTrue(is_real_user(row, PREFIXES))
+
+    def test_the_end_marker_must_end_the_carrier(self):
+        # The marker inside a request, or a marker line with the request after it, does not make a summary. A
+        # carrier ends with its marker line, or Hermes restates the active request after it (the replay header).
+        from warm_compaction.layout import INFLIGHT_REPLAY_HEADER
+        marker = "--- END OF CONTEXT SUMMARY - respond to the message below ---"
+        for text in ("[CONTEXT SUMMARY]: Please analyze this delimiter: --- END OF CONTEXT SUMMARY and then answer.",
+                     "[CONTEXT SUMMARY]: s\n\n" + marker + "\n\nNow fix the parser.",
+                     "[CONTEXT SUMMARY]: why does this end with\n" + marker + " in my log?"):
+            with self.subTest(text=text):
+                self.assertFalse(is_summary(user(text), PREFIXES))
+                self.assertTrue(is_real_user(user(text), PREFIXES))
+        for text in ("[CONTEXT SUMMARY]: s\n\n" + marker,
+                     "[CONTEXT SUMMARY]: s\n\n" + marker + "\n\n" + INFLIGHT_REPLAY_HEADER + "\n\nfinish it"):
+            with self.subTest(text=text):
+                self.assertTrue(is_summary(user(text), PREFIXES))
 
 
 class TailTest(unittest.TestCase):

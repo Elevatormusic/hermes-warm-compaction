@@ -79,17 +79,37 @@ def nudge_texts() -> frozenset[str]:
     return frozenset(hermes_value(module, name, default).strip() for module, name, default in HOST_NUDGES)
 
 
+# Hermes 45871e10 (agent.context_compressor._INFLIGHT_TASK_REPLAY_HEADER): after the end marker of a carrier,
+# Hermes can restate the active request that was not finished.
+INFLIGHT_REPLAY_HEADER = ("[STILL IN PROGRESS \u2014 this is the active request, restated after the compaction "
+                          "boundary because it was not finished yet. Continue it; do not start over.]")
+
+
+def _ends_carrier(text: str) -> bool:
+    """True when the text ends as a summary carrier: its last end-marker line (a whole line that starts with
+    END_MARKER and ends with ---, as each Hermes version writes it) has nothing after it, or only the Hermes
+    restatement of the active request. The marker inside a sentence, or a request after it, is user text."""
+    lines = text.split("\n")
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index].strip()
+        if line.startswith(END_MARKER) and line.endswith("---"):
+            after = "\n".join(lines[index + 1:]).strip()
+            replay = hermes_value("agent.context_compressor", "_INFLIGHT_TASK_REPLAY_HEADER", INFLIGHT_REPLAY_HEADER)
+            return not after or after.startswith(replay)
+    return False
+
+
 def is_summary(row: Any, prefixes: Iterable[str]) -> bool:
     """Return True for a summary record: the Hermes summary flag, or (the Hermes session store drops the flag) the
-    whole carrier: a known summary prefix with the end marker, or the plugin header row. A user message that only
-    starts with a prefix is a real request."""
+    whole carrier: a known summary prefix and an end marker that ends it (_ends_carrier), or the plugin header row.
+    A user message that only starts with a prefix, or has the marker in its text, is a real request."""
     if attr(row, "_compressed_summary"):
         return True
     text = plain_text(attr(row, "content")).strip()
     for prefix in prefixes:
         if prefix and text.startswith(prefix):
             rest = text[len(prefix):].strip()
-            if END_MARKER in rest or rest == HEADER_TEXT:
+            if rest == HEADER_TEXT or _ends_carrier(rest):
                 return True
     return False
 
