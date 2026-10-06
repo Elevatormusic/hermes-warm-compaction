@@ -90,7 +90,9 @@ def request_overhead(capture: dict[str, Any] | None, messages: list | None = Non
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
         return None
     count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
-    overhead = estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
+    # Every structured field comes again with the next request: tools, the legacy functions, response schemas.
+    structured = {key: value for key, value in body.items() if key != "messages" and isinstance(value, (dict, list))}
+    overhead = estimate_tokens({"messages": body["messages"][:count], **structured})
     if messages is not None:
         # Request-time text in the captured rows (context that Hermes or a middleware added) comes again with
         # the next request, so it is overhead too.
@@ -288,7 +290,9 @@ class WarmCompactionEngine(ContextEngine):
         context = {"purpose": NAME, "api_request_id": None, "session_id": self._wc_session_id,
                    "model": self._wc_route[0], "base_url": self._wc_route[1], "api_mode": self._wc_route[2]}
         try:
-            changed = apply_llm_request_middleware(body, **context).payload
+            # A copy: a host chain that passes the request itself to a middleware that changes it in place
+            # would change the body that the checks below compare with (and the stored capture).
+            changed = apply_llm_request_middleware(copy.deepcopy(body), **context).payload
         except Exception as error:
             raise warm.WarmRefusal("middleware_refused") from error
         if not isinstance(changed, dict) or not isinstance(changed.get("messages"), list):

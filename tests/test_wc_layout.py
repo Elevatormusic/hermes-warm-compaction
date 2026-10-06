@@ -225,6 +225,22 @@ class BoundTailTest(unittest.TestCase):
         self.assertEqual(note, {"type": "text", "text": "[image_url removed]"})
         self.assertIs(rows[0]["content"][1], image)
 
+    def test_raw_string_parts_and_untyped_text_parts_are_cut_as_text(self):
+        # visible_text reads both shapes as text: the bound cuts them, and does not replace them with a note.
+        from warm_compaction.layout import CUT_NOTE, bound_tail
+        from warm_compaction.rows import estimate_tokens
+        rows = [user(["raw " + "a" * 20_000 + " raw-end", {"text": "untyped " + "b" * 20_000 + " untyped-end"}]),
+                assistant("ok")]
+        removed = []
+        bounded = bound_tail(rows, 2_000, removed)
+        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        raw, untyped = bounded[0]["content"]
+        self.assertTrue(isinstance(raw, str) and raw.startswith("raw ") and raw.endswith(" raw-end"))
+        self.assertEqual(set(untyped), {"text"})
+        self.assertTrue(untyped["text"].startswith("untyped ") and untyped["text"].endswith(" untyped-end"))
+        self.assertEqual(len(removed), 2)
+        self.assertTrue(all(part["content"].startswith(CUT_NOTE) for part in removed))
+
     def test_the_cut_middles_are_given_back(self):
         # The fallback summary gets the parts that the tail cuts: they are not lost.
         from warm_compaction.layout import CUT_NOTE, bound_tail

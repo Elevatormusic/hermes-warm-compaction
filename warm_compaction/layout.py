@@ -241,7 +241,10 @@ def _tail_parts(row: Any) -> list[tuple[tuple, Any]]:
         parts.append((("content",), content))
     elif isinstance(content, list):
         for index, item in enumerate(content):
-            if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
+            # The text shapes of visible_text: a raw string, and a text dictionary with or without its type.
+            if isinstance(item, str):
+                parts.append((("content", index), item))
+            elif isinstance(item, dict) and item.get("type", "text") == "text" and isinstance(item.get("text"), str):
                 parts.append((("content", index), item["text"]))
             elif isinstance(item, dict):
                 parts.append((("media", index), item))
@@ -266,7 +269,11 @@ def _set_part(row: dict[str, Any], key: tuple, value: Any) -> dict[str, Any]:
             new["content"] = value
         else:
             items = list(content)
-            items[key[1]] = {**items[key[1]], "text": value} if key[0] == "content" else value
+            item = items[key[1]]
+            if key[0] == "media" or isinstance(item, str):
+                items[key[1]] = value
+            else:
+                items[key[1]] = {**item, "text": value}
             new["content"] = items
     elif key[0] == "arguments":
         calls = [dict(call) for call in row["tool_calls"]]

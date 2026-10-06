@@ -396,7 +396,7 @@ class EngineTest(unittest.TestCase):
         rows = old_turns(2)
         self.seed(rows, assistant("final"))
         capture = self.store.latest("s1")
-        self.assertEqual(request_overhead(capture), estimate_tokens({"messages": [SYSTEM], "tools": None}))
+        self.assertEqual(request_overhead(capture), estimate_tokens({"messages": [SYSTEM]}))
         # Without a captured body the overhead is unknown: the host's token count and the plugin estimate do not
         # use the same tokenizer, so their difference is not a measurement.
         self.assertIsNone(request_overhead(None))
@@ -409,9 +409,40 @@ class EngineTest(unittest.TestCase):
         added = "hi\n\n" + "[recalled] " * 400
         capture = {"digests": [None, None], "body": {"messages": [SYSTEM, {"role": "user", "content": added},
                                                                    {"role": "assistant", "content": "ok"}]}}
-        base = estimate_tokens({"messages": [SYSTEM], "tools": None})
+        base = estimate_tokens({"messages": [SYSTEM]})
         self.assertEqual(request_overhead(capture, rows), base + estimate_tokens(added) - estimate_tokens("hi"))
         self.assertEqual(request_overhead(capture), base)
+
+    def test_request_overhead_counts_every_structured_request_field(self):
+        # The legacy functions field (and tools, response schemas) comes again with the next ordinary request.
+        from warm_compaction.engine import request_overhead
+        from warm_compaction.rows import estimate_tokens
+        functions = [{"name": "f", "description": "d " * 4_000, "parameters": {"type": "object"}}]
+        capture = {"digests": [], "body": {"model": "m", "temperature": 0.2, "messages": [SYSTEM],
+                                            "functions": functions}}
+        self.assertEqual(request_overhead(capture), estimate_tokens({"messages": [SYSTEM], "functions": functions}))
+
+    def test_a_request_middleware_that_changes_the_request_in_place_is_refused(self):
+        # A host whose request chain passes the request itself: the plugin compares with its own snapshot.
+        import sys
+        from types import SimpleNamespace
+
+        def in_place(request, **context):
+            request["messages"].insert(0, {"role": "system", "content": "policy"})
+            return SimpleNamespace(payload=request)
+        module = sys.modules["hermes_cli.middleware"]
+        original = module.apply_llm_request_middleware
+        module.apply_llm_request_middleware = in_place
+        self.addCleanup(setattr, module, "apply_llm_request_middleware", original)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        stored = json.dumps(self.store.latest("s1")["body"], sort_keys=True)
+        self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "middleware_rewrite"))
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual(json.dumps(self.store.latest("s1")["body"], sort_keys=True), stored)
 
     def test_request_reserve_is_the_larger_limit(self):
         from warm_compaction.engine import request_reserve
