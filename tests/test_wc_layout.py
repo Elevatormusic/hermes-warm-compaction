@@ -57,6 +57,13 @@ class CopyTest(unittest.TestCase):
         rows = [user("a" * 10), user("b" * (COPY_EACH + 50)), assistant("x"), user("c" * 10)]
         self.assertEqual(copied_user_messages(rows, COPY_EACH + 15, PREFIXES), ["b" * COPY_EACH, "c" * 10])
 
+    def test_copies_stay_inside_the_token_budget(self):
+        # Six 4,000-character CJK messages are about 24,000 tokens. A 5,000-token budget keeps one.
+        rows = [user("\u4f60" * 4_000) for _ in range(6)]
+        self.assertEqual(len(copied_user_messages(rows, 24_000, PREFIXES)), 6)
+        self.assertEqual(len(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=5_000)), 1)
+        self.assertEqual(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=100), [])
+
 
 class BuildTest(unittest.TestCase):
     def test_two_summary_rows_then_the_tail_without_the_marker(self):

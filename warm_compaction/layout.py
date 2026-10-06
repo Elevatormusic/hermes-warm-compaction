@@ -85,19 +85,23 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
     return start, {"role": "user", "content": copy.deepcopy(latest["content"])}
 
 
-def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[str]) -> list[str]:
-    """Return the newest real user messages that fit in total_chars, each cut to COPY_EACH characters."""
+def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[str],
+                         max_tokens: int | None = None) -> list[str]:
+    """Return the newest real user messages that fit in total_chars and in max_tokens (estimated), each cut
+    to COPY_EACH characters. The token limit keeps dense text, such as CJK text, inside the window."""
     prefixes = tuple(prefixes)
     chosen: list[str] = []
-    used = 0
+    used = tokens = 0
     for row in reversed(messages):
         if not is_real_user(row, prefixes):
             continue
         text = plain_text(row.get("content")).strip()[:COPY_EACH]
-        if used + len(text) > total_chars:
+        cost = estimate_tokens(text)
+        if used + len(text) > total_chars or (max_tokens is not None and tokens + cost > max_tokens):
             break
         chosen.append(text)
         used += len(text)
+        tokens += cost
     chosen.reverse()
     return chosen
 
@@ -122,13 +126,14 @@ def _tail_row(row: Any, marker: str) -> Any:
 
 def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, Any] | None, copy_chars: int,
           header_prefix: str, prefixes: Iterable[str], end_marker: str,
-          marker: str = "_db_persisted") -> list | None:
+          marker: str = "_db_persisted", copy_tokens: int | None = None) -> list | None:
     """Return the new history, or None when no row comes before the tail."""
     if start <= 0:
         return None
     prefixes = tuple(prefixes)
     header = f"{header_prefix}\n\n{HEADER_TEXT}"
-    body = summary_body(summary_text, copied_user_messages(messages[:start], copy_chars, prefixes), end_marker)
+    copies = copied_user_messages(messages[:start], copy_chars, prefixes, copy_tokens)
+    body = summary_body(summary_text, copies, end_marker)
     rest = ([copy.deepcopy(prepend)] if prepend else []) + [_tail_row(row, marker) for row in messages[start:]]
     if attr(rest[0], "role") != "user":
         return [{"role": "user", "content": f"{header}\n\n{body}", "_compressed_summary": True}, *rest]

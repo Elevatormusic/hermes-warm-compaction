@@ -101,8 +101,23 @@ HERMES_CLI = _module("hermes_cli")
 PLUGINS = _module("hermes_cli.plugins", VALID_HOOKS={
     "pre_api_request", "post_api_request", "on_session_start", "on_session_end", "on_session_finalize",
     "on_session_reset"})
+EXECUTION_MIDDLEWARE = []
+
+
+def run_llm_execution_middleware(request, next_call, **context):
+    """The llm_execution chain of Hermes, without its failure reporting."""
+    def call_at(index, payload):
+        if index >= len(EXECUTION_MIDDLEWARE):
+            return next_call(payload)
+        return EXECUTION_MIDDLEWARE[index](
+            request=payload, next_call=lambda new=None: call_at(index + 1, payload if new is None else new),
+            **context)
+    return call_at(0, request)
+
+
 MIDDLEWARE = _module("hermes_cli.middleware", VALID_MIDDLEWARE={
-    "tool_request", "tool_execution", "llm_request", "llm_execution"})
+    "tool_request", "tool_execution", "llm_request", "llm_execution"},
+    run_llm_execution_middleware=run_llm_execution_middleware)
 HERMES_CLI.plugins = PLUGINS
 HERMES_CLI.middleware = MIDDLEWARE
 MODULES = {
@@ -116,3 +131,4 @@ def install(test_case):
     patcher = patch.dict(sys.modules, MODULES)
     patcher.start()
     test_case.addCleanup(patcher.stop)
+    test_case.addCleanup(EXECUTION_MIDDLEWARE.clear)

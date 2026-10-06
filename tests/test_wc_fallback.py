@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from warm_compaction.fallback import (
     FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, fixed_summary, llm_summary,
-    transcript,
+    render_row, transcript,
 )
 from warm_compaction.handoff import HEADINGS
 from wc_fixtures import assistant, tool, user
@@ -25,6 +25,12 @@ class FakeLlm:
 
 
 class TranscriptTest(unittest.TestCase):
+    def test_think_blocks_are_removed_only_from_assistant_rows(self):
+        text = "<think>keep me</think> body"
+        self.assertNotIn("keep me", render_row(assistant(text)))
+        self.assertIn("keep me", render_row(user(text)))
+        self.assertIn("keep me", render_row(tool("c1", text)))
+
     def test_earlier_summary_then_first_user_message_then_newest_rows(self):
         rows = [user("[HERMES PREFIX] header", _compressed_summary=True),
                 assistant("[CONTEXT SUMMARY]:\nold summary\n\n--- END OF CONTEXT SUMMARY x", _compressed_summary=True),

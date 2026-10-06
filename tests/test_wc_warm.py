@@ -166,6 +166,21 @@ class BuildRequestTest(unittest.TestCase):
         stripped["body"]["messages"][1].pop("name")
         self.build(stripped)
 
+    def test_refuses_changed_media_parts(self):
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        other = {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}}
+        for stored in ([{"type": "text", "text": "see this"}, image], [image]):
+            self.rows = [user(stored), assistant("a1"), user("u2")]
+            self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+            self.build(capture_for(self.rows, self.reply))
+            for sent in ([part for part in stored if part is not image], [other if part is image else part
+                                                                          for part in stored]):
+                capture = capture_for(self.rows, self.reply)
+                capture["body"]["messages"][1]["content"] = sent
+                with self.subTest(stored=stored, sent=sent), self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
     def test_accepts_request_time_context_and_reformatted_arguments(self):
         capture = self._tool_round()
         sent = capture["body"]["messages"]

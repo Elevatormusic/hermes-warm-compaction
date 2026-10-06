@@ -145,6 +145,38 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"], engine.warm_last["prompt_tokens"]),
                          ("fallback", "gate:heading_missing", 1000))
 
+    def test_warm_request_runs_through_the_execution_middleware(self):
+        seen = []
+
+        def audit(request=None, next_call=None, **context):
+            seen.append((len(request["messages"]), context.get("purpose"), context.get("api_request_id")))
+            return next_call()
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(audit)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(self.engine.warm_last["path"], "warm")
+        self.assertEqual(seen, [(len(rows) + 3, "warm_compaction", None)])
+
+    def test_a_blocking_or_mocking_middleware_stops_the_warm_request(self):
+        def block(request=None, next_call=None, **context):
+            raise PermissionError("policy")
+
+        def mock(request=None, next_call=None, **context):
+            return SimpleNamespace(choices=[])
+        for middleware, reason in ((block, "middleware_refused"), (mock, "middleware_changed_reply")):
+            with self.subTest(reason):
+                wc_hermes_stub.EXECUTION_MIDDLEWARE[:] = [middleware]
+                self.post.calls.clear()
+                rows = old_turns()
+                reply = assistant("final")
+                self.seed(rows, reply)
+                self.engine.compress([*rows, reply])
+                self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                                 ("fallback", reason))
+                self.assertEqual(self.post.calls, [])
+
     def test_fixed_summary_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("down"))
         engine = self.make()

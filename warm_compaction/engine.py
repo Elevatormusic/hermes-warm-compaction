@@ -191,7 +191,8 @@ class WarmCompactionEngine(ContextEngine):
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
-            marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER))
+            marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
+            copy_tokens=self._tail_tokens())
         self.compression_count += 1
         self._finish(record, started)
         return new
@@ -208,7 +209,7 @@ class WarmCompactionEngine(ContextEngine):
                                       handoff.build_instruction(focus_topic, memory))
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
-            reply = warm.send(body, self._wc_route[1], self._wc_api_key, post=self._post)
+            reply = self._execute(body)
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
             if text is None:
@@ -221,6 +222,30 @@ class WarmCompactionEngine(ContextEngine):
             return None
         record.update(path="warm", reason="accepted")
         return text
+
+    def _execute(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Send the warm request through the Hermes llm_execution middleware, as Hermes sends a main request.
+        A middleware can audit, change, block, or replace the request. A block or a replaced reply stops the
+        warm request; the fallback summary then runs."""
+        try:
+            from hermes_cli.middleware import run_llm_execution_middleware
+        except Exception as error:
+            raise warm.WarmRefusal("middleware_unavailable") from error
+
+        def terminal(request: Any) -> dict[str, Any]:
+            return warm.send(request, self._wc_route[1], self._wc_api_key, post=self._post)
+        try:
+            reply = run_llm_execution_middleware(
+                body, terminal, original_request=body, purpose=NAME, api_request_id=None,
+                session_id=self._wc_session_id, model=self._wc_route[0], base_url=self._wc_route[1],
+                api_mode=self._wc_route[2])
+        except warm.WarmRefusal:
+            raise
+        except Exception as error:
+            raise warm.WarmRefusal("middleware_refused") from error
+        if not isinstance(reply, dict) or not {"content", "finish_reason", "prompt_tokens"} <= reply.keys():
+            raise warm.WarmRefusal("middleware_changed_reply")
+        return reply
 
     def _prefixes(self) -> tuple[str, ...]:
         current = hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX)

@@ -86,7 +86,8 @@ def _summary_text(row: Any, prefixes: tuple[str, ...]) -> str:
 def render_row(row: Any) -> str:
     """Return one transcript entry for a row."""
     role = str(attr(row, "role") or "unknown")
-    text = strip_think(plain_text(attr(row, "content"))).strip()
+    text = plain_text(attr(row, "content"))
+    text = (strip_think(text) if role == "assistant" else text).strip()
     if role == "tool":
         return "[tool result]\n" + _cut(text, TOOL_CHARS)
     lines = [f"[{role}]"]

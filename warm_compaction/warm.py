@@ -82,6 +82,14 @@ def _words(content: Any) -> str:
     return " ".join(plain_text(content).split())
 
 
+def _media(content: Any) -> list:
+    """Return the parts of a content list that are not text, in order."""
+    if not isinstance(content, list):
+        return []
+    return [part for part in content if not (isinstance(part, str) or (
+        isinstance(part, dict) and part.get("type", "text") == "text" and isinstance(part.get("text"), str)))]
+
+
 def _arguments(value: Any) -> Any:
     """Return the JSON value of tool-call arguments, so that a change of spacing or key order is not a change."""
     if isinstance(value, str):
@@ -95,10 +103,12 @@ def _arguments(value: Any) -> Any:
 def _same_row(wire: Any, row: Any) -> bool:
     """True when the sent row carries the stored row: the same shape, the same name or no name (the Hermes
     transport removes the name from some rows), the stored text inside the sent text (Hermes can add
-    request-time context to a row), and the same tool-call arguments."""
+    request-time context to a row), the same image, audio, and file parts, and the same tool-call arguments."""
     if _shape(wire) != _shape(row) or attr(wire, "name") not in (None, attr(row, "name")):
         return False
     if _words(attr(row, "content")) not in _words(attr(wire, "content")):
+        return False
+    if _media(attr(wire, "content")) != _media(attr(row, "content")):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
