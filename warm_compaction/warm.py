@@ -141,7 +141,16 @@ def _same_row(wire: Any, row: Any) -> bool:
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
 
 
-def check_source(body: dict[str, Any], history_rows: list) -> None:
+def _same_replay_fields(wire: Any, expected: dict[str, Any]) -> bool:
+    """True when the sent row has the reasoning fields and thought signatures that Hermes replays for the stored
+    row on this route. The provider reads them, so a change makes a prefix that the history does not have."""
+    if any(attr(wire, key) != expected.get(key) for key in ("reasoning_content", "reasoning_details")):
+        return False
+    return [attr(call, "extra_content") for call in attr(wire, "tool_calls") or []] == [
+        call.get("extra_content") for call in expected.get("tool_calls") or []]
+
+
+def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None) -> None:
     """Refuse a request whose messages are not system rows followed by the stored rows. A row that a hook or
     a middleware rewrote would make the handoff summarize text that is not in the history it replaces."""
     sent = body["messages"]
@@ -149,6 +158,11 @@ def check_source(body: dict[str, Any], history_rows: list) -> None:
     if offset < 0 or any(attr(row, "role") not in SYSTEM_ROLES for row in sent[:offset]):
         raise WarmRefusal("source_transform_unsupported")
     if not all(_same_row(wire, row) for wire, row in zip(sent[offset:], history_rows)):
+        raise WarmRefusal("source_transform_unsupported")
+    # The replayed fields follow the captured request only: the new rows do not change what Hermes sent.
+    echo = needs_reasoning_echo(body, [])
+    if not all(_same_replay_fields(wire, wire_row(row, echo, body.get("model"), base_url))
+               for wire, row in zip(sent[offset:], history_rows)):
         raise WarmRefusal("source_transform_unsupported")
 
 
@@ -285,7 +299,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
         raise WarmRefusal(capture.get("refusal") or "settings_unsupported")
     check_settings(body)
     new_rows, trailing = split_history(capture, messages)
-    check_source(body, messages[: len(capture["digests"])])
+    check_source(body, messages[: len(capture["digests"])], route[1])
     request = dict(body)
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
     echo = needs_reasoning_echo(body, new_rows)

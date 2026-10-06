@@ -309,6 +309,33 @@ class BuildRequestTest(unittest.TestCase):
             with self.subTest(base_url=base_url):
                 self.assertEqual(sent.get("reasoning_details"), expected)
 
+    def test_refuses_changed_reasoning_fields_in_the_captured_rows(self):
+        # The provider reads reasoning_content, reasoning_details, and the thought signature of a captured
+        # assistant row. A middleware that changed them made a prefix that differs from the stored history.
+        details = [{"type": "reasoning.encrypted", "data": "abc"}]
+        signed = {"google": {"thought_signature": "sig-1"}}
+        echo = ([user("u1"), assistant("a1", reasoning_content="think"), user("u2")], ROUTE)
+        replay = ([user("u1"), assistant("a1", reasoning_details=details), user("u2")],
+                  (ROUTE[0], "https://openrouter.ai/api/v1", ROUTE[2]))
+        gemini_row = assistant("", [("c0", "read", "{}")])
+        gemini_row["tool_calls"][0]["extra_content"] = signed
+        gemini = ([user("u1"), gemini_row, tool("c0", "r0"), user("u2")], ("gemini-3-pro", ROUTE[1], ROUTE[2]))
+        changes = [
+            (echo, lambda row: row.update(reasoning_content="other")),
+            (echo, lambda row: row.update(reasoning_content=" ")),
+            (replay, lambda row: row.pop("reasoning_details")),
+            (replay, lambda row: row.update(reasoning_details=[{"type": "reasoning.encrypted", "data": "x"}])),
+            (gemini, lambda row: row["tool_calls"][0].pop("extra_content")),
+        ]
+        for (rows, route), change in changes:
+            self.rows, self.messages = rows, [*rows, self.reply, tool("c1", "r1"), user("u3")]
+            self.build(capture_for(self.rows, self.reply, route=route), route)
+            capture = capture_for(self.rows, self.reply, route=route)
+            change(capture["body"]["messages"][2])
+            with self.subTest(route=route), self.assertRaises(WarmRefusal) as caught:
+                self.build(capture, route)
+            self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
     def test_accepts_request_time_context_and_reformatted_arguments(self):
         capture = self._tool_round()
         sent = capture["body"]["messages"]
