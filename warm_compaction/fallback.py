@@ -87,12 +87,15 @@ def _cut(text: str, limit: int) -> str:
 
 
 def _bound(text: str, chars: int, tokens: int, middle: bool = False) -> str:
-    """Cut the text to at most chars characters and about tokens estimated tokens. A character is at most
-    one estimated token, so a cut to tokens characters meets the token limit."""
+    """Cut the text to at most chars characters and at most tokens estimated tokens. The length goes down by
+    the ratio of the estimate to the limit until the text fits (ASCII text has about four characters for each
+    estimated token, CJK text about one)."""
     cut = _cut_middle if middle else _cut
-    text = cut(text, chars)
-    if estimate_tokens(text) > tokens:
-        text = cut(text, max(tokens - MARK_TOKENS, 0))
+    text = base = cut(text, chars)
+    limit = len(base)
+    while limit > 0 and estimate_tokens(text) > tokens:
+        limit = min(limit - 1, limit * max(tokens - MARK_TOKENS, 0) // estimate_tokens(text))
+        text = cut(base, max(limit, 0))
     return text
 
 
@@ -218,6 +221,36 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     return text, tokens if isinstance(tokens, int) and tokens > 0 else None
 
 
+def _tool_lines(counts: collections.Counter, max_tokens: int) -> list[str]:
+    """One line for each tool name, in about half of max_tokens: when they do not fit, the most used names stay
+    and one line counts the others."""
+    if not counts:
+        return ["- No tool calls."]
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    keep = len(ranked)
+    while True:
+        lines = [f"- Tool calls: {name} x{count}" for name, count in sorted(ranked[:keep])]
+        rest = ranked[keep:]
+        if rest:
+            lines.append(f"- Other tool calls: {len(rest)} names, {sum(count for _name, count in rest)} calls.")
+        if keep == 0 or estimate_tokens("\n".join(lines)) <= max_tokens // 2:
+            return lines
+        keep //= 2
+
+
+def cut_quote(rows: list, max_tokens: int) -> str:
+    """The cut middles of rows (after CUT_NOTE) as one labeled block quote in about max_tokens estimated tokens,
+    each with its start and end. Empty without cut middles or room."""
+    texts = [text[len(CUT_NOTE):] for text in (attr(row, "content") for row in rows)
+             if isinstance(text, str) and text.startswith(CUT_NOTE)]
+    if not texts or max_tokens < MIN_QUOTE_TOKENS:
+        return ""
+    each = max_tokens // len(texts)
+    return "\n".join(["- Parts that the tail cut from the newest rows (their start and end):",
+                      *[quote(_bound(text, max(MIN_PART_CHARS, CUT_QUOTE_CHARS // len(texts)), each, middle=True))
+                        for text in texts]])
+
+
 def fixed_summary(messages: list, prefixes: Iterable[str] = (), focus_topic: str | None = None,
                   memory_context: str = "", max_tokens: int = FIXED_TOKENS) -> str:
     """Return a five-heading summary without a model request, in about max_tokens estimated tokens. Its quotes
@@ -227,7 +260,7 @@ def fixed_summary(messages: list, prefixes: Iterable[str] = (), focus_topic: str
     prefixes = tuple(prefixes)
     counts = collections.Counter(
         name for row in messages for _call_id, name, _arguments in tool_calls_of(row) if name)
-    tools = [f"- Tool calls: {name} x{count}" for name, count in sorted(counts.items())] or ["- No tool calls."]
+    tools = _tool_lines(counts, max_tokens)
     # (label, texts, character limit): in the order of the summary.
     items: list[tuple[str, list[str], int]] = []
     summaries = [row for row in messages if is_summary(row, prefixes)]

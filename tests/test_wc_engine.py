@@ -423,6 +423,27 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
         self.assertEqual(engine.compression_count, 0)
 
+    def test_the_fixed_budget_is_not_above_a_small_room(self):
+        self.engine._room = lambda *args, **kwargs: 100
+        self.assertEqual(self.engine._fixed_budget(0, 0), 100)
+        self.engine._room = lambda *args, **kwargs: -5
+        self.assertEqual(self.engine._fixed_budget(0, 0), 0)
+
+    def test_the_fallback_summary_gets_the_cut_middle_of_the_prepended_row(self):
+        # The fallback transcript has only the start and end of a long row: the middle that the tail cuts from
+        # the prepended request must stay in the summary (a bounded quote: its start and end).
+        rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        self.assertNotIn("MID-REQ", json.dumps([call[0] for call in self.llm.calls]))
+        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
+        self.assertNotIn("MID-REQ", prepended["content"])
+        self.assertTrue(any("MID-REQ" in str(row.get("content")) for row in new if row.get("_compressed_summary")))
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.

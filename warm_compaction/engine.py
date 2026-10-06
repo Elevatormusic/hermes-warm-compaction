@@ -29,8 +29,6 @@ CARRIER_TOKENS = 500
 # Rounds of the fixed path: cut the tail, quote the cut, and size the cap again.
 FIXED_ROUNDS = 10
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
-# The smallest fixed summary: the headings and short quotes.
-FIXED_MIN_TOKENS = 256
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
@@ -301,9 +299,16 @@ class WarmCompactionEngine(ContextEngine):
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
             if sent_tokens(prepend, policy) > allowed:
-                if record["path"] != "fixed":
-                    # A model summary had the whole row (in the warm request, or in the fallback transcript).
+                if record["path"] == "warm":
+                    # The warm request had the whole row.
                     prepend = layout.fit_user_row(prepend, allowed)
+                elif record["path"] == "fallback":
+                    # The fallback transcript had only the start and end of a long row: the middle that this cut
+                    # removes goes after the summary as a quote. The room keeps space for that quote.
+                    prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
+                    block = fallback.cut_quote(cut, fallback.CUT_QUOTE_CHARS // 4)
+                    if block:
+                        summary = summary.rstrip() + "\n\n" + block
                 else:
                     # The row is not copied and the fixed summary does not have it: its cut middle goes into the
                     # summary as a quote. The room keeps space for that quote.
@@ -515,13 +520,14 @@ class WarmCompactionEngine(ContextEngine):
 
     def _fixed_budget(self, overhead: int | None, reserve: int) -> int:
         """The token budget of the fixed summary: the summary reserve, and at most the free room (half of it with
-        an unknown overhead), but enough for the headings."""
+        an unknown overhead)."""
         free = self._room([], "", overhead or 0, reserve)
         if free is None:
             return SUMMARY_RESERVE
         if overhead is None:
             free //= 2
-        return max(FIXED_MIN_TOKENS, min(SUMMARY_RESERVE, free))
+        # Not above a small room: the headings take less, and the quotes then have no share.
+        return max(0, min(SUMMARY_RESERVE, free))
 
     def _summary_fits(self, summary: str, overhead: int | None, reserve: int) -> bool:
         """True when the summary row fits in the free room (as _tail_cap: half of it with an unknown overhead)."""

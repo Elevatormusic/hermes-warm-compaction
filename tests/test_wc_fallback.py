@@ -247,6 +247,16 @@ class FixedSummaryTest(unittest.TestCase):
                 for mark in ("OLD-GOAL", "FOCUS-START", "MEMORY-START", "CUT-START"):
                     self.assertIn(mark, text)
 
+    def test_many_tool_names_stay_in_the_budget(self):
+        # The tool inventory is in the budget too: the most used names stay, the others become one count.
+        from warm_compaction.rows import estimate_tokens
+        rows = [assistant("", [(f"c{index}", f"synthetic_tool_name_{index:04d}", "{}")]) for index in range(500)]
+        rows.append(assistant("", [("x1", "read", "{}"), ("x2", "read", "{}")]))
+        text = fixed_summary(rows, max_tokens=1_000)
+        self.assertLessEqual(estimate_tokens(text), 1_000)
+        self.assertIn("- Tool calls: read x2", text)
+        self.assertIn("- Other tool calls:", text)
+
     def test_no_tool_calls(self):
         self.assertIn("- No tool calls.", fixed_summary([user("x")]))
 
