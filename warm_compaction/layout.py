@@ -382,7 +382,8 @@ def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, A
         last = max((index for index, row in enumerate(earlier) if is_real_user(row, prefixes)), default=len(earlier))
         earlier = earlier[:last]
         if copy_tokens is not None:
-            copy_tokens = max(copy_tokens - estimate_tokens(prepend), 0)
+            # As Hermes sends it: api_content in place of the stored display text.
+            copy_tokens = max(copy_tokens - sent_tokens(prepend, policy), 0)
     copies = copied_user_messages(earlier, copy_chars, prefixes, copy_tokens)
     body = summary_body(summary_text, copies, end_marker)
     tail = [_tail_row(row, marker) for row in messages[start:]]

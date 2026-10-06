@@ -11,7 +11,7 @@ from agent.context_engine import ContextEngine
 
 from . import fallback, handoff, layout, warm
 from .capture import CaptureStore
-from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows
+from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,7 @@ class WarmCompactionEngine(ContextEngine):
         cut: list = []
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
-            if estimate_tokens(prepend) > allowed:
+            if sent_tokens(prepend, policy) > allowed:
                 if record["path"] != "fixed":
                     # A model summary had the whole row (in the warm request, or in the fallback transcript).
                     prepend = layout.fit_user_row(prepend, allowed)
@@ -290,7 +290,7 @@ class WarmCompactionEngine(ContextEngine):
                     # summary as a quote. The room keeps space for that quote.
                     prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
                     summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
-        prepend_tokens = estimate_tokens(prepend) if prepend is not None else 0
+        prepend_tokens = sent_tokens(prepend, policy) if prepend is not None else 0
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         if record["path"] == "fixed":
             # The fixed summary quotes what the tail cuts: cut and quote at the same cap. A larger summary makes a

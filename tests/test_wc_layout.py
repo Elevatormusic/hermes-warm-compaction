@@ -168,6 +168,15 @@ class AttachmentAndPrependTest(unittest.TestCase):
                     prefixes=PREFIXES, end_marker=END, copy_tokens=105)
         self.assertNotIn("older ask", new[1]["content"])
 
+    def test_the_prepended_row_counts_in_the_copy_budget_as_hermes_sends_it(self):
+        # Hermes sends api_content in place of content: the stored display text does not use the copy budget.
+        rows = [user("older ask"), assistant("a"), user("shown " + "d" * 4_000, api_content="do it " + "x" * 400),
+                assistant("", [("c1", "f", "{}")]), tool("c1", "r")]
+        prepend = {"role": "user", "content": rows[2]["content"], "api_content": rows[2]["api_content"]}
+        new = build(rows, "S", start=3, prepend=prepend, copy_chars=10_000, header_prefix="[HERMES PREFIX]",
+                    prefixes=PREFIXES, end_marker=END, copy_tokens=1_000)
+        self.assertIn("> older ask", new[1]["content"])
+
 
 class BoundTailTest(unittest.TestCase):
     def test_a_newest_unit_larger_than_the_tail_is_cut(self):
