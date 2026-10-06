@@ -1,8 +1,220 @@
-# hermes-warm-compaction
+<p align="center">
+  <img src="assets/banner.svg" alt="Warm Compaction: hot-cache context compaction for Hermes Agent" width="100%">
+</p>
 
-A context engine plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent). At each compaction, the main model writes the handoff summary on the cached prefix of its last request, so the server reads only the new rows.
+<p align="center">
+  <a href="https://github.com/Elevatormusic/hermes-warm-compaction/actions/workflows/tests.yml"><img src="https://github.com/Elevatormusic/hermes-warm-compaction/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-FF6B3D" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later">
+  <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/Hermes%20Agent-45871e10%2B-5E6878" alt="Hermes Agent 45871e10 or later"></a>
+  <img src="https://img.shields.io/badge/dependencies-none-2EA44F" alt="No dependencies">
+</p>
 
-The plugin code comes in the first pull request.
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#results">Results</a> ·
+  <a href="#settings">Settings</a> ·
+  <a href="#limits">Limits</a>
+</p>
+
+`warm_compaction` is a context engine plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent). At each compaction, the main model writes the handoff summary on the cached prefix of its last request. The server reads only the new rows, so the compaction is faster.
+
+It works on unpatched Hermes Agent. It uses documented plugin APIs only: no host patch, no subclass of the built-in compressor, and no runtime wrapping of Hermes code.
+
+## Quick start
+
+```bash
+hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
+```
+
+```yaml
+# config.yaml
+context:
+  engine: warm_compaction
+```
+
+Start a new Hermes session. Each compaction writes one `warm_compaction:` line to `logs/agent.log`.
+
+## How it works
+
+<p align="center">
+  <img src="assets/how-it-works.svg" alt="The built-in compressor sends a separate summary request with a new prompt prefix. warm_compaction sends the last request again with the new rows and a handoff instruction, so the server reuses its prefix cache." width="100%">
+</p>
+
+At each compaction, the plugin sends the last main-model request of the session again. It adds the rows that came after that request and one handoff instruction at the end. This is the *warm request*. The server can reuse the cached prefix of the earlier request, so it reads only the new rows. The reply is a Markdown handoff with five headings: Goal, User instructions, Current state, Key facts, and Next step. The plugin replaces the older rows with the handoff and keeps a verbatim tail of recent rows.
+
+If the warm request cannot run, or if its reply fails the gate, the same compaction attempt uses a fallback summary through the Hermes auxiliary model route. If that also fails, the plugin writes a fixed-format summary without a model request. When Hermes cancels an attempt, the history stays unchanged.
+
+The plugin does this for manual `/compress` and for automatic compaction.
+
+**The speedup needs the same model.** The warm request goes to the main model route. The cache gain occurs only when the server keeps a prefix cache for that route (for example vLLM, SGLang, llama.cpp, or LM Studio with prefix caching). The fallback summary can use a different model.
+
+## Requirements
+
+- Hermes Agent `45871e10` (2026-10-02) or a later version that keeps the plugin APIs that the plugin uses. At load time, the plugin checks for each API. If an API is missing, the plugin registers nothing, writes a warning to the log, and Hermes keeps its built-in compressor.
+- For the warm path: the OpenAI chat completions API mode (`chat_completions`). Other API modes always use the fallback summary.
+- Python 3.10 or later. No third-party package.
+
+## Install
+
+```bash
+hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
+```
+
+The `#warm_compaction` part selects the plugin folder in the repository. To install a specific commit, add `--ref <40-character commit SHA>`. To install without enable, use `--no-enable`, then `hermes plugins enable warm_compaction`.
+
+The install runs the Hermes security scan and the plugin checks. The plugin passed them in the [integration check](evidence/plugin-integration.json).
+
+## Select the engine
+
+Hermes never selects a context engine automatically. Select it one time:
+
+- `hermes plugins`, then Provider Plugins, then Context Engine, then `warm_compaction`; or
+- set this value in `config.yaml`:
+
+```yaml
+context:
+  engine: warm_compaction
+```
+
+Start a new Hermes session after the change.
+
+## Settings
+
+The settings are in `plugins.entries.warm_compaction.settings`. An invalid value uses the default and writes a warning to the log.
+
+| Key | Type and range | Default | Use |
+| --- | --- | --- | --- |
+| `threshold` | float, 0.10 to 0.95 | 0.50 | Fraction of the context window at which automatic compaction starts |
+| `tail_tokens` | int, 0 or more | 0: 2.5% of the context window, from 10,000 to 25,000 | Size of the verbatim tail |
+| `user_copy_chars` | int, 0 or more | 24,000 | Total characters of user messages that the summary copies |
+| `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
+
+```yaml
+plugins:
+  entries:
+    warm_compaction:
+      settings:
+        threshold: 0.5
+```
+
+The warm request sends the whole earlier request again, plus the new rows and the reply reserve. Thus it must fit in the context window. At the default threshold, about half of the window stays free for it. If the request does not fit, the plugin uses the fallback summary (refusal code `capacity`). The plugin uses the prompt token count that the server reported for the earlier request, and estimates only the new rows.
+
+## Fallback model and keys
+
+The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` uses the main model route.
+
+For a custom endpoint that needs a key, put the key name in the model settings:
+
+```yaml
+model:
+  provider: custom
+  base_url: https://example.invalid/v1
+  key_env: MY_ENDPOINT_KEY
+```
+
+The warm request uses the key that Hermes gives to the engine. The fallback request goes through the Hermes auxiliary route, which reads the key from `model.key_env` or `model.api_key`. Without one of them, Hermes sends the placeholder key `no-key-required`, and a server that needs a key refuses the fallback request. A host that gives the key only in code, for example `AIAgent(api_key=...)`, cannot give it to the fallback request.
+
+## Check the result
+
+Hermes writes one line for each compaction to `logs/agent.log` in the Hermes home folder:
+
+```text
+warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021 cached_tokens=107968
+```
+
+- `path` is `warm`, `fallback`, or `fixed`.
+- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`.
+- `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
+
+The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.
+
+## Results
+
+All runs used synthetic conversations of 100,000 or more prompt tokens on unpatched Hermes `45871e10`, one session at a time. The records have metadata only. "DGX" is an OpenAI-compatible server on an NVIDIA DGX that reports cached tokens. "LM Studio 4B" is LM Studio with a Qwen3.5 4B model; it reports no cached-token counter.
+
+**Plugin against the built-in compressor** ([record](evidence/plugin-live.json)), ten cases per engine and mode, median seconds:
+
+| Engine | Mode | Warm path accepted | Compaction, plugin / built-in | Compaction + next reply, plugin / built-in |
+| --- | --- | --- | --- | --- |
+| DGX | manual | 10/10 | 10.2 / 32.7 | 12.5 / 36.9 |
+| DGX | automatic | 10/10 | 10.1 / 39.9 | 11.5 / 42.9 |
+| LM Studio 4B | manual | 9/10 | 20.9 / 34.4 | 25.2 / 64.5 |
+| LM Studio 4B | automatic | 9/10 | 21.1 / 41.8 | 25.7 / 54.9 |
+
+On DGX, each warm request read about 108,000 prompt tokens, and the server reported at least 99.9% of them as cached.
+
+**Plugin, hermes-lcm 0.21.0-rc2, and the built-in compressor** ([record](evidence/lcm-bench.json)), DGX, automatic compaction, ten cases:
+
+<p align="center">
+  <img src="assets/bench-speed.svg" alt="Median compaction time: warm_compaction 16.8 s, hermes-lcm 43.5 s, built-in 78.5 s. Compaction plus next reply: 27.9 s, 66.1 s, 97.1 s." width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/bench-quality.svg" alt="Compacted facts kept: warm_compaction 59/60, hermes-lcm 43/60, built-in 50/60. Fact in the middle of a long message: 10/10, 0/10, 0/10. Standing rule kept: 10/10, 5/10, 6/10." width="100%">
+</p>
+
+<details>
+<summary>Table with all measures</summary>
+
+| Measure | Plugin | hermes-lcm | Built-in |
+| --- | --- | --- | --- |
+| Compaction, median (s) | 16.8 | 43.5 | 78.5 |
+| Compaction + next reply, median (s) | 27.9 | 66.1 | 97.1 |
+| Compacted facts correct | 59/60 | 43/60 | 50/60 |
+| Fact in the middle of a long row | 10/10 | 0/10 | 0/10 |
+| Standing rule kept (next reply) | 10/10 | 5/10 | 6/10 |
+| Control fact (in the recent rows) | 10/10 | 10/10 | 10/10 |
+| Next action, action and target | 9/10 | 9/10 | 10/10 |
+
+The charts come from the record: `python assets/make_charts.py`.
+
+</details>
+
+The plugin was faster than both other engines in 10 of 10 cases. hermes-lcm and the built-in compressor cut long messages before they summarize them. The warm request lets the main model read the full rows.
+
+### Limits of the results
+
+- One synthetic task family, one session shape, and one model per engine.
+- The cache reuse depends on the server. The plugin cannot force it. On LM Studio, the cache reuse is unknown, and part of the gain comes from the smaller new history.
+- The results describe these versions and settings only.
+
+## Limits
+
+- The warm path needs a captured main-model request in the current Hermes process. After a restart or a resume, the first compaction uses the fallback summary if no main-model request completed before it (`no_capture`).
+- The verbatim tail keeps the newest rows that fit in `tail_tokens`. It stops at the first older row that does not fit, and that row goes into the summary.
+- The warm request is not streamed and not retried. Its time limit is 120 seconds. The fallback request also has a 120-second limit.
+- A request with `extra_headers` or `extra_query`, `n` above 1, a forced `tool_choice`, `response_format`, or audio settings uses the fallback (`settings_unsupported`).
+- After `/compress`, Hermes builds the system prompt again from its configuration. A system message that a host gave in code is not kept. This is Hermes behavior, and it is the same for the built-in compressor.
+- Each new agent writes this Hermes warning to the log: `Context engine 'warm_compaction' loaded but no engine instance found`. Hermes first tries its context engine loader, which cannot make this engine. Then Hermes uses the engine of the enabled plugin. The warning has no effect.
+
+## Rollback
+
+Set the built-in compressor again and start a new Hermes session:
+
+```yaml
+context:
+  engine: compressor
+```
+
+The new history uses summary rows that Hermes recognizes. The [integration check](evidence/plugin-integration.json) checked a rollback with the plugin still enabled: the built-in compressor loaded the saved history and compacted it again with its own summary. To remove the plugin, use `hermes plugins disable warm_compaction` or `hermes plugins remove warm_compaction`.
+
+## Development
+
+Run the unit tests from the repository root:
+
+```bash
+python -m unittest discover -s tests -p "test_wc_*.py"
+```
+
+Run the integration check on a clean Hermes checkout with the Python of the Hermes virtual environment:
+
+```bash
+<hermes-venv-python> -B scripts/check_plugin_hermes.py --hermes-source <clean-hermes-checkout> --report .work/plugin-integration-report.json
+```
+
+The integration check installs the plugin with the Hermes install command in a temporary Hermes home. It runs real Hermes conversation and compaction code against a loopback fake server, and it sends no request to a real model. An audit-hook fence blocks other network access, child processes, and writes outside the scenario folder. The report has metadata only.
 
 ## License and credit
 

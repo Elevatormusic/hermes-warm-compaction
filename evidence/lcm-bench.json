@@ -1,0 +1,3189 @@
+{
+ "schema": "warm-compaction.lcm-bench/v1",
+ "date": "2026-10-05",
+ "status": "diagnostic_complete_not_promoted",
+ "question": "On unpatched Hermes Agent with the DGX route, how do the warm_compaction plugin, hermes-lcm, and the built-in compressor compare in compaction speed and in what the agent still knows after one automatic compaction of a 100K+ token synthetic session?",
+ "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message text, request body, or key.",
+ "sources": {
+  "protocol_sha256": "9822e55bc0ad7fd36e86c4f61a4a6774204e9fa0b2cfeccdd8c51f2419a74bbf",
+  "freeze_receipt_sha256": "94f4b5f11ffd182f979bc246e99e5c80ad7d1137de09ddff35e9a1e9a06c0fca",
+  "hermes": {
+   "commit": "45871e100feceb89769536c88e5e6e265226a409",
+   "clean": true
+  },
+  "files_sha256": {
+   "protocol.json": "9822e55bc0ad7fd36e86c4f61a4a6774204e9fa0b2cfeccdd8c51f2419a74bbf",
+   "fixture.py": "73b98982356d5b8d3761222b6dc146f2d95533bd21c7a3b48cf365622ff6f547",
+   "runner/run_lcm_bench.py": "2a5aa715e99091cba042878e2a9d5f575e49c229410f774e7d8f657023ac0501",
+   "runner/score_lcm_bench.py": "f6490436cb8179b71404a5c155937ad71f1df8cbc1a11efec05fc3746a9d6f29",
+   "tests/test_lcm_bench.py": "573817ef62a50a95ad0c31015f3f41f83265af5716d5e80775ea6d61a7edeb0f",
+   "<repo>/warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
+   "<repo>/warm_compaction/capture.py": "3ee60f35ae4e8fc0376ab6634c721ae1ca429593d10730f19addc3be545fe682",
+   "<repo>/warm_compaction/engine.py": "f38c837a1dd5faefd0c6e103dc96b7c788d51b7e0599cef21730e05d6d28f2b2",
+   "<repo>/warm_compaction/fallback.py": "8a6e1ae3782932f1e1aba663bae86f414eaf4aa07f2812490581b30f5ca0c034",
+   "<repo>/warm_compaction/handoff.py": "2fcdc2af2eba2d36eaabfef912ce0dd6d64bccc7849849e6411869a0025a06c2",
+   "<repo>/warm_compaction/layout.py": "eb8971633a1ae547c3e912e2fc800651a0897619089aa6a051fd4c420670863a",
+   "<repo>/warm_compaction/plugin.yaml": "091b1970e658636840a3f3d60e3fa3c53bcb82f77b821adc58a51aba5ba9e47a",
+   "<repo>/warm_compaction/rows.py": "d7fd618ad4f80d9472e9d4dd80630ac038d2bfc8e95f32d5308d7a8f58c27d12",
+   "<repo>/warm_compaction/warm.py": "83833383411de750b9eea77941b7de93ac94c36a9a0fa50b2b0046d23ac756e2",
+   "<lcm>/.gitignore": "9285c469f632a4dfca7384815ad6ca200d2ee641d38e68f8fd6d20e915dc0646",
+   "<lcm>/__init__.py": "5cd1a8e12c06d27848d642a9fd56e6d2c42f8f2aeadace316a8b53ffcb264b52",
+   "<lcm>/adaptive_retrieval.py": "538f659a74761e2ba5826b13e9dc6cb3396e47c2c6cef0d7ad4c57dd0e5c9a26",
+   "<lcm>/answer_contract.py": "608da7fd323f4cdd7bfeecad68771e3eb54364a60ebfaef4e08fc895f97ddc54",
+   "<lcm>/assertion_extraction.py": "831ddebcba55021f770305fbcb0bbf08987c77cf26e4261b09d8cda36de9a08a",
+   "<lcm>/assertion_rebuild.py": "dd495ce66b83cf82982bcb167cdb57538cf80561509269095c1b8876af567ed6",
+   "<lcm>/assertion_state.py": "ea2156f68295707ccc97cd80f6d4d8dba86d1a8130e24c36908f47191a3acf13",
+   "<lcm>/assertion_store.py": "6b9333bebe03d89ea52607be93a27a85d32b1fc5689ba6b6940866c61ef724e0",
+   "<lcm>/aux_session.py": "c700e99c3827221a954ce393c2472662f4a6a32309380fb88d05987e449168ca",
+   "<lcm>/bench/release-kit/review-logs/DELTA-REVIEW-PACKET.md": "7dd35d772aee05f2ca8b4c9561fcb90d74a04a8062471bceb5b0a10bb3cf558b",
+   "<lcm>/bench/release-kit/review-logs/FINDINGS-VERDICTS-R2.md": "addcc0f441b8c1f33bc51c0d6eb77bb4922ff8ac1aa4372dcb909d2f997ac7d7",
+   "<lcm>/bench/release-kit/review-logs/FINDINGS-VERDICTS-R3.md": "ed2b5c8bcf2531bb3b1164d12a01e65e5fc415468d2efe843938cb752207c403",
+   "<lcm>/bench/release-kit/review-logs/FINDINGS-VERDICTS.md": "12f8fafde8cd9eb93e07e41d7ba280e62e750ad9678ce226a81d4f1bb95c5113",
+   "<lcm>/bench/release-kit/review-logs/REGRESSION-REPORT.md": "be09ab0fad67313081862ae3ec1f83a71e8eae7819c91dfac39a91b14223f9f0",
+   "<lcm>/bench/release-kit/review-logs/REVIEW-PACKET.md": "6e06912263ae0fb65362a0ed221302532f2fd1b521dbc7113d29c05952805563",
+   "<lcm>/bench/RUNBOOK.md": "aad489d213745063466126eceec2d4df952f40646f24b574fd44a9c3c1efe6ba",
+   "<lcm>/benchmarking/__init__.py": "ba17a4d4f8aa9b0c36e9e424146285ad1dbd086b49895f4e39e46e96089b84db",
+   "<lcm>/benchmarking/fixtures.py": "6ef39d8ee4021b8603c61a9018a6cc59207832436e339255f6f4aabdf3d9f9ea",
+   "<lcm>/benchmarking/h3_composition_replay.py": "558ac5841e05a2b8adce8c840a9f264ad4649f316c6505c5f6bce476b86770b1",
+   "<lcm>/benchmarking/h5_recall_replay.py": "f2291374d6bfb3618c25033da5a67cccd64cd36cd6be1c56342ba2e318c5a714",
+   "<lcm>/benchmarking/h5_state_semantic_replay.py": "b030ab344d9dfede7abd9a57e50afe5c1e6a5be1dd5217a78b4d81024f66a81b",
+   "<lcm>/benchmarking/longmemeval.py": "8a3a93835191297907975a852da10ec459729a74c9b43c7245b25f2462b966e3",
+   "<lcm>/benchmarking/metrics.py": "78a25a84987093085dfa84d03a0c6699f1f8cdfde56859685da08830d5da4f6d",
+   "<lcm>/benchmarking/policies.py": "55457511e855727b2614e7590c46c9e7a81810016ed6e3ba7f9e51d9bc1dc453",
+   "<lcm>/benchmarking/replay.py": "b29b49de5eff860da1dd6d6aef88afc3f7d82531cedab32a0c94f340aa0805be",
+   "<lcm>/benchmarking/report.py": "6aa9da0e0a80f6db8611645b1e64efa86cd66fc3a0412de2064026ac7ab76354",
+   "<lcm>/benchmarking/standalone.py": "c196786896a7e254739fec43d15b7593afc32b69ec3e0df8f6650739ff8c622f",
+   "<lcm>/benchmarking/state_embedding_backfill.py": "f1c0cdc37460c484b088a25ef2d938dbcf93d3f2d16cc4418f731f77322a4e05",
+   "<lcm>/benchmarking/steady_state.py": "7352146ff56b221b77d5e7617adf706dffe39d7f89c7487e475465bb7ed22686",
+   "<lcm>/benchmarking/stress.py": "803a21c2ee69d27e94757915da442c559348ca8551b55cbc50b1e5a296260bb9",
+   "<lcm>/benchmarking/types.py": "9884e85621ba1231da81bf81f644e80e458f4ddbbde4550f4c6ec0bc29f716e0",
+   "<lcm>/benchmarking/w3b_diversity_replay.py": "55bb54ef3174efb348bfa9aa560d572c698985337a959f83deee1f2c7e9d6116",
+   "<lcm>/benchmarking/w3b_it4_replay.py": "17e8e1c175303224b499b24a257f736ac3b83b48123151109bb6c2015424d27b",
+   "<lcm>/benchmarks/benchmark_active_tool_stubbing.py": "6e8c474244869ae45f3a38cef56139e66092310ce8e47be05f4c056d2a5cddd6",
+   "<lcm>/benchmarks/fixtures/long_history_canaries.json": "f3f35eb01d68074a80513b7042c342f06aa1278dfc188b77458bcd81b7d203b8",
+   "<lcm>/benchmarks/fixtures/repeated_compaction_chatter.json": "aeddb709ad8614e8b5e516c30c0b7d17b8322f4a3cd8bfb3161bb1bbc9387108",
+   "<lcm>/benchmarks/fixtures/scrubbed_operator_chatter_repeated_compaction.json": "ac27af6d577804c64e19d845cf0eb4dc61b2e81a7181f2d5e4048f149e542771",
+   "<lcm>/benchmarks/fixtures/scrubbed_operator_coding_tool_heavy.json": "aaac2f8c5eb5cd9f895452b2a7d02ba0d1aab6eacec6a0fe00870aee1b55e443",
+   "<lcm>/benchmarks/fixtures/summary_refusal_probe.json": "dbaedabd4899e56b640c5c3ad41fafa11beb4769eb400b09814e8217ea5fcc56",
+   "<lcm>/benchmarks/fixtures/summary_timeout_probe.json": "8e484b4114da0e7ce8850dfeae252120c3043b0b1268aa084c25ed9b297d8b44",
+   "<lcm>/benchmarks/METHODOLOGY.md": "c425ac50b90539c3e0af8f00a56867e03c8466bbd0a3752d41999bc846d2e4d6",
+   "<lcm>/benchmarks/policies/baseline.yaml": "a6937e1730e54be4271d2356f1bb2a874ad13ec946c1d406024c2a6747f828bd",
+   "<lcm>/benchmarks/policies/codex_gpt_long_context.yaml": "07a52b725fa4770ee7bf3adb526529e153348d66383fb5e2666ed32dccc419d8",
+   "<lcm>/benchmarks/policies/codex_spark_context.yaml": "d653801d068d6ce5bc862cf0e983170681178d75c23f4d10a10d8fa8c65e795d",
+   "<lcm>/benchmarks/policies/pressure_smoke.yaml": "221b7bf4601299fb590b837bd648273b6b220c1a8a367cc7480e7ca56b1dfe96",
+   "<lcm>/benchmarks/qa-harness/REPLICATION.md": "977a1d7f3b34cd85c0fe4aa0b5c07d6f35b3c49f4072dea7d80d2f86266bbe13",
+   "<lcm>/benchmarks/qa-harness/src/judges/cli.ts": "5f7bd6affee86bc1b27b7d1dd55745f6ac75d9ba0082e2c4062befe44f504d10",
+   "<lcm>/benchmarks/qa-harness/src/providers/hermes-lcm/bridge/hermes_lcm_bridge.py": "fd253775a21c996eb57b4ea231260a7f17fbbc1e0b29a2d07c812c5a002018a3",
+   "<lcm>/benchmarks/qa-harness/src/providers/hermes-lcm/index.ts": "637e5d1ee484dc3c67f08cb31b0619ef7e0b8cf2515ca9e5c5d825bfb174f6cd",
+   "<lcm>/benchmarks/qa-harness/src/providers/hermes-lcm/prompts.ts": "273451593a2fe4d57b7192b2897b2605a3e0f036c2e9d68d7da3179bb52449a0",
+   "<lcm>/benchmarks/qa-harness/src/providers/hermes-lcm/README.md": "9d8488bbdea6754cf6825246588b39dcda43900bef33eaa16f8f476dcd654b64",
+   "<lcm>/benchmarks/qa-harness/src/utils/cli-llm.ts": "5a8d7cbaa2a19d6967c994db820ed5ce0218ff5d90215e265202c78e0e5dc351",
+   "<lcm>/benchmarks/README.md": "08f22b75d45aef8259a86641c1b161cf654cf8177aa74b19e26c4d93769a22a1",
+   "<lcm>/benchmarks/results/longmemeval-v2-500q-fastembed-metrics.json": "1f504d7f133c2738a7e26f01e0feb021eae248fb415af2001c1b3db3952f808e",
+   "<lcm>/benchmarks/results/longmemeval-v2-500q-fastembed.md": "d3261bce0493332cb1f20d8f31853d2bdca2247e97902a6e55da1aaef06f896f",
+   "<lcm>/benchmarks/results/longmemeval-v3-500q-fastembed-metrics.json": "b8d2156864e8562eaaa1bcf4b7a30a0a0866b0178cda2a2702da0f8a866504ed",
+   "<lcm>/benchmarks/results/longmemeval-v3-500q-fastembed.md": "b6c1473f82d2eef0a8610b7a34f31386508f03e9a12329ba70cb6f10c67526ce",
+   "<lcm>/bypass.py": "57c5f291f958e64a420094fdb49f1931b000cc1fbb4eb3cfea4e19100fd59615",
+   "<lcm>/CHANGELOG.md": "bb986dc6cb3fe3ffc6a93c4cf4378aa9a28875eee8ad0a5732c0d7724b3af542",
+   "<lcm>/chunking.py": "285d219b659a839f6b75899710478a2d1dd5e70c07df2b45725e69015ab5d8ff",
+   "<lcm>/CODE_OF_CONDUCT.md": "5a36b528ff45a5e43672e730eeef3d1141433bb43a0ea5bf288aa0c8c07de54d",
+   "<lcm>/codex_routing.py": "f075e377123c908622d9ede6724bf4ff3e0a5cc2f3e53ac4a008f3abd8439cbe",
+   "<lcm>/command.py": "7e3fc0f81dabb9e13e59869cece590781a8a218459638983caa3a45aac53e1a2",
+   "<lcm>/compaction.py": "95b3f07e8566db1b1f07ba699ded26f7bd113ea04fada594b4efe9da02aec61a",
+   "<lcm>/config.py": "16147f0c6026936de25c44c6266fee09cd31729ce30a63a5f08e6bcf748a79cf",
+   "<lcm>/CONTRIBUTING.md": "9534ca9c1d6ba7f8624260a01b8bf125a59bbc408775a83ed379bab35e98cc8e",
+   "<lcm>/dag.py": "0b34f3d366c64e5fab568fbce500e3a7afe81f894b057370d9fd8949661336cc",
+   "<lcm>/db_bootstrap.py": "7fb728d5c2e444623eee8a536df93d2c810beac135652d8409e9646a279f8a0c",
+   "<lcm>/diagnostics.py": "0c16c4a1abc528b0d4dc2921bfc4440c63a66b4a2ff27026a779f1e185fd07b1",
+   "<lcm>/docs/agent-config-profiles.md": "c15971f5d7e3e2ef30b45a96ad12a195a61b873c09af88776a124f3e9519a555",
+   "<lcm>/docs/architecture.md": "51d6ece158fca5416e97c2a2d09e68ac58fefbef616f48ad31b46843593c5bb8",
+   "<lcm>/docs/architecture.png": "8a9c4e7fd98a848fe873a3688f5d19467cd33038b5dddbac4885d06ce080b734",
+   "<lcm>/docs/async-background-compaction.md": "44df0fac9f00cf0e02463e83612c37f36980bfb273789e49a5dfb24e11813109",
+   "<lcm>/docs/banner.png": "c41dc1e148a8cfe816a1ab04b11fcc1bf06a6cfd99b061b01f1c526951311059",
+   "<lcm>/docs/embeddings-setup.md": "ba19bbf7ab0f76cf9babec3827c7a80b19d1e1a2e9b83ba0e7b9fb58a87a667a",
+   "<lcm>/docs/features-overview.md": "5c0706e05f2eb8180dfeb3cfdae536fd2b0f73eb40b334fb33746ada5894544a",
+   "<lcm>/docs/lcm_compression.png": "8fa0eb7cb0cbab42bf67040f39dfd77e014036d990178e38a392b1769de1b727",
+   "<lcm>/docs/operator-guide.md": "a985682e82ca55206430d0443b9133c30924147f17961d55f5abf108c3453b51",
+   "<lcm>/docs/packaging.md": "59ed6609d451d974f23131907bb0a0ecff76bb925a5f9c672515c2867ca7a3cf",
+   "<lcm>/docs/pr-283-ignored-backlog-compaction.png": "234baf5ca30d25892dbf03a4233bb5d88d19acce6fc272f5df382cf6c6b67162",
+   "<lcm>/docs/release-validation.md": "6cb926476acaebf0760bb3cd32f7b5fdee0ad1a0825fb615d7de69b4ad8d3adc",
+   "<lcm>/docs/retrieval-tools.md": "d5232f59427c14fe992fc341dac6ef21e169f20ebfb86dd538bf18f396552e1f",
+   "<lcm>/docs/standard_compression.png": "79c005ec112610d7e74f8933d083c5680df617b022067ca553e6a4c4cb8f3ef8",
+   "<lcm>/embedding_provider.py": "b8d4240d6f933ec7cad92660b1e62a07c489d14ada98473a4605c0f6a4e8fd04",
+   "<lcm>/engine.py": "e6cc93e379e32be9c720df91d72e4950c0b5c3adc4339cbccdee26751b6b4c69",
+   "<lcm>/engine_registry.py": "967e9fd29611ac63104637521e002ebe0eec8d038adf0b3f397b184e9b367335",
+   "<lcm>/escalation.py": "82be5f417f7b9bd1b7b9f87e9d5a3d3f4e0b794a3b9475a00d8165cca7acfac9",
+   "<lcm>/evidence_compiler.py": "6ac0601046f353dafd4d1d7d6784ba3ca28e730068915b0620f1baa605ed9225",
+   "<lcm>/evidence_pack.py": "509522404533b9590399debfa4fc58d1cfab53d42ce89a65c3123c55b3cdc687",
+   "<lcm>/externalize.py": "7ba6cd6c3fc8491664702c69a4745e1abcf362a0ca49df32cf020261cb1485b6",
+   "<lcm>/extraction.py": "1db3c9589c02978938a3fd0808e0f61c2fa0fb696105465086827e4dcfb5c3b3",
+   "<lcm>/FINDINGS-VERDICTS-R4.md": "9b10bd3444ff65384f7a8d565bbe7279da617b57b02e8fdd67aa1091507e4b18",
+   "<lcm>/FINDINGS-VERDICTS-R4B.md": "b1ae18968dd5ecfff7d2072cb98e23e197dda60bcbf404057b874e0c742b7d21",
+   "<lcm>/FINDINGS-VERDICTS-R6.md": "021e99131f273e95634aea6c828c4f3f427634a06ca6437e2706427e78816925",
+   "<lcm>/FINDINGS-VERDICTS-R7.md": "700797f9e180b9c3073f89664007f9f76da97d6efc654ddbf4b75e71e2979ba1",
+   "<lcm>/FINDINGS-VERDICTS-UP1.md": "0f1e1b477efc3e89091856077c727c15b46371db530a33947e081631fe489d69",
+   "<lcm>/fresh_tail.py": "ec66e7043bee7513d95ff7ccb56c4740b0632beb607515112c5f734f31f14dca",
+   "<lcm>/guidance.py": "4a75d6b629936fa8c40dfb2e05f2c50a6e0660c8eeeaa13c7fb26084f13f1255",
+   "<lcm>/host_evidence.py": "c72320cb0e67d73fdf07ef8431055e7d4f7758af598b27e0e7776c4677338882",
+   "<lcm>/ingest_protection.py": "eb8849c625a45fd76d8bd471e472bc49c5945334e2ac1e0adb479f4018d3f160",
+   "<lcm>/LICENSE": "045d43eef93afd7fbdbc827d2ea0c578b251a6a8d95a30ee8a53d27e9fc226eb",
+   "<lcm>/lifecycle_state.py": "3451de8e07f003d199722d072e69cfaab74e7b731f141818f4b9c29776bae4ea",
+   "<lcm>/maintenance.py": "33823170556b0183f0797da4205a2cfcf5b28de47cdf8673b51426702911e927",
+   "<lcm>/message_analysis.py": "246f1a498a48a5d28870f0ff982e9a93051cda0971382874f5d75555a1cdcf21",
+   "<lcm>/message_content.py": "5d1a743cc0f6d9558b7d661a1e5d81021a3d3d4ef2e36a28d0120097a2894f71",
+   "<lcm>/message_patterns.py": "d2cf9005bc796238d9b1a6849769c90053b24ae799c026ade856a7a879f98254",
+   "<lcm>/model_routing.py": "298651f89bfc6508fffb8257d61e38d4ccc811e692d283574d02a5b105100244",
+   "<lcm>/occurrence_time.py": "f717eb64dd5428d239e1bda678fee79a74ee8c4a5ff29edcbc0964ecadf9e9f2",
+   "<lcm>/placeholder_ledger.py": "ecb13a8fcc7753c91e840f877c052b7432b6b89a148e848d72e2e4016e6adef8",
+   "<lcm>/plugin.yaml": "d3a7b3e8254b68b081c7cdf6ac2c90882bf9c0dd9532f076560b4fba8893948d",
+   "<lcm>/preanswer_evidence.py": "667d0a70abde68d58ad5614fb0c732b542e83d8b242374157cecf81ee83bf3a5",
+   "<lcm>/presets.py": "4d9dd64179b9a5400a390527c0040aa7506d9ed47b9465affdf6d3a49feb6a34",
+   "<lcm>/pyproject.toml": "a384b8f2eb1051e115d8c507e86658943d0ab20a36468610ad1919ddbfcd3a79",
+   "<lcm>/query_view_store.py": "cce3db4e9c7f878a91780ca2635ccbf2ba3b021300960bf12acc95d2c4499656",
+   "<lcm>/README.md": "b05de0dd9a7d22ff9c6555f5fb15bcc1ded6912141e807672309d16e0845a4a6",
+   "<lcm>/reasoning.py": "5f957adf06306cd4de972a18320c19c0f5f4bbae165300ef11165238f2a18d4d",
+   "<lcm>/reconcile.py": "450723b6d65838eff2506713498895775651aa0c1604104633d47ed5a3af6d7a",
+   "<lcm>/requirements_compiler.py": "c379d94a34b137250af06172068430584788976541d4c055abee0e8776a83266",
+   "<lcm>/reset_state.py": "bbb45a56f16e0198a33d39a7b110c0f70921fb7bbdd75147a4ef18a0776ed033",
+   "<lcm>/retrieval_core.py": "199216ebbfd18669c3d107071d67151902dd6bf6cadda1562954b3b06bd068ef",
+   "<lcm>/rollup_builder.py": "8943e8daceb1fccc4394f2c3c777be80329f635114dc5f1b2770c615464115ac",
+   "<lcm>/rollup_periods.py": "4dda6e123280275ea93890022d3dde5a47a2beff3197ba05a4a0791869fba2a2",
+   "<lcm>/rollup_store.py": "763b6f5501863659e5bf54d7ef2a7981563a26ffad02a51703ed43fd66b8830c",
+   "<lcm>/runtime_identity.py": "5cb5d4abbef4e003887e22f7c7cff139f34a29243b018fd6a9e33a81cd576a3b",
+   "<lcm>/sanitize.py": "2f288e49b210780994c242cf68468c95609f4d6492938cc03a8a5502426c763c",
+   "<lcm>/schemas.py": "14db267c6f40f3aaee4885e099e26a54b001839bf3700ba2908b6cb0997dd0c6",
+   "<lcm>/scripts/backfill_externalized_tool_outputs.py": "148390bfaf6b074bc43ed3f573ae93e4f65f3f7c7a4ca2795c03b4675b680abd",
+   "<lcm>/scripts/benchmark_threshold_full_sweep.py": "dbb2c2f61947175cec371e4fe5fc5338a11f203f7ec943cb478370eb01eba995",
+   "<lcm>/scripts/eval_retrieval_recall.py": "b4cdc465062c3966021683731127911fca26713636fe952e90dd2d601924356e",
+   "<lcm>/scripts/import_lossless_claw.py": "c45d339231511517d7b3077c7a6310b3a52912fa32aba188d45084b2d52c5f1d",
+   "<lcm>/scripts/install.sh": "2cdebcf08ebaf7200cec17a412afef3e02d9db2f3d70bd7003bfca86e58d94b4",
+   "<lcm>/scripts/lcm_benchmark.py": "563132dc5a297e7a7788f2758ce837c411da1138ec7d6a8afc6452c62316f73a",
+   "<lcm>/scripts/lcm_longmemeval.py": "aa1250acd22ccd34a3520aa2a06b24efad6f2d4dae944fc16e502e02b4a81ff9",
+   "<lcm>/scripts/lcm_steady_state_bench.py": "9723430234a81ad942856ef5367d4fc6e1a60f779f0e4d17c7c18d05c4494c85",
+   "<lcm>/scripts/lcm_stress_check.py": "d5b8f420b6273f1542d1ea2eb81fe73b238e20a65d543e7c45d18bbfd7a7f828",
+   "<lcm>/scripts/measure_assertion_store.py": "19e71176d06bdfe459e42bdd49ddc1ea81dc2b9d95e60d5cbdc5d6be380deb4b",
+   "<lcm>/scripts/update.sh": "31806f3bc221a0bc2637a36a6924c526b109f3e3482bfa0c8e0bb880d8dde405",
+   "<lcm>/scripts/validate_release.sh": "09b2460c60843728b716cd646580c888c2de2e6266e80c5faeefbdcf5a48e4d1",
+   "<lcm>/search_query.py": "32daccea38a8a3d94175a44b2d9c369a9ce3761ea2e88fbc3d0a24beb46932d4",
+   "<lcm>/SECURITY.md": "f2adb861ee0a189922f95662daed3b4e2e6fddaa9e554063602c0789b4fa539e",
+   "<lcm>/selective_compiler.py": "d538c4f305b92fea07159675c2e1a464efef46fb17a3ef866d636407e7028244",
+   "<lcm>/selective_recall.py": "c380acfdda06a0cc619b2340db1463187f6448f589327f4055b164cd6d32d65b",
+   "<lcm>/session_patterns.py": "8073717e06981a368184f4d16eac9ddd94a68ddfee86558790963c7e675403aa",
+   "<lcm>/skills/hermes-lcm/references/architecture.md": "6bc38802a2a29459b55a330b8e2f44be72b9c925aa3155f18f723cf3fdfec956",
+   "<lcm>/skills/hermes-lcm/references/configuration.md": "a5324912f335aa7079d1cd075c9c58eb25e529db0dc67d6f2879c690848e3ada",
+   "<lcm>/skills/hermes-lcm/references/diagnostics.md": "48e81acf632e0bc0a597234d7975342f900e02ed1e69ed6f69c7303d5088d776",
+   "<lcm>/skills/hermes-lcm/references/recall-policy.md": "c8b51f1f842ff1b7e4885d110fa1bef782fdbe6f2845fe149dca349711c8ea50",
+   "<lcm>/skills/hermes-lcm/references/recall-tools.md": "7f2c3c110ea1fbed7c84956a79dbadbac6a7623ba879139c27f94fcdb01fbec8",
+   "<lcm>/skills/hermes-lcm/references/session-lifecycle.md": "d175a5d8a15757696d815b1c7815dde67790013a3ad809fef9757f1e3b689480",
+   "<lcm>/skills/hermes-lcm/SKILL.md": "0c549e0f8612e83aa7e79b52ac69fc3555f1d4e1ab2302526a6f5bd7b523d925",
+   "<lcm>/sqlite_util.py": "adb238e533f58e700c45f2b4610ae71b89bdd7a208e124d90a5bedafc2712be0",
+   "<lcm>/store.py": "afefce98432a3db1d359cd81d7c73d64dfdb2bc47431dd27fb4e545f3761f30f",
+   "<lcm>/tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "<lcm>/tests/conftest.py": "c596bdc568c14a0130779d6b5305e1f208ee1c95e7043c1712f14a42ace116b0",
+   "<lcm>/tests/fixtures/retrieval_recall_queries.json": "18701766e4009ce30101cc7162a7658c4c1f4ef10f4e4a58715c69ffa8fe71af",
+   "<lcm>/tests/test_active_tool_stubbing.py": "04e45b620ae24125ed18fdc80f91e6c4d9f2b2aba81f0a3a8b5242caa62c7a41",
+   "<lcm>/tests/test_adaptive_retrieval.py": "387f80b212e4bb7ea05310eb7e358383a9dd85bf1bcd85645d3331de529ba7e5",
+   "<lcm>/tests/test_answer_contract.py": "db85f1663f926cf1d00492971ec23d5e3c988ebf5611935861aedcd26366ee80",
+   "<lcm>/tests/test_assertion_extraction_state.py": "afee92fef5eba15437f22bedac909db6b71d9f80d2ff7dec8f51c3d9c252d1e2",
+   "<lcm>/tests/test_assertion_lifecycle_tools.py": "e43450432d7079bb660338209ec0418cfede118d18d11848d59baff62216b300",
+   "<lcm>/tests/test_assertion_model_pipeline.py": "abb6b519f7408f08e2c14012a6c50dc23185b27c67942d03abf1843428f03e60",
+   "<lcm>/tests/test_assertion_rebuild.py": "82d7ecd2b2aad23768f8642a481aaf7965bd2ec4e058f7eca7b454e0080e5551",
+   "<lcm>/tests/test_assertion_store.py": "dd238a1fcedaafc4eb5feb81597162835a730636fb09fbc1c0c51fd1fd90bfbc",
+   "<lcm>/tests/test_async_background_compaction_design.py": "59a7ce55b28149200ae1b963439e93e9fffa15784a4012b5b593942e2f7bbac7",
+   "<lcm>/tests/test_auto_focus_topic.py": "fd67a5a2a1ba4c22dec51f99e540e62f7b4b15f848f77d99277cff59d86b762d",
+   "<lcm>/tests/test_auxiliary_first_ingest.py": "f1ae751e6e6e882b0e79ec40b37b2e0a2b333b36ea3ff640691b1406e4a9380f",
+   "<lcm>/tests/test_benchmarking_cli.py": "791a127fefcf0b36121ddf0f54f72270c4026978baa558314205e78648eeb742",
+   "<lcm>/tests/test_benchmarking_fixtures.py": "46d1187b268e9ac43a3e88f833239e2771588ceea86c41ffeea8a818e6519104",
+   "<lcm>/tests/test_benchmarking_replay.py": "d003a45869131fb4204c05f2eb2523f6c50162dffd69ced1184da57873bcba85",
+   "<lcm>/tests/test_benchmarking_report.py": "f238e7401abbdf79f4c34d23004f2ec9eb300eb268d4adfaeee20cae56ff74a3",
+   "<lcm>/tests/test_benchmarking_steady_state.py": "f7d1b79631e7b4cb1df6705f7cdee254e82b5b3ba0549d889230bd99bff72f4b",
+   "<lcm>/tests/test_benchmarking_types.py": "6860e8500a41586424858d31a007fc37a8e0c483faf2f0ce33b603e17cf7ae49",
+   "<lcm>/tests/test_chunk_backfill.py": "a39c1a7b6782b0dace4908d5b25081663f4d19036ec85fe1268024f0499654ae",
+   "<lcm>/tests/test_chunk_provider.py": "a23fd380154bb32b23415823e7daf2e5992dac4c9c19f7c9b3aee604bf475ffc",
+   "<lcm>/tests/test_chunk_schema.py": "c477598921027c5f910aef04f1b838496a777cdf2f3ee06b131e08dc2f1d15ae",
+   "<lcm>/tests/test_chunk_vector_store.py": "adf4b7501f4d6fd0b5e7346fb3165828f50dc058f7287f6840ed173b3520015f",
+   "<lcm>/tests/test_chunking.py": "215279ee1ff2dd964afbc79799156e017dea38691e7ac05adef4ee7acca3d498",
+   "<lcm>/tests/test_compaction_telemetry.py": "9c926484686dd4503d4da5e19130eabae6d8858b968e485403626b6da3a6aa87",
+   "<lcm>/tests/test_compression_boundary.py": "37c54820da36da03ca4e59aa9914f419a6daa964ee1ffdae237f63cc9afd64e4",
+   "<lcm>/tests/test_crash_safe_wal.py": "2136c5b7cee559a8c23f27769bedc659d9f064d157ba33384a73fc53e26dddb6",
+   "<lcm>/tests/test_dag_source_message_ids.py": "fd374ad74d9f35e28198171e533115ef8fa7c625cd232b55f95cc3a499b0828c",
+   "<lcm>/tests/test_db_bootstrap_fts.py": "f67199c99a0bf545fda196d67f57d7f6fe782510b8c7310852c35316a534e452",
+   "<lcm>/tests/test_embedding_backfill.py": "3ffbadd8abf7a17064f6cdd1f8f01e6c08d6ca222b552f5b5ade3bcbf0e28144",
+   "<lcm>/tests/test_embedding_provider.py": "6425c272d73458fb89f9c6a73a570cec6e8d984a3aeadebfe2e2205aad46027f",
+   "<lcm>/tests/test_embedding_search_modes.py": "5c261a22504197faa711f166827c826f368212349ec3905a82d9038070d9af27",
+   "<lcm>/tests/test_evidence_compiler.py": "8f1043bc252bb2e4c2f739c08b5d1d62df1e9f46837d45d8861b68367a9a225a",
+   "<lcm>/tests/test_evidence_contract.py": "1208039d4c48803005d027e7a13606a1651e7307ecc6633ccbeaf781bb764d91",
+   "<lcm>/tests/test_evidence_pack.py": "843b8571e30a7c0490ff02fdc81663b4282be7da10cb9089ba478351fb85536d",
+   "<lcm>/tests/test_evidence_pack_host_activation.py": "d4b50131dcd40d29476ab52ffff85e5ef9e36546e3df214ff8623d4a94ca4018",
+   "<lcm>/tests/test_fresh_tail.py": "176d48719698163baf3c25c5abc8af44cb7436d4802af2b5f0d12b7d1595cb13",
+   "<lcm>/tests/test_h3_composition_replay.py": "3b8c7930e654ebfc103ac4cc499e1ef9a871ae4614bf45c424c4b6451c3608c0",
+   "<lcm>/tests/test_h5_state_semantic_replay.py": "5f9087e4aaa5eba10fd3c3c92963527d699aa1f48294317d574975cfb7fe9656",
+   "<lcm>/tests/test_historical_externalization_backfill.py": "2338bff367c7e163302ea652fe95503185d8120fd8e908d3402356c05be9685e",
+   "<lcm>/tests/test_host_capability.py": "beb48f96fac7ecfc844b6d8162908a2f8a318833ea64ecc71b3194460f817d76",
+   "<lcm>/tests/test_host_supplied_evidence.py": "8d3aa179c311909316516eef693bfc13efc98445c93a34cb4d0b1687da404837",
+   "<lcm>/tests/test_import_lossless_claw.py": "54f511a0015d30cb4c9e4e7bad937d4a0d12397af0247ac69039cc0f2e9a933f",
+   "<lcm>/tests/test_ingest_protection.py": "bcf7a6eb782c0298ec69b6dedb1ee49d6049e96003b78b212c2bfe6397541189",
+   "<lcm>/tests/test_int8_two_stage_knn.py": "002cf1b2a79551256dedd4bd02207526fe5ac1b0e3be0e1008d55634b4474d81",
+   "<lcm>/tests/test_lcm_command.py": "7b165653298ae7251758c53d4657cbfd8f71dc09f23b39ad58fea92d9c7cd560",
+   "<lcm>/tests/test_lcm_core.py": "e53f04c1edb94f4b240a6ff4ce1827286655b2190cf9e7b8a685f40afa808068",
+   "<lcm>/tests/test_lcm_engine.py": "9dfeb4ccf4c56240a3bdbe335d8834ca0ba7389e9f787e2c6708755a55a2b6ef",
+   "<lcm>/tests/test_lcm_inspect.py": "fdfc40e512308a0da1f4ee54d3fe42d7952364092e419f5c0b98319c97bbfbfe",
+   "<lcm>/tests/test_lcm_preset_command.py": "a32574d646ce3b689271a7bb6a9d9aef630a345b1a318f505cf11155f02ecb26",
+   "<lcm>/tests/test_lcm_recall.py": "2133ade0794dca9a406c2ef879a5d4885d8322de10171cf6eed647d8d72ec679",
+   "<lcm>/tests/test_lcm_recent.py": "1255f9d294997777b7c9aeb22552645ba04eb70b35fd5d6c2566067799ba5d40",
+   "<lcm>/tests/test_lcm_rotate.py": "3e5f04a0ed0a42da442f1f8437f387023481fd17bc33657c5722fb3583974d2b",
+   "<lcm>/tests/test_longmemeval_harness.py": "be145cebf4d7eab4ec01e3cd7f5a6d6f6d2890363c63d399e0daf1d0e6cd707b",
+   "<lcm>/tests/test_occurrence_time.py": "9a7c1ef35a965fc9cf6e81edeb5936686461cda950cdda019849c1f047d60c62",
+   "<lcm>/tests/test_packaging_install.py": "76157a4def346ac79293d65bd9968fa0c647515d8c96119e265a34ea90e098b2",
+   "<lcm>/tests/test_path_containment.py": "f21c8b4c9997ee642199bdd5429db1429e6ada73ac348a4abbb2c1f61a50d262",
+   "<lcm>/tests/test_path_resolution.py": "7d6a33fdf9d42580a3ac1f858916a8261f71b18ba053c99580931ed8f94864ce",
+   "<lcm>/tests/test_path_security.py": "abcf81817d85d82c2a16c765350ed996b3f31b1e52fa0be688105047fdbfbfd4",
+   "<lcm>/tests/test_preanswer_evidence.py": "a4a193b830666b0d75181ef11a0cf4a13dcf47e7fa2d3d28c198a660dd11e688",
+   "<lcm>/tests/test_prescreen_flip_blackout.py": "40f3ed4794a92b61f9095f64aee3b30573d611a975e3284e4aad99f9e5cf44d5",
+   "<lcm>/tests/test_proactive_recall_injection.py": "a009adddfe0694b823afb6371e95d9e7fc70ceee1cdd1074dea73cc79ab4c9af",
+   "<lcm>/tests/test_query_view_store.py": "14499791a7a59ec7e0a8c5ca6c79dea8f345177389dfabaecd0158173b68cd1d",
+   "<lcm>/tests/test_reasoning.py": "2a87b95ce5779706bb58e78b0a44dcdc6b3160bdde9e2695ea3e51c446fe835e",
+   "<lcm>/tests/test_recall_guidance.py": "9a398ce931193ee256d4d654d3561cf56d1d17c86d68085471702d1b0d515d15",
+   "<lcm>/tests/test_release_workflow.py": "4d1e63763f118c6c7d510214a0ad9f57ea1c53974bb097f36b3833d96c816daa",
+   "<lcm>/tests/test_rollup_builder.py": "76cc845616f8b83c32aacb90d6b084813a9e7be0d6ba5677760150f90ee64772",
+   "<lcm>/tests/test_rollup_introspection.py": "c321999b5ed5607af0f8e3dd1858aa3c1b2e6a608cdbbe43208d6e9fb7f9e5cc",
+   "<lcm>/tests/test_rollup_store.py": "1a6fa351c758b144f9fe1eaf713f585fd83f0423bbd778dc92eaeaa4dbc03dd8",
+   "<lcm>/tests/test_runtime_time_contract.py": "05bb5913bde25bc7c0cd65cc97c2bb1f5a1e202ca3090cbbb5a51c5887c19623",
+   "<lcm>/tests/test_schema_stamp_remediation.py": "168a7124523536f82673e92417ea77da317128fe07c09446e9b868ad3e99f621",
+   "<lcm>/tests/test_selective_compiler.py": "f48057d57c2788583c78ba307584f5a3806ba4b604d081c652292aa487a3d2c2",
+   "<lcm>/tests/test_selective_session_bundle.py": "f5fc86507fda15cd2f3d3589589302e1f4cc549cddc707174fc436fedd314abd",
+   "<lcm>/tests/test_state_embedding_backfill_cli.py": "7672e9070d060979763e63eec7deb874af58b0e05425c27b2540f926ba5b44f3",
+   "<lcm>/tests/test_stress_release_check.py": "96af20418e9d26398d4a87c8a7145c7c2291b9a2bafe115d12007b5e60a4c485",
+   "<lcm>/tests/test_subagent_lineage.py": "91d17ab8f43900a6d2c7d1ac0eacb41baeae2c759e9c7139b164a36efaf1e1e6",
+   "<lcm>/tests/test_threshold_full_sweep_benchmark.py": "453b0e24536c87c99fe097d5753bd1b18e4fe9872a6bfcd419d508793d8c848e",
+   "<lcm>/tests/test_tokens_encoder_loading.py": "50e010290981ec4a80ed58340262e117f416f582a5bbdb1a23f3ee497e19006b",
+   "<lcm>/tests/test_tool_contracts.py": "251d09a37573b29a3e926c603f2651bcd50cf95cb4d73e3f4ea5149cf576dc02",
+   "<lcm>/tests/test_trajectory_adjacency_expansion.py": "3ce7bed506d30f0c350ddc9304625401a860f5b310f237f4cdb66956334cff70",
+   "<lcm>/tests/test_trajectory_compact_delivery.py": "df12f85def52c7cb96cf92650db049fa90f83df6d6ec709ff2afce5d7bc04023",
+   "<lcm>/tests/test_trajectory_composition_policies.py": "58bd359e2548d73557050a8e4c922ff720cbaffa925ced3d5cea5f0791de969e",
+   "<lcm>/tests/test_trajectory_semantic_retrieval.py": "7473fab61584d99e43b47b15ea2ad86ee85ad8a7c5c9335c125b7cfa85547a1d",
+   "<lcm>/tests/test_trajectory_state_semantic_expansion.py": "69bc1788bbcedc6f303ea588aa1782d6330009af12254c4e1ba64f8bae13de8c",
+   "<lcm>/tests/test_trajectory_store.py": "df8863fad4e17899683e3963048e1388288242c1a91bf248afbdc1a4a321cb80",
+   "<lcm>/tests/test_vector_store.py": "d1e831371b3e92dc25b29208172c2f3f42527bb1ffa02a0f85c67d8cb8a0dc39",
+   "<lcm>/tokens.py": "5a4ce28998d7903d41a07bb88c582ce5a80b5849c67004e5610c227be79c166d",
+   "<lcm>/tools.py": "fd513f641aca72aeb2c5d1e54f01ceb9a11eb82ed28401f51703b8c6271b278d",
+   "<lcm>/trajectory_store.py": "6fd5f6d2d7e46dac2b51edc63f43d8bc3a2f2e2bfb24ff6ed3e26b46a0df5bb0",
+   "<lcm>/uv.lock": "06e0b72b6b40916c4206899aaffbeec3af69114eda4c8d877dd35b5d597153bc",
+   "<lcm>/vector_store.py": "fa3e1e3957e5a19a235f0ec2b62fc8d891cbe6ba663e8ab98b73523c6a4c8c60"
+  },
+  "hermes_lcm": "0.21.0-rc2, Git commit 10cbb78347ec86f3004153b24767324ded9e37b4"
+ },
+ "protocol": {
+  "arms": {
+   "plugin": "context.engine warm_compaction: the plugin of this repository, installed with the Hermes install command and enabled. Default plugin settings.",
+   "lcm": "context.engine lcm: hermes-lcm 0.21.0-rc2 (Git commit 10cbb78347ec86f3004153b24767324ded9e37b4, the copy installed on the user's Hermes), copied into the session home as plugins/hermes-lcm and enabled. lcm.context_threshold 0.7 as in the user's config; every other LCM setting at its default (fresh tail 32 messages, leaf chunk 20,000 tokens, condensation fan-in 4, depth 3). The agent has the lcm_* recall tools (toolset context_engine).",
+   "stock": "context.engine compressor: the built-in compressor with its default settings."
+  },
+  "fixture": "fixture.py: ten synthetic operations sessions (ops01 to ops10), 64 exchanges each plus a seed exchange, about 104,500 DGX prompt tokens at the seed request. Six facts sit in exchanges 1 to 41, which all three engines move out of the verbatim history: the staging bucket, the batch size (changed once; the latest value is correct), the rollback snapshot, the maintenance window, the checksum ticket, and the read replica (in the middle of a long job log row). One control fact (the on-call contact) is in exchange 63. A standing rule in exchange 1 asks for an owner field in every JSON reply. The state in exchange 41 sets the next action: request_approval (4 cases), rerun_checksum (3 cases), or run_cutover (3 cases).",
+  "modes": {
+   "auto": "Seed turn. Then the runner sets threshold_tokens to auto_threshold_tokens and threshold_percent to auto_threshold_tokens / context_length on the engine instance of the agent. The continuation turn then compacts in the Hermes turn-start preflight before its first request. Then the probe turn. The user's settings do not start a compaction in the seed turn: plugin 0.50, LCM 0.70, built-in 0.50 of a 262,144-token window, against a seed prompt of about 104,500 tokens."
+  },
+  "order": "One worker process per case and arm, sequential, concurrency 1. The arm order rotates by case index: plugin-lcm-stock, lcm-stock-plugin, stock-plugin-lcm, and again.",
+  "measures": {
+   "time": "Host wall time in the worker. Compaction: the _compress_context calls inside the continuation turn. Continuation: the continuation turn minus the compaction. Workflow = compaction + continuation. Probe: the probe turn, including LCM tool calls.",
+   "requests": "Per HTTP request, metadata only: kind (main, warm, aux = built-in summary, lcm = LCM summary, fallback, aux_other, other), times, status, prompt, completion and cached tokens, finish reason, message count, and the SHA-256 of the messages.",
+   "quality": "fixture.score_continuation (action, target, approval_required, owner rule) and fixture.score_probe (six compacted facts, one control fact, owner rule), exact values after case and space folding.",
+   "lcm_state": "Row counts of the LCM tables and the depth and level columns of its summary nodes, read only from lcm.db after the session."
+  },
+  "stop_rules": [
+   "A worker that exits non-zero, times out (1800 s), writes no result, or fails a step check stops the run.",
+   "Step checks: the continuation turn makes at least one compaction; the continuation returns a reply.",
+   "Seed setup check as in plugin-live-03: a seed turn that does not end normally is a recorded setup failure, not a stop.",
+   "The seed request of the first session must report 90,000 to 125,000 prompt tokens, else the run stops.",
+   "A plugin path other than warm, an LCM summary fallback (L2 or L3), or a wrong answer is a measured result, not a stop."
+  ],
+  "engine_reason": "The main request settings are those of plugin-live-02 (reasoning effort high, seed 7, draft on). The user's agent setting is reasoning_effort max; its mapping on this route was not checked, so the validated high setting is used."
+ },
+ "settings": {
+  "host": {
+   "context_length": 262144,
+   "compression": {
+    "context_timeout_seconds": 600
+   },
+   "summary_route": {
+    "api_mode": "chat_completions",
+    "timeout": 600,
+    "reasoning_effort": "none",
+    "extra_body": {
+     "seed": 7,
+     "draft": true
+    },
+    "context_length": 262144
+   },
+   "summary_route_reason": "As the user's config: auxiliary.compression on the DGX model with reasoning_effort none and a 600-second timeout. The built-in summary, the LCM summaries, lcm_expand_query, and the plugin fallback use this route. The plugin warm request uses the main request settings.",
+   "lcm_context_threshold": 0.7,
+   "enabled_toolsets": {
+    "plugin": [],
+    "lcm": [
+     "context_engine"
+    ],
+    "stock": []
+   },
+   "agent": {
+    "max_tokens": 8192,
+    "platform": "cli",
+    "skip_context_files": true,
+    "skip_memory": true,
+    "skip_background_review": true
+   },
+   "auto_threshold_tokens": 60000
+  },
+  "engine": {
+   "model": "dgx-model",
+   "reasoning_config": {
+    "enabled": true,
+    "effort": "high"
+   },
+   "request_overrides": {
+    "seed": 7,
+    "extra_body": {
+     "draft": true,
+     "chat_template_kwargs": {
+      "enable_thinking": true,
+      "reasoning_effort": "high"
+     }
+    }
+   },
+   "cache_counter": "usage.prompt_tokens_details.cached_tokens"
+  }
+ },
+ "decision_rules": {
+  "quality_facts": "Per arm: correct compacted facts out of 60 (10 cases x 6). Report each fact, the superseded batch size, and the middle-of-row read replica separately. Arm A keeps more facts than arm B when its total is higher and it is higher in more cases than it is lower.",
+  "next_action": "Per arm: next-action passes out of 10.",
+  "owner_rule": "Per arm: owner field present and correct in the continuation reply and in the probe reply (out of 10 each).",
+  "control": "The on-call contact is in the verbatim rows of every arm. Fewer than 9 of 10 correct in an arm marks a reply problem, not a compaction effect.",
+  "speed": "For plugin against LCM and plugin against built-in: an arm is faster when its median is lower over the paired cases and it is lower in at least round(0.7 x n) of the n paired cases. Report the compaction alone, the workflow, and the probe turn.",
+  "cost": "Report the model requests, prompt tokens, and completion tokens of each compaction."
+ },
+ "run": {
+  "started_utc": "2026-10-05T23:02:44Z",
+  "finished_utc": "2026-10-06T00:10:53Z",
+  "freeze_sha256": "94f4b5f11ffd182f979bc246e99e5c80ad7d1137de09ddff35e9a1e9a06c0fca",
+  "server_state": {
+   "model_listed": true
+  },
+  "sessions": 30,
+  "statuses": [
+   "completed"
+  ],
+  "worker_exits": [
+   0
+  ]
+ },
+ "summary": {
+  "plugin": {
+   "completed": 10,
+   "setup_failed": 0,
+   "median_seconds": {
+    "seed": 5.822,
+    "compress": 16.787,
+    "continuation": 11.747,
+    "probe": 2.928
+   },
+   "median_workflow_seconds": 27.903,
+   "compacted_facts_correct": 59,
+   "compacted_facts_total": 60,
+   "facts_correct": {
+    "staging_bucket": 10,
+    "batch_size": 10,
+    "rollback_snapshot": 10,
+    "maintenance_window": 9,
+    "checksum_ticket": 10,
+    "read_replica": 10,
+    "oncall_contact": 10
+   },
+   "batch_size_superseded": 0,
+   "facts_unknown": 0,
+   "facts_wrong": 1,
+   "control_correct": 10,
+   "next_action_passed": 6,
+   "owner_rule": {
+    "continuation": 10,
+    "probe": 10
+   },
+   "median_compaction_requests": 1.0,
+   "median_compaction_prompt_tokens": 105078.0,
+   "median_compaction_completion_tokens": 853.5,
+   "median_new_history_prompt_tokens": 13659.5,
+   "probe_tool_rows": 0,
+   "continuation_tool_rows": 0,
+   "plugin_fence_denials": 0,
+   "warm_accepted": 10,
+   "paths": {
+    "warm": 10
+   }
+  },
+  "lcm": {
+   "completed": 10,
+   "setup_failed": 0,
+   "median_seconds": {
+    "seed": 74.425,
+    "compress": 43.502,
+    "continuation": 23.242,
+    "probe": 4.291
+   },
+   "median_workflow_seconds": 66.053,
+   "compacted_facts_correct": 43,
+   "compacted_facts_total": 60,
+   "facts_correct": {
+    "staging_bucket": 10,
+    "batch_size": 10,
+    "rollback_snapshot": 10,
+    "maintenance_window": 4,
+    "checksum_ticket": 9,
+    "read_replica": 0,
+    "oncall_contact": 10
+   },
+   "batch_size_superseded": 0,
+   "facts_unknown": 9,
+   "facts_wrong": 8,
+   "control_correct": 10,
+   "next_action_passed": 7,
+   "owner_rule": {
+    "continuation": 5,
+    "probe": 5
+   },
+   "median_compaction_requests": 1.0,
+   "median_compaction_prompt_tokens": 49189.0,
+   "median_compaction_completion_tokens": 645.0,
+   "median_new_history_prompt_tokens": 33479.0,
+   "probe_tool_rows": 7,
+   "continuation_tool_rows": 0,
+   "plugin_fence_denials": 0,
+   "sessions_with_l2_prompt": 0
+  },
+  "stock": {
+   "completed": 10,
+   "setup_failed": 0,
+   "median_seconds": {
+    "seed": 69.061,
+    "compress": 78.459,
+    "continuation": 18.413,
+    "probe": 3.478
+   },
+   "median_workflow_seconds": 97.124,
+   "compacted_facts_correct": 50,
+   "compacted_facts_total": 60,
+   "facts_correct": {
+    "staging_bucket": 10,
+    "batch_size": 10,
+    "rollback_snapshot": 10,
+    "maintenance_window": 10,
+    "checksum_ticket": 10,
+    "read_replica": 0,
+    "oncall_contact": 10
+   },
+   "batch_size_superseded": 0,
+   "facts_unknown": 10,
+   "facts_wrong": 0,
+   "control_correct": 10,
+   "next_action_passed": 7,
+   "owner_rule": {
+    "continuation": 6,
+    "probe": 6
+   },
+   "median_compaction_requests": 1.0,
+   "median_compaction_prompt_tokens": 55890.5,
+   "median_compaction_completion_tokens": 2490.0,
+   "median_new_history_prompt_tokens": 25125.0,
+   "probe_tool_rows": 0,
+   "continuation_tool_rows": 0,
+   "plugin_fence_denials": 0
+  }
+ },
+ "decision_results": {
+  "plugin_vs_lcm": {
+   "speed_compress": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 16.787,
+    "median_second": 43.502,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "speed_workflow": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 27.903,
+    "median_second": 66.053,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "speed_probe": {
+    "paired": 10,
+    "first_faster": 9,
+    "median_first": 2.928,
+    "median_second": 4.291,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "facts": {
+    "first_total": 59,
+    "second_total": 43,
+    "cases_higher": 10,
+    "cases_lower": 0,
+    "first_keeps_more": true,
+    "second_keeps_more": false
+   }
+  },
+  "plugin_vs_stock": {
+   "speed_compress": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 16.787,
+    "median_second": 78.459,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "speed_workflow": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 27.903,
+    "median_second": 97.124,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "speed_probe": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 2.928,
+    "median_second": 3.478,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "facts": {
+    "first_total": 59,
+    "second_total": 50,
+    "cases_higher": 9,
+    "cases_lower": 0,
+    "first_keeps_more": true,
+    "second_keeps_more": false
+   }
+  },
+  "lcm_vs_stock": {
+   "speed_compress": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 43.502,
+    "median_second": 78.459,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "speed_workflow": {
+    "paired": 10,
+    "first_faster": 10,
+    "median_first": 66.053,
+    "median_second": 97.124,
+    "median_lower": true,
+    "passes_rule": true
+   },
+   "speed_probe": {
+    "paired": 10,
+    "first_faster": 1,
+    "median_first": 4.291,
+    "median_second": 3.478,
+    "median_lower": false,
+    "passes_rule": false
+   },
+   "facts": {
+    "first_total": 43,
+    "second_total": 50,
+    "cases_higher": 0,
+    "cases_lower": 7,
+    "first_keeps_more": false,
+    "second_keeps_more": true
+   }
+  }
+ },
+ "cases": {
+  "ops01": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 69.09,
+     "compress": 13.979,
+     "continuation": 11.39,
+     "probe": 3.257
+    },
+    "workflow_seconds": 25.369,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 13.837,
+      "status": 200,
+      "prompt_tokens": 105075,
+      "completion_tokens": 702,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105075,
+     "completion_tokens": 702,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13676,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13771
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8816,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 77.249,
+     "compress": 46.888,
+     "continuation": 23.685,
+     "probe": 24.028
+    },
+    "workflow_seconds": 70.573,
+    "request_counts": {
+     "main": 9,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 46.611,
+      "status": 200,
+      "prompt_tokens": 49210,
+      "completion_tokens": 807,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49210,
+     "completion_tokens": 807,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33667,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 7,
+     "aux_other": 0,
+     "prompt_tokens": 254548
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 6
+    },
+    "compactions": 1,
+    "summary_chars": 3299,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "wrong",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 2.748,
+     "compress": 86.391,
+     "continuation": 18.549,
+     "probe": 4.7
+    },
+    "workflow_seconds": 104.94,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 86.04,
+      "status": 200,
+      "prompt_tokens": 55866,
+      "completion_tokens": 3014,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55866,
+     "completion_tokens": 3014,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 25485,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 25570
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 13970,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops02": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 2.826,
+     "compress": 18.839,
+     "continuation": 12.103,
+     "probe": 2.973
+    },
+    "workflow_seconds": 30.942,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 18.713,
+      "status": 200,
+      "prompt_tokens": 105087,
+      "completion_tokens": 976,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105087,
+     "completion_tokens": 976,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13685,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13780
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8831,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 77.008,
+     "compress": 43.194,
+     "continuation": 22.934,
+     "probe": 3.968
+    },
+    "workflow_seconds": 66.128,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 42.864,
+      "status": 200,
+      "prompt_tokens": 49256,
+      "completion_tokens": 628,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49256,
+     "completion_tokens": 628,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33431,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 33979
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 2625,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 68.968,
+     "compress": 79.032,
+     "continuation": 19.414,
+     "probe": 3.37
+    },
+    "workflow_seconds": 98.446,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 78.653,
+      "status": 200,
+      "prompt_tokens": 55898,
+      "completion_tokens": 2531,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55898,
+     "completion_tokens": 2531,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 25199,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 25284
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 13457,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops03": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 2.467,
+     "compress": 21.947,
+     "continuation": 12.977,
+     "probe": 3.023
+    },
+    "workflow_seconds": 34.924,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 21.819,
+      "status": 200,
+      "prompt_tokens": 105072,
+      "completion_tokens": 1238,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105072,
+     "completion_tokens": 1238,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13645,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13750
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8849,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 74.783,
+     "compress": 41.887,
+     "continuation": 20.054,
+     "probe": 4.23
+    },
+    "workflow_seconds": 61.941,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 41.599,
+      "status": 200,
+      "prompt_tokens": 49192,
+      "completion_tokens": 579,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49192,
+     "completion_tokens": 579,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33414,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 33972
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 2428,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 69.153,
+     "compress": 70.042,
+     "continuation": 19.073,
+     "probe": 3.031
+    },
+    "workflow_seconds": 89.115,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 69.678,
+      "status": 200,
+      "prompt_tokens": 55932,
+      "completion_tokens": 2038,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55932,
+     "completion_tokens": 2038,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 24654,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 24749
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 12318,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops04": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 73.739,
+     "compress": 17.057,
+     "continuation": 10.658,
+     "probe": 2.849
+    },
+    "workflow_seconds": 27.715,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 16.935,
+      "status": 200,
+      "prompt_tokens": 105081,
+      "completion_tokens": 835,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105081,
+     "completion_tokens": 835,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13609,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13701
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8659,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 73.817,
+     "compress": 42.429,
+     "continuation": 23.549,
+     "probe": 4.282
+    },
+    "workflow_seconds": 65.978,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 42.13,
+      "status": 200,
+      "prompt_tokens": 49186,
+      "completion_tokens": 564,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49186,
+     "completion_tokens": 564,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33379,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 34018
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 2282,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 7.497,
+     "compress": 102.541,
+     "continuation": 20.019,
+     "probe": 3.741
+    },
+    "workflow_seconds": 122.56,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 102.19,
+      "status": 200,
+      "prompt_tokens": 55883,
+      "completion_tokens": 4191,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55883,
+     "completion_tokens": 4191,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 26884,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 26976
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 16664,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops05": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 4.063,
+     "compress": 16.774,
+     "continuation": 11.317,
+     "probe": 2.037
+    },
+    "workflow_seconds": 28.091,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 16.624,
+      "status": 200,
+      "prompt_tokens": 105104,
+      "completion_tokens": 902,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105104,
+     "completion_tokens": 902,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13654,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13743
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8661,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 71.675,
+     "compress": 43.811,
+     "continuation": 27.226,
+     "probe": 5.05
+    },
+    "workflow_seconds": 71.037,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 43.514,
+      "status": 200,
+      "prompt_tokens": 49151,
+      "completion_tokens": 650,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49151,
+     "completion_tokens": 650,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33500,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 34058
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 2653,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 70.414,
+     "compress": 79.921,
+     "continuation": 18.626,
+     "probe": 3.137
+    },
+    "workflow_seconds": 98.547,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 79.516,
+      "status": 200,
+      "prompt_tokens": 55871,
+      "completion_tokens": 2480,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55871,
+     "completion_tokens": 2480,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 25137,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 25232
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 13731,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 7
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops06": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 6.353,
+     "compress": 19.468,
+     "continuation": 13.552,
+     "probe": 3.042
+    },
+    "workflow_seconds": 33.02,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 19.322,
+      "status": 200,
+      "prompt_tokens": 105060,
+      "completion_tokens": 994,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105060,
+     "completion_tokens": 994,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13700,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13796
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8961,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 75.7,
+     "compress": 46.716,
+     "continuation": 28.416,
+     "probe": 4.3
+    },
+    "workflow_seconds": 75.132,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 46.324,
+      "status": 200,
+      "prompt_tokens": 49176,
+      "completion_tokens": 772,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49176,
+     "completion_tokens": 772,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33587,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 34133
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 3111,
+    "next_action": {
+     "json_object": true,
+     "action": false,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 72.917,
+     "compress": 98.691,
+     "continuation": 18.277,
+     "probe": 3.788
+    },
+    "workflow_seconds": 116.968,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 98.318,
+      "status": 200,
+      "prompt_tokens": 55912,
+      "completion_tokens": 3747,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55912,
+     "completion_tokens": 3747,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 26140,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 26226
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 15991,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops07": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 72.864,
+     "compress": 14.106,
+     "continuation": 13.229,
+     "probe": 2.883
+    },
+    "workflow_seconds": 27.335,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 13.953,
+      "status": 200,
+      "prompt_tokens": 105050,
+      "completion_tokens": 730,
+      "cached_tokens": 104512,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105050,
+     "completion_tokens": 730,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13612,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13705
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8495,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 74.068,
+     "compress": 42.962,
+     "continuation": 19.976,
+     "probe": 3.707
+    },
+    "workflow_seconds": 62.938,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 42.673,
+      "status": 200,
+      "prompt_tokens": 49156,
+      "completion_tokens": 644,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49156,
+     "completion_tokens": 644,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33481,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 34024
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 2642,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 6.918,
+     "compress": 77.352,
+     "continuation": 18.251,
+     "probe": 3.63
+    },
+    "workflow_seconds": 95.603,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 76.947,
+      "status": 200,
+      "prompt_tokens": 55870,
+      "completion_tokens": 2500,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55870,
+     "completion_tokens": 2500,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 25113,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 25206
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 13595,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops08": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 3.785,
+     "compress": 14.452,
+     "continuation": 10.546,
+     "probe": 1.855
+    },
+    "workflow_seconds": 24.998,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 14.319,
+      "status": 200,
+      "prompt_tokens": 105116,
+      "completion_tokens": 745,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105116,
+     "completion_tokens": 745,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13563,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13651
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8341,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 73.802,
+     "compress": 45.882,
+     "continuation": 30.281,
+     "probe": 5.463
+    },
+    "workflow_seconds": 76.163,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 45.549,
+      "status": 200,
+      "prompt_tokens": 49216,
+      "completion_tokens": 724,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49216,
+     "completion_tokens": 724,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33582,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 34222
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 3004,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 70.48,
+     "compress": 70.166,
+     "continuation": 17.52,
+     "probe": 3.432
+    },
+    "workflow_seconds": 87.686,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 69.815,
+      "status": 200,
+      "prompt_tokens": 55921,
+      "completion_tokens": 2010,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55921,
+     "completion_tokens": 2010,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 24728,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 24816
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 12591,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops09": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 5.292,
+     "compress": 16.8,
+     "continuation": 16.057,
+     "probe": 2.302
+    },
+    "workflow_seconds": 32.857,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 16.661,
+      "status": 200,
+      "prompt_tokens": 105094,
+      "completion_tokens": 872,
+      "cached_tokens": 104576,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105094,
+     "completion_tokens": 872,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13845,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 14046
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 9512,
+    "next_action": {
+     "json_object": true,
+     "action": false,
+     "target": false,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 76.227,
+     "compress": 43.872,
+     "continuation": 21.222,
+     "probe": 10.113
+    },
+    "workflow_seconds": 65.094,
+    "request_counts": {
+     "main": 4,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 43.541,
+      "status": 200,
+      "prompt_tokens": 49205,
+      "completion_tokens": 646,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49205,
+     "completion_tokens": 646,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33477,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 2,
+     "aux_other": 0,
+     "prompt_tokens": 68556
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 1
+    },
+    "compactions": 1,
+    "summary_chars": 2700,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 71.594,
+     "compress": 76.51,
+     "continuation": 17.606,
+     "probe": 3.381
+    },
+    "workflow_seconds": 94.116,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 76.187,
+      "status": 200,
+      "prompt_tokens": 55931,
+      "completion_tokens": 2261,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55931,
+     "completion_tokens": 2261,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 24757,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 24843
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 13020,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": false
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  },
+  "ops10": {
+   "plugin": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 71.69,
+     "compress": 13.502,
+     "continuation": 10.273,
+     "probe": 3.311
+    },
+    "workflow_seconds": 23.775,
+    "request_counts": {
+     "main": 3,
+     "warm": 1,
+     "aux": 0,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "warm",
+    "reason": "accepted",
+    "warm_accepted": true,
+    "compaction_requests": [
+     {
+      "kind": "warm",
+      "seconds": 13.361,
+      "status": 200,
+      "prompt_tokens": 105016,
+      "completion_tokens": 700,
+      "cached_tokens": 104512,
+      "finish_reason": "stop",
+      "message_count": 132,
+      "lcm_prompt": null,
+      "prefix_kept": true
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 105016,
+     "completion_tokens": 700,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 13665,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 13757
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 8926,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "correct",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 6,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "lcm": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 71.81,
+     "compress": 41.499,
+     "continuation": 20.49,
+     "probe": 3.126
+    },
+    "workflow_seconds": 61.989,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 0,
+     "lcm": 1,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "lcm",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "lcm",
+      "seconds": 41.165,
+      "status": 200,
+      "prompt_tokens": 49161,
+      "completion_tokens": 528,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": "L1",
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 49161,
+     "completion_tokens": 528,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 33318,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 33864
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 2158,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": false,
+     "probe": false
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "wrong",
+     "checksum_ticket": "correct",
+     "read_replica": "wrong",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   },
+   "stock": {
+    "status": "completed",
+    "setup_failure": null,
+    "seconds": {
+     "seed": 5.054,
+     "compress": 77.887,
+     "continuation": 17.914,
+     "probe": 3.525
+    },
+    "workflow_seconds": 95.801,
+    "request_counts": {
+     "main": 3,
+     "warm": 0,
+     "aux": 1,
+     "lcm": 0,
+     "fallback": 0,
+     "aux_other": 0
+    },
+    "path": "stock",
+    "reason": null,
+    "warm_accepted": false,
+    "compaction_requests": [
+     {
+      "kind": "aux",
+      "seconds": 77.488,
+      "status": 200,
+      "prompt_tokens": 55857,
+      "completion_tokens": 2438,
+      "cached_tokens": 0,
+      "finish_reason": "stop",
+      "message_count": 1,
+      "lcm_prompt": null,
+      "prefix_kept": null
+     }
+    ],
+    "compaction_cost": {
+     "requests": 1,
+     "prompt_tokens": 55857,
+     "completion_tokens": 2438,
+     "lcm_l2_prompts": 0
+    },
+    "new_history_prompt_tokens": 25067,
+    "continuation_requests": 1,
+    "probe_requests": {
+     "main": 1,
+     "aux_other": 0,
+     "prompt_tokens": 25159
+    },
+    "tool_rows": {
+     "continuation": 0,
+     "probe": 0
+    },
+    "compactions": 1,
+    "summary_chars": 13387,
+    "next_action": {
+     "json_object": true,
+     "action": true,
+     "target": true,
+     "approval_required": true
+    },
+    "owner_rule": {
+     "continuation": true,
+     "probe": true
+    },
+    "facts": {
+     "staging_bucket": "correct",
+     "batch_size": "correct",
+     "rollback_snapshot": "correct",
+     "maintenance_window": "correct",
+     "checksum_ticket": "correct",
+     "read_replica": "unknown",
+     "oncall_contact": "correct"
+    },
+    "fence": {
+     "denied": {
+      "child_process_blocked": 5,
+      "network_host_blocked": 1
+     },
+     "plugin_denied": 0
+    }
+   }
+  }
+ },
+ "lcm_store": {
+  "ops01": {
+   "message_rows": 276,
+   "distinct_message_rows": 141,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 743,
+     "source_token_count": 58378,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops02": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 591,
+     "source_token_count": 58363,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops03": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 535,
+     "source_token_count": 58375,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops04": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 535,
+     "source_token_count": 58365,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops05": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 608,
+     "source_token_count": 58367,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops06": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 725,
+     "source_token_count": 58379,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops07": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 608,
+     "source_token_count": 58386,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops08": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 680,
+     "source_token_count": 58365,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops09": {
+   "message_rows": 266,
+   "distinct_message_rows": 136,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 614,
+     "source_token_count": 58377,
+     "source_messages": 99
+    }
+   ]
+  },
+  "ops10": {
+   "message_rows": 264,
+   "distinct_message_rows": 134,
+   "summary_nodes": [
+    {
+     "depth": 0,
+     "token_count": 500,
+     "source_token_count": 58373,
+     "source_messages": 99
+    }
+   ]
+  }
+ },
+ "observations": [
+  "The next-action expectation of the three run_cutover cases has approval_required true, but the approval is already given in the session. All three arms answered false in two of these cases. Counted on action and target only, next-action passes are plugin 9/10, LCM 9/10, built-in 10/10. No next-action difference is claimed.",
+  "LCM cuts each message longer than 3,000 characters to its first 2,000 and last 800 characters before it summarizes. The read replica fact is in the middle of such a row: LCM 0/10, built-in 0/10, plugin 10/10.",
+  "After the in-place compaction, the LCM store held each message about twice (lcm_store). The summary node covers the first ingest only (99 messages), so the measured compaction is not affected. Recall tool results can contain duplicate rows.",
+  "The DGX prefix cache held the seed prompt of the arm that ran before the plugin arm of the same case, so most plugin seed turns were short. The seed turn is not a measure of any decision rule; the warm request reuses the seed request of its own session in every case."
+ ],
+ "limits": [
+  "One synthetic task family, one session shape (text rows, no tool rows in the seeded history), one engine, and the user's settings for LCM and the summary route.",
+  "Facts other than the read replica sit at the start of a row. LCM and the built-in compressor cut long rows before they summarize; this placement favors them, and the read replica tests the opposite case.",
+  "The fence blocks the tiktoken download, so LCM counts tokens with its characters / 4 estimate in every session.",
+  "LCM appends its recall policy (about 2.2 KB) to each user message; this is LCM behavior and part of its arm.",
+  "Results describe these versions and settings only. They do not prove M0, M3, deployed compatibility, or other models."
+ ]
+}

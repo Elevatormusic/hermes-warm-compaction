@@ -1,0 +1,118 @@
+"""Stand-ins for the Hermes modules that the warm_compaction plugin imports. Not collected as tests."""
+
+from __future__ import annotations
+
+import abc
+import copy
+import sys
+from types import ModuleType
+from unittest.mock import patch
+
+SUMMARY_PREFIX = "[HERMES PREFIX] Earlier turns were compacted."
+END_MARKER = "--- END OF CONTEXT SUMMARY - stand-in marker ---"
+
+
+class StubContextEngine(abc.ABC):
+    """The ContextEngine rules of Hermes 45871e10 that the plugin uses."""
+
+    last_prompt_tokens = 0
+    last_completion_tokens = 0
+    last_total_tokens = 0
+    threshold_tokens = 0
+    context_length = 0
+    compression_count = 0
+    threshold_percent = 0.75
+
+    @property
+    @abc.abstractmethod
+    def name(self):
+        """Engine name."""
+
+    @abc.abstractmethod
+    def update_from_response(self, usage):
+        """Keep the token counts."""
+
+    @abc.abstractmethod
+    def should_compress(self, prompt_tokens=None):
+        """Return the trigger state."""
+
+    @abc.abstractmethod
+    def compress(self, messages, current_tokens=None, focus_topic=None, force=False, memory_context=""):
+        """Return the new history."""
+
+    def should_compress_preflight(self, messages):
+        return False
+
+    def has_content_to_compress(self, messages):
+        return True
+
+    def on_session_start(self, session_id, **kwargs):
+        return None
+
+    def on_session_reset(self):
+        self.last_prompt_tokens = self.last_completion_tokens = self.last_total_tokens = 0
+        self.compression_count = 0
+
+    def get_status(self):
+        last = max(self.last_prompt_tokens, 0)
+        return {"last_prompt_tokens": last, "threshold_tokens": self.threshold_tokens,
+                "context_length": self.context_length, "usage_percent": 0,
+                "compression_count": self.compression_count}
+
+    def clone_for_agent(self):
+        return copy.deepcopy(self)
+
+    def update_model(self, model, context_length, base_url="", api_key="", provider="", api_mode=""):
+        self.context_length = context_length
+        from agent.context_compressor import resolve_model_threshold
+        if not hasattr(self, "_config_threshold_percent"):
+            self._config_threshold_percent = self.threshold_percent
+        self.threshold_percent = resolve_model_threshold(
+            model, getattr(self, "model_thresholds", {}), self._config_threshold_percent, provider)
+        self.threshold_tokens = int(context_length * self.threshold_percent)
+
+
+def resolve_model_threshold(model, model_thresholds, default, provider=""):
+    """Longest matching key wins, else the default."""
+    matches = [key for key in (model_thresholds or {}) if model and key in model]
+    return float(model_thresholds[max(matches, key=len)]) if matches else default
+
+
+def sanitize_memory_context(text):
+    return text.strip()
+
+
+def _module(name, **values):
+    module = ModuleType(name)
+    module.__dict__.update(values)
+    return module
+
+
+AGENT = _module("agent")
+CONTEXT_ENGINE = _module("agent.context_engine", ContextEngine=StubContextEngine,
+                         sanitize_memory_context=sanitize_memory_context)
+CONTEXT_COMPRESSOR = _module(
+    "agent.context_compressor", SUMMARY_PREFIX=SUMMARY_PREFIX, _HISTORICAL_SUMMARY_PREFIXES=("[OLD PREFIX]",),
+    _SUMMARY_END_MARKER=END_MARKER, _DB_PERSISTED_MARKER="_db_persisted",
+    resolve_model_threshold=resolve_model_threshold)
+AGENT.context_engine = CONTEXT_ENGINE
+AGENT.context_compressor = CONTEXT_COMPRESSOR
+HERMES_CLI = _module("hermes_cli")
+PLUGINS = _module("hermes_cli.plugins", VALID_HOOKS={
+    "pre_api_request", "post_api_request", "on_session_start", "on_session_end", "on_session_finalize",
+    "on_session_reset"})
+MIDDLEWARE = _module("hermes_cli.middleware", VALID_MIDDLEWARE={
+    "tool_request", "tool_execution", "llm_request", "llm_execution"})
+HERMES_CLI.plugins = PLUGINS
+HERMES_CLI.middleware = MIDDLEWARE
+MODULES = {
+    "agent": AGENT, "agent.context_engine": CONTEXT_ENGINE, "agent.context_compressor": CONTEXT_COMPRESSOR,
+    "hermes_cli": HERMES_CLI, "hermes_cli.plugins": PLUGINS, "hermes_cli.middleware": MIDDLEWARE,
+}
+
+
+def install(test_case):
+    """Install the stand-in modules for one test, and remove them after the test."""
+    patcher = patch.dict(sys.modules, MODULES)
+    patcher.start()
+    test_case.addCleanup(patcher.stop)

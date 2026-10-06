@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="Warm Compaction: hot-cache context compaction for Hermes Agent" font-family="-apple-system, BlinkMacSystemFont, &apos;Segoe UI&apos;, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="warm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB547"/><stop offset="0.55" stop-color="#FF6B3D"/><stop offset="1" stop-color="#E03A5A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.14" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#FF6B3D" stop-opacity="0.30"/><stop offset="1" stop-color="#FF6B3D" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="320" rx="28" fill="#101218"/>
+  <rect width="1280" height="320" rx="28" fill="url(#glow)"/>
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="27.5" fill="none" stroke="#262A33"/>
+  <g transform="translate(92 80) scale(1.25)">
+    <rect width="128" height="128" rx="30" fill="url(#warm)"/>
+    <rect x="26" y="24" width="76" height="10" rx="5" fill="#fff" fill-opacity="0.5"/>
+    <rect x="26" y="40" width="76" height="10" rx="5" fill="#fff" fill-opacity="0.72"/>
+    <rect x="26" y="56" width="76" height="10" rx="5" fill="#fff" fill-opacity="0.94"/>
+    <path d="M44 76 L64 90 L84 76" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="40" y="98" width="48" height="10" rx="5" fill="#fff"/>
+  </g>
+  <text x="300" y="148" font-size="66" font-weight="700" fill="#F7F4EF">Warm Compaction</text>
+  <text x="302" y="194" font-size="27" fill="#B8B1A6">Hot-cache context compaction for Hermes Agent</text>
+  <g font-size="17" fill="#DDD6CB" text-anchor="middle">
+    <rect x="302" y="220" width="196" height="36" rx="18" fill="#1C1F27" stroke="#2E333D"/><text x="400" y="244">Hermes Agent plugin</text>
+    <rect x="510" y="220" width="150" height="36" rx="18" fill="#1C1F27" stroke="#2E333D"/><text x="585" y="244">No host patch</text>
+    <rect x="672" y="220" width="236" height="36" rx="18" fill="#1C1F27" stroke="#2E333D"/><text x="790" y="244">Reuses the prefix cache</text>
+    <rect x="920" y="220" width="128" height="36" rx="18" fill="#1C1F27" stroke="#2E333D"/><text x="984" y="244">Apache-2.0</text>
+  </g>
+</svg>

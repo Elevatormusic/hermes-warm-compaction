@@ -1,0 +1,977 @@
+{
+  "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
+  "started_utc": "2026-10-05T11:13:57Z",
+  "hermes": {
+    "commit": "45871e100feceb89769536c88e5e6e265226a409",
+    "clean": true
+  },
+  "python": "3.11.14",
+  "script_sha256": "85397c1e4879f7cf21d3b2619baecf72fb67eb27e69376f428d0426ee69ab3d1",
+  "plugin_files_sha256": {
+    "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
+    "warm_compaction/capture.py": "3ee60f35ae4e8fc0376ab6634c721ae1ca429593d10730f19addc3be545fe682",
+    "warm_compaction/engine.py": "f38c837a1dd5faefd0c6e103dc96b7c788d51b7e0599cef21730e05d6d28f2b2",
+    "warm_compaction/fallback.py": "8a6e1ae3782932f1e1aba663bae86f414eaf4aa07f2812490581b30f5ca0c034",
+    "warm_compaction/handoff.py": "2fcdc2af2eba2d36eaabfef912ce0dd6d64bccc7849849e6411869a0025a06c2",
+    "warm_compaction/layout.py": "eb8971633a1ae547c3e912e2fc800651a0897619089aa6a051fd4c420670863a",
+    "warm_compaction/plugin.yaml": "091b1970e658636840a3f3d60e3fa3c53bcb82f77b821adc58a51aba5ba9e47a",
+    "warm_compaction/rows.py": "d7fd618ad4f80d9472e9d4dd80630ac038d2bfc8e95f32d5308d7a8f58c27d12",
+    "warm_compaction/warm.py": "83833383411de750b9eea77941b7de93ac94c36a9a0fa50b2b0046d23ac756e2"
+  },
+  "privacy": "metadata only: names, counts, codes, booleans, and times; no message text",
+  "scenarios": [
+    {
+      "scenario": "enable_manual_warm",
+      "python": "3.14.7",
+      "status": "passed",
+      "checks": {
+        "listed_in_engine_picker": true,
+        "engine_selected": true,
+        "seed_turn": true,
+        "capture_keeps_reported_prompt_tokens": true,
+        "path_and_reason": true,
+        "removed_rows": true,
+        "summary_rows": true,
+        "tail_starts_with_user": true,
+        "warm_prefix_exact": true,
+        "warm_new_rows": true,
+        "warm_instruction_last": true,
+        "warm_not_streamed": true,
+        "warm_settings_kept": true,
+        "handoff_in_summary": true,
+        "no_fallback_request": true,
+        "history_saved": true,
+        "engine_session_follows": true,
+        "continuation_reply": true,
+        "continuation_sends_summary": true,
+        "plugin_made_no_blocked_call": true
+      },
+      "requests": [
+        {
+          "seq": 0,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 62
+        },
+        {
+          "seq": 1,
+          "kind": "warm",
+          "status": 200,
+          "stream": false,
+          "message_count": 64
+        },
+        {
+          "seq": 2,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 22
+        }
+      ],
+      "error": null,
+      "engine": {
+        "name": "warm_compaction",
+        "threshold_tokens": 100000,
+        "context_length": 200000
+      },
+      "compress_seconds": 0.107,
+      "warm_last": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 0.02,
+        "prompt_tokens": 33883,
+        "cached_tokens": 16941
+      },
+      "session_rotated": false,
+      "final_session_id": "wc-enable_manual_warm",
+      "continuation_keeps_custom_system_text": false,
+      "fence_denied": {
+        "network_host_blocked": 1,
+        "child_process_blocked": 3
+      },
+      "fence_blocked_programs": [
+        "pip",
+        "python",
+        "python3"
+      ],
+      "fence_blocked_hosts": [
+        "hermes-assets.nousresearch.com"
+      ],
+      "fence_blocked_callers": [
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+        "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+      ],
+      "fence_socketpairs": 1,
+      "install": {
+        "python": "3.11.14",
+        "enable_path": "install command with enable",
+        "enabled_keys": [
+          "warm_compaction"
+        ],
+        "validate": [
+          [
+            "manifest",
+            true
+          ],
+          [
+            "manifest fields",
+            true
+          ],
+          [
+            "requires_hermes",
+            true
+          ],
+          [
+            "config schema",
+            true
+          ],
+          [
+            "requires_env",
+            true
+          ],
+          [
+            "loadable",
+            true
+          ],
+          [
+            "python dependencies",
+            true
+          ],
+          [
+            "capability probe",
+            true
+          ],
+          [
+            "declared tools",
+            true
+          ],
+          [
+            "declared hooks",
+            true
+          ],
+          [
+            "declared middleware",
+            true
+          ],
+          [
+            "built-in tool collisions",
+            true
+          ],
+          [
+            "security scan",
+            true
+          ],
+          [
+            "no core override",
+            true
+          ]
+        ],
+        "checks": {
+          "enabled_in_config": true,
+          "installed": true,
+          "validate_ok": true,
+          "security_scan_passed": true,
+          "no_core_override_passed": true
+        },
+        "error": null
+      },
+      "run_interpreter": "pm_runtime_python",
+      "exit": [
+        0,
+        0
+      ],
+      "phases": [
+        "install",
+        "run"
+      ],
+      "process_seconds": 52.957
+    },
+    {
+      "scenario": "manual_fallback",
+      "python": "3.11.14",
+      "status": "passed",
+      "checks": {
+        "listed_in_engine_picker": true,
+        "engine_selected": true,
+        "seed_turn": true,
+        "capture_keeps_reported_prompt_tokens": true,
+        "path_and_reason": true,
+        "removed_rows": true,
+        "summary_rows": true,
+        "tail_starts_with_user": true,
+        "one_fallback_request": true,
+        "fallback_in_summary": true,
+        "history_saved": true,
+        "engine_session_follows": true,
+        "continuation_reply": true,
+        "continuation_sends_summary": true,
+        "plugin_made_no_blocked_call": true
+      },
+      "requests": [
+        {
+          "seq": 0,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 62
+        },
+        {
+          "seq": 1,
+          "kind": "warm",
+          "status": 500,
+          "stream": false,
+          "message_count": 64
+        },
+        {
+          "seq": 2,
+          "kind": "fallback",
+          "status": 200,
+          "stream": true,
+          "message_count": 2
+        },
+        {
+          "seq": 3,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 22
+        }
+      ],
+      "error": null,
+      "engine": {
+        "name": "warm_compaction",
+        "threshold_tokens": 100000,
+        "context_length": 200000
+      },
+      "compress_seconds": 0.246,
+      "warm_last": {
+        "path": "fallback",
+        "reason": "provider_error",
+        "elapsed_s": 0.109,
+        "prompt_tokens": null,
+        "cached_tokens": null
+      },
+      "session_rotated": false,
+      "final_session_id": "wc-manual_fallback",
+      "continuation_keeps_custom_system_text": false,
+      "fence_denied": {
+        "child_process_blocked": 4,
+        "network_host_blocked": 1
+      },
+      "fence_blocked_programs": [
+        "git",
+        "pip",
+        "python",
+        "python3"
+      ],
+      "fence_blocked_hosts": [
+        "hermes-assets.nousresearch.com"
+      ],
+      "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+        "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+      ],
+      "fence_socketpairs": 0,
+      "install": {
+        "python": "3.11.14",
+        "enable_path": "plugins.enabled in config",
+        "enabled_keys": [
+          "warm_compaction"
+        ],
+        "validate": [
+          [
+            "manifest",
+            true
+          ],
+          [
+            "manifest fields",
+            true
+          ],
+          [
+            "requires_hermes",
+            true
+          ],
+          [
+            "config schema",
+            true
+          ],
+          [
+            "requires_env",
+            true
+          ],
+          [
+            "loadable",
+            true
+          ],
+          [
+            "python dependencies",
+            true
+          ],
+          [
+            "capability probe",
+            true
+          ],
+          [
+            "declared tools",
+            true
+          ],
+          [
+            "declared hooks",
+            true
+          ],
+          [
+            "declared middleware",
+            true
+          ],
+          [
+            "built-in tool collisions",
+            true
+          ],
+          [
+            "security scan",
+            true
+          ],
+          [
+            "no core override",
+            true
+          ]
+        ],
+        "checks": {
+          "enabled_in_config": true,
+          "installed": true,
+          "validate_ok": true,
+          "security_scan_passed": true,
+          "no_core_override_passed": true
+        },
+        "error": null
+      },
+      "run_interpreter": "launch_python",
+      "exit": [
+        0,
+        0
+      ],
+      "phases": [
+        "install",
+        "run"
+      ],
+      "process_seconds": 35.93
+    },
+    {
+      "scenario": "manual_fixed",
+      "python": "3.11.14",
+      "status": "passed",
+      "checks": {
+        "listed_in_engine_picker": true,
+        "engine_selected": true,
+        "seed_turn": true,
+        "capture_keeps_reported_prompt_tokens": true,
+        "path_and_reason": true,
+        "removed_rows": true,
+        "summary_rows": true,
+        "tail_starts_with_user": true,
+        "fixed_in_summary": true,
+        "history_saved": true,
+        "engine_session_follows": true,
+        "continuation_reply": true,
+        "continuation_sends_summary": true,
+        "plugin_made_no_blocked_call": true
+      },
+      "requests": [
+        {
+          "seq": 0,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 62
+        },
+        {
+          "seq": 1,
+          "kind": "warm",
+          "status": 500,
+          "stream": false,
+          "message_count": 64
+        },
+        {
+          "seq": 2,
+          "kind": "fallback",
+          "status": 500,
+          "stream": true,
+          "message_count": 2
+        },
+        {
+          "seq": 3,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 22
+        }
+      ],
+      "error": null,
+      "engine": {
+        "name": "warm_compaction",
+        "threshold_tokens": 100000,
+        "context_length": 200000
+      },
+      "compress_seconds": 0.217,
+      "warm_last": {
+        "path": "fixed",
+        "reason": "provider_error",
+        "elapsed_s": 0.094,
+        "prompt_tokens": null,
+        "cached_tokens": null
+      },
+      "session_rotated": false,
+      "final_session_id": "wc-manual_fixed",
+      "continuation_keeps_custom_system_text": false,
+      "fence_denied": {
+        "child_process_blocked": 5,
+        "network_host_blocked": 1
+      },
+      "fence_blocked_programs": [
+        "git",
+        "pip",
+        "python",
+        "python3"
+      ],
+      "fence_blocked_hosts": [
+        "hermes-assets.nousresearch.com"
+      ],
+      "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+        "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+      ],
+      "fence_socketpairs": 0,
+      "install": {
+        "python": "3.11.14",
+        "enable_path": "plugins.enabled in config",
+        "enabled_keys": [
+          "warm_compaction"
+        ],
+        "validate": [
+          [
+            "manifest",
+            true
+          ],
+          [
+            "manifest fields",
+            true
+          ],
+          [
+            "requires_hermes",
+            true
+          ],
+          [
+            "config schema",
+            true
+          ],
+          [
+            "requires_env",
+            true
+          ],
+          [
+            "loadable",
+            true
+          ],
+          [
+            "python dependencies",
+            true
+          ],
+          [
+            "capability probe",
+            true
+          ],
+          [
+            "declared tools",
+            true
+          ],
+          [
+            "declared hooks",
+            true
+          ],
+          [
+            "declared middleware",
+            true
+          ],
+          [
+            "built-in tool collisions",
+            true
+          ],
+          [
+            "security scan",
+            true
+          ],
+          [
+            "no core override",
+            true
+          ]
+        ],
+        "checks": {
+          "enabled_in_config": true,
+          "installed": true,
+          "validate_ok": true,
+          "security_scan_passed": true,
+          "no_core_override_passed": true
+        },
+        "error": null
+      },
+      "run_interpreter": "launch_python",
+      "exit": [
+        0,
+        0
+      ],
+      "phases": [
+        "install",
+        "run"
+      ],
+      "process_seconds": 32.445
+    },
+    {
+      "scenario": "auto_tool_loop",
+      "python": "3.11.14",
+      "status": "passed",
+      "checks": {
+        "listed_in_engine_picker": true,
+        "engine_selected": true,
+        "threshold_from_settings": true,
+        "first_turn_final": true,
+        "first_warm_request": true,
+        "first_path_warm": true,
+        "auto1_prefix_exact": true,
+        "auto1_new_rows": true,
+        "auto1_instruction_last": true,
+        "auto1_not_streamed": true,
+        "auto1_settings_kept": true,
+        "auto1_tool_rows_sent": true,
+        "first_summary_rows": true,
+        "wait_flag_cleared": true,
+        "second_turn_final": true,
+        "second_warm_request": true,
+        "second_path_warm": true,
+        "auto2_prefix_exact": true,
+        "auto2_new_rows": true,
+        "auto2_instruction_last": true,
+        "auto2_not_streamed": true,
+        "auto2_settings_kept": true,
+        "auto2_tool_rows_sent": true,
+        "no_fallback_request": true,
+        "plugin_made_no_blocked_call": true
+      },
+      "requests": [
+        {
+          "seq": 0,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 62
+        },
+        {
+          "seq": 1,
+          "kind": "warm",
+          "status": 200,
+          "stream": false,
+          "message_count": 65
+        },
+        {
+          "seq": 2,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 22
+        },
+        {
+          "seq": 3,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 24
+        },
+        {
+          "seq": 4,
+          "kind": "warm",
+          "status": 200,
+          "stream": false,
+          "message_count": 27
+        },
+        {
+          "seq": 5,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 26
+        }
+      ],
+      "error": null,
+      "engine": {
+        "name": "warm_compaction",
+        "threshold_tokens": 80000,
+        "context_length": 200000
+      },
+      "warm_last_1": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 0.0,
+        "prompt_tokens": 35205,
+        "cached_tokens": 17602
+      },
+      "warm_last_2": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 0.0,
+        "prompt_tokens": 18211,
+        "cached_tokens": 9105
+      },
+      "compression_count": 2,
+      "fence_denied": {
+        "child_process_blocked": 8,
+        "network_host_blocked": 1
+      },
+      "fence_blocked_programs": [
+        "git",
+        "pip",
+        "python",
+        "python3"
+      ],
+      "fence_blocked_hosts": [
+        "hermes-assets.nousresearch.com"
+      ],
+      "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:bounded_git_probe",
+        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:noninteractive_repo_git_env",
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+        "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+      ],
+      "fence_socketpairs": 0,
+      "install": {
+        "python": "3.11.14",
+        "enable_path": "plugins.enabled in config",
+        "enabled_keys": [
+          "warm_compaction",
+          "wc_test_tools"
+        ],
+        "validate": [
+          [
+            "manifest",
+            true
+          ],
+          [
+            "manifest fields",
+            true
+          ],
+          [
+            "requires_hermes",
+            true
+          ],
+          [
+            "config schema",
+            true
+          ],
+          [
+            "requires_env",
+            true
+          ],
+          [
+            "loadable",
+            true
+          ],
+          [
+            "python dependencies",
+            true
+          ],
+          [
+            "capability probe",
+            true
+          ],
+          [
+            "declared tools",
+            true
+          ],
+          [
+            "declared hooks",
+            true
+          ],
+          [
+            "declared middleware",
+            true
+          ],
+          [
+            "built-in tool collisions",
+            true
+          ],
+          [
+            "security scan",
+            true
+          ],
+          [
+            "no core override",
+            true
+          ]
+        ],
+        "checks": {
+          "enabled_in_config": true,
+          "installed": true,
+          "validate_ok": true,
+          "security_scan_passed": true,
+          "no_core_override_passed": true
+        },
+        "error": null
+      },
+      "run_interpreter": "launch_python",
+      "exit": [
+        0,
+        0
+      ],
+      "phases": [
+        "install",
+        "run"
+      ],
+      "process_seconds": 34.721
+    },
+    {
+      "scenario": "rollback",
+      "python": "3.11.14",
+      "status": "passed",
+      "checks": {
+        "listed_in_engine_picker": true,
+        "engine_selected": true,
+        "seed_turn": true,
+        "capture_keeps_reported_prompt_tokens": true,
+        "path_and_reason": true,
+        "removed_rows": true,
+        "summary_rows": true,
+        "tail_starts_with_user": true,
+        "history_saved": true,
+        "engine_session_follows": true,
+        "continuation_reply": true,
+        "continuation_sends_summary": true,
+        "plugin_made_no_blocked_call": true
+      },
+      "requests": [
+        {
+          "seq": 0,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 62
+        },
+        {
+          "seq": 1,
+          "kind": "warm",
+          "status": 200,
+          "stream": false,
+          "message_count": 64
+        },
+        {
+          "seq": 2,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 22
+        }
+      ],
+      "error": null,
+      "engine": {
+        "name": "warm_compaction",
+        "threshold_tokens": 100000,
+        "context_length": 200000
+      },
+      "compress_seconds": 0.148,
+      "warm_last": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 0.0,
+        "prompt_tokens": 33873,
+        "cached_tokens": 16936
+      },
+      "session_rotated": false,
+      "final_session_id": "wc-rollback",
+      "continuation_keeps_custom_system_text": false,
+      "fence_denied": {
+        "child_process_blocked": 4,
+        "network_host_blocked": 1
+      },
+      "fence_blocked_programs": [
+        "git",
+        "pip",
+        "python",
+        "python3"
+      ],
+      "fence_blocked_hosts": [
+        "hermes-assets.nousresearch.com"
+      ],
+      "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+        "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+      ],
+      "fence_socketpairs": 0,
+      "install": {
+        "python": "3.11.14",
+        "enable_path": "plugins.enabled in config",
+        "enabled_keys": [
+          "warm_compaction"
+        ],
+        "validate": [
+          [
+            "manifest",
+            true
+          ],
+          [
+            "manifest fields",
+            true
+          ],
+          [
+            "requires_hermes",
+            true
+          ],
+          [
+            "config schema",
+            true
+          ],
+          [
+            "requires_env",
+            true
+          ],
+          [
+            "loadable",
+            true
+          ],
+          [
+            "python dependencies",
+            true
+          ],
+          [
+            "capability probe",
+            true
+          ],
+          [
+            "declared tools",
+            true
+          ],
+          [
+            "declared hooks",
+            true
+          ],
+          [
+            "declared middleware",
+            true
+          ],
+          [
+            "built-in tool collisions",
+            true
+          ],
+          [
+            "security scan",
+            true
+          ],
+          [
+            "no core override",
+            true
+          ]
+        ],
+        "checks": {
+          "enabled_in_config": true,
+          "installed": true,
+          "validate_ok": true,
+          "security_scan_passed": true,
+          "no_core_override_passed": true
+        },
+        "error": null
+      },
+      "run_interpreter": "launch_python",
+      "rollback": {
+        "phase": "rollback",
+        "python": "3.11.14",
+        "status": "passed",
+        "checks": {
+          "saved_history_has_plugin_summary": true,
+          "builtin_engine_selected": true,
+          "continuation_reply": true,
+          "continuation_sends_plugin_summary": true,
+          "builtin_compress_removed_rows": true,
+          "plugin_summary_carried": true,
+          "history_saved": true,
+          "plugin_made_no_blocked_call": true
+        },
+        "requests": [
+          {
+            "seq": 0,
+            "kind": "main",
+            "status": 200,
+            "stream": true,
+            "message_count": 64
+          },
+          {
+            "seq": 1,
+            "kind": "other",
+            "status": 200,
+            "stream": true,
+            "message_count": 1
+          }
+        ],
+        "error": null,
+        "reloaded_first_rows": [
+          {
+            "role": "user",
+            "summary_flag": null,
+            "chars": 1997
+          },
+          {
+            "role": "assistant",
+            "summary_flag": null,
+            "chars": 23524
+          },
+          {
+            "role": "user",
+            "summary_flag": null,
+            "chars": 2102
+          }
+        ],
+        "engine": "compressor",
+        "builtin_removed_rows": 34,
+        "builtin_summary_requests": 1,
+        "plugin_summary_in_builtin_request": true,
+        "plugin_summary_kept_verbatim": false,
+        "history_rows": {
+          "in_memory": 30,
+          "stored": 30
+        },
+        "fence_denied": {
+          "child_process_blocked": 5,
+          "network_host_blocked": 1
+        },
+        "fence_blocked_programs": [
+          "git",
+          "pip",
+          "python",
+          "python3"
+        ],
+        "fence_blocked_hosts": [
+          "hermes-assets.nousresearch.com"
+        ]
+      },
+      "exit": [
+        0,
+        0,
+        0
+      ],
+      "phases": [
+        "install",
+        "run",
+        "rollback"
+      ],
+      "process_seconds": 37.748
+    }
+  ],
+  "finished_utc": "2026-10-05T11:17:11Z",
+  "passed": true,
+  "run_folder": ".work/plugin-integration/run-20261005-041357"
+}

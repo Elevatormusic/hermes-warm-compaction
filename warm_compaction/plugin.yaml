@@ -1,0 +1,25 @@
+manifest_version: 2
+name: warm_compaction
+version: 0.2.0
+description: "Context engine: the main model writes the compaction handoff on the cached request prefix. Fallback summary when that is not possible."
+kind: standalone
+author: Elevatormusic
+homepage: https://github.com/Elevatormusic/hermes-warm-compaction
+tags: [context-engine, compaction]
+config_schema:
+  threshold:
+    type: float
+    default: 0.5
+    description: Fraction of the context window at which automatic compaction starts (0.10 to 0.95).
+  tail_tokens:
+    type: int
+    default: 0
+    description: Size of the verbatim tail in tokens. 0 means 2.5% of the context window, from 10000 to 25000.
+  user_copy_chars:
+    type: int
+    default: 24000
+    description: Total characters of copied user messages in the summary.
+  warm:
+    type: bool
+    default: true
+    description: Use the warm request. Set false for comparison runs.

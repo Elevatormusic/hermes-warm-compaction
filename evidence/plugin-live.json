@@ -1,0 +1,6325 @@
+{
+ "schema": "warm-compaction.plugin-live/v1",
+ "date": "2026-10-05",
+ "status": "diagnostic_complete_not_promoted",
+ "scope": "The standalone warm_compaction plugin, installed with the Hermes install command, on unpatched Hermes 45871e10, against the stock built-in compressor. Manual /compress and automatic compaction at the start of a turn. Ten synthetic cases at 100,000 or more prompt tokens per engine. One worker process per session, concurrency 1, no retry. DGX: protocol plugin-live-02. LM Studio: protocol plugin-live-03, which differs from plugin-live-02 only in the seed setup rule.",
+ "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message text, request body, or key.",
+ "sources": {
+  "protocols": {
+   "plugin-live-02": {
+    "protocol_sha256": "fc268347e88c53153637651714cc0c86532086e3d3ccdbec393ee0fc6216a6be",
+    "freeze_receipt_sha256": "b121536ba7c58f8c469a3f1d2726814c8229cdbcdb79def7fb891f880d5cca6d",
+    "frozen_utc": "2026-10-05T10:37:31Z",
+    "hermes": {
+     "commit": "45871e100feceb89769536c88e5e6e265226a409",
+     "clean": true
+    },
+    "files_sha256": {
+     "protocol.json": "fc268347e88c53153637651714cc0c86532086e3d3ccdbec393ee0fc6216a6be",
+     "runner/run_plugin_live.py": "d8ee78e9ea7ef021cbec5fb6a7e726d3e618aa36c596c06774c095a7022c034f",
+     "runner/score_plugin_live.py": "44546f576db1a03b23f87673266501d4dcca55aa574b3f77958c266e953d1901",
+     "tests/test_run_plugin_live.py": "709c0f9ef4be13b46732ae0fb54c6ae0d19ffe6ba31469589792eb70bc983414",
+     "<repo>/warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
+     "<repo>/warm_compaction/capture.py": "3ee60f35ae4e8fc0376ab6634c721ae1ca429593d10730f19addc3be545fe682",
+     "<repo>/warm_compaction/engine.py": "f38c837a1dd5faefd0c6e103dc96b7c788d51b7e0599cef21730e05d6d28f2b2",
+     "<repo>/warm_compaction/fallback.py": "8a6e1ae3782932f1e1aba663bae86f414eaf4aa07f2812490581b30f5ca0c034",
+     "<repo>/warm_compaction/handoff.py": "2fcdc2af2eba2d36eaabfef912ce0dd6d64bccc7849849e6411869a0025a06c2",
+     "<repo>/warm_compaction/layout.py": "eb8971633a1ae547c3e912e2fc800651a0897619089aa6a051fd4c420670863a",
+     "<repo>/warm_compaction/plugin.yaml": "091b1970e658636840a3f3d60e3fa3c53bcb82f77b821adc58a51aba5ba9e47a",
+     "<repo>/warm_compaction/rows.py": "d7fd618ad4f80d9472e9d4dd80630ac038d2bfc8e95f32d5308d7a8f58c27d12",
+     "<repo>/warm_compaction/warm.py": "83833383411de750b9eea77941b7de93ac94c36a9a0fa50b2b0046d23ac756e2"
+    }
+   },
+   "plugin-live-03": {
+    "protocol_sha256": "b7afce9ade2fc50ed9cf2493933d3faf4909e51dcbd720ac365b2f5d8deb05e0",
+    "freeze_receipt_sha256": "6cd99c7e3620d46a38d71412b6478a0b8e5f02e0a7cb8c09fa39e96ea5d7ec84",
+    "frozen_utc": "2026-10-05T12:29:09Z",
+    "hermes": {
+     "commit": "45871e100feceb89769536c88e5e6e265226a409",
+     "clean": true
+    },
+    "files_sha256": {
+     "protocol.json": "b7afce9ade2fc50ed9cf2493933d3faf4909e51dcbd720ac365b2f5d8deb05e0",
+     "runner/run_plugin_live.py": "c83654e26ca243137aded338f647f44edf7e733db2fd377aa2b742caa741e0bc",
+     "runner/score_plugin_live.py": "4ce1e563ee17f3f6339ac2b5291823452cdde65eedca11a4656423bad2fe9efb",
+     "tests/test_run_plugin_live.py": "472a908807103387a5ae069675841a3b56cc486e0df35a4091baac83181dcc95",
+     "<repo>/warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
+     "<repo>/warm_compaction/capture.py": "3ee60f35ae4e8fc0376ab6634c721ae1ca429593d10730f19addc3be545fe682",
+     "<repo>/warm_compaction/engine.py": "f38c837a1dd5faefd0c6e103dc96b7c788d51b7e0599cef21730e05d6d28f2b2",
+     "<repo>/warm_compaction/fallback.py": "8a6e1ae3782932f1e1aba663bae86f414eaf4aa07f2812490581b30f5ca0c034",
+     "<repo>/warm_compaction/handoff.py": "2fcdc2af2eba2d36eaabfef912ce0dd6d64bccc7849849e6411869a0025a06c2",
+     "<repo>/warm_compaction/layout.py": "eb8971633a1ae547c3e912e2fc800651a0897619089aa6a051fd4c420670863a",
+     "<repo>/warm_compaction/plugin.yaml": "091b1970e658636840a3f3d60e3fa3c53bcb82f77b821adc58a51aba5ba9e47a",
+     "<repo>/warm_compaction/rows.py": "d7fd618ad4f80d9472e9d4dd80630ac038d2bfc8e95f32d5308d7a8f58c27d12",
+     "<repo>/warm_compaction/warm.py": "83833383411de750b9eea77941b7de93ac94c36a9a0fa50b2b0046d23ac756e2"
+    }
+   }
+  },
+  "cases": "alpha-handoff-01 synthetic cases (10 cases)",
+  "instruction": "v2 handoff instruction (evidence/alpha-handoff-v2.json)"
+ },
+ "protocol": {
+  "arms": {
+   "plugin": "context.engine warm_compaction: the installed and enabled plugin.",
+   "stock": "context.engine compressor: the built-in compressor and its auxiliary summary call on the same endpoint and model. The plugin is not installed."
+  },
+  "modes": {
+   "manual": "Seed turn. Then /compress through the TUI path (tui_gateway _compress_session_history, then finalize_context_engine_compression_notification with committed=True, as the TUI does). Then the continuation turn.",
+   "auto": "Seed turn. Then the runner sets threshold_tokens to auto_threshold_tokens and threshold_percent to auto_threshold_tokens / context_length on the engine instance of the agent. The continuation turn then compacts in the Hermes turn-start preflight (agent/turn_context_compaction.py), before the new user message joins the history and before the first request of the turn."
+  },
+  "order": "One worker process per mode, case, and arm, sequential, concurrency 1. Manual mode for all cases first, then auto mode. In each mode the arm order alternates: plugin first for even case indexes, stock first for odd case indexes.",
+  "engine_order": "LM Studio only. The DGX run of plugin-live-02 is complete and stays valid; this protocol does not repeat it. No other run on the engine during the run.",
+  "measures": {
+   "time": "Host wall time in the worker. Seed: the seed turn. Compaction: manual mode, _compress_session_history plus the finalize call; auto mode, the one _compress_context call inside the continuation turn. Continuation: manual mode, the continuation turn; auto mode, the continuation turn minus the compaction. Workflow = compaction + continuation.",
+   "requests": "Per HTTP request, metadata only: kind (main, warm, aux, fallback, other), times to headers and end, status, prompt, completion and cached tokens, finish reason, message count, and the SHA-256 of the messages. Hermes requests go through httpx. The plugin warm request goes through urllib and is recorded at that layer.",
+   "prefix": "A warm request keeps the prefix when the SHA-256 of its first k messages equals the SHA-256 of the messages of the seed request, where k is the message count of the seed request.",
+   "warm_result": "The warm_last record of the plugin engine: path, reason, elapsed_s, prompt_tokens, cached_tokens.",
+   "next_action": "cases.score_next_action of alpha-handoff-01 on the continuation reply."
+  },
+  "stop_rules": [
+   "A worker that exits non-zero, times out (1800 s), writes no result, or fails a step check stops the run.",
+   "Step checks: manual mode: /compress removes rows; auto mode: the continuation turn makes exactly one compaction; the continuation returns a reply.",
+   "Seed setup check: a normal seed turn adds the seed user row and one reply row, makes no compaction, keeps the session, and its last main request stops with a reply. A cut reply that Hermes retried to a normal end is normal. Any other seed turn is a setup failure, not a stop: the worker records the code (seed_reply_cut_at_token_limit, seed_turn_compacted, seed_turn_changed_history, seed_reply_missing, or seed_reply_incomplete) and the status setup_failed, skips the compaction and the continuation, and the run continues with the next session.",
+   "The seed request of the first session must report 90,000 to 125,000 prompt tokens, else the run stops.",
+   "A plugin-arm path other than warm (fallback or fixed summary) is a measured result, not a stop."
+  ]
+ },
+ "protocol_change": {
+  "plugin-live-02": [
+   "A worker that exits non-zero, times out (1800 s), writes no result, or fails a step check stops the run.",
+   "Step checks: the seed turn returns a reply and makes no compaction; manual mode: /compress removes rows; auto mode: the continuation turn makes exactly one compaction; the continuation returns a reply.",
+   "The seed request of the first session must report 90,000 to 125,000 prompt tokens, else the run stops.",
+   "A plugin-arm path other than warm (fallback or fixed summary) is a measured result, not a stop."
+  ],
+  "plugin-live-03": [
+   "A worker that exits non-zero, times out (1800 s), writes no result, or fails a step check stops the run.",
+   "Step checks: manual mode: /compress removes rows; auto mode: the continuation turn makes exactly one compaction; the continuation returns a reply.",
+   "Seed setup check: a normal seed turn adds the seed user row and one reply row, makes no compaction, keeps the session, and its last main request stops with a reply. A cut reply that Hermes retried to a normal end is normal. Any other seed turn is a setup failure, not a stop: the worker records the code (seed_reply_cut_at_token_limit, seed_turn_compacted, seed_turn_changed_history, seed_reply_missing, or seed_reply_incomplete) and the status setup_failed, skips the compaction and the continuation, and the run continues with the next session.",
+   "The seed request of the first session must report 90,000 to 125,000 prompt tokens, else the run stops.",
+   "A plugin-arm path other than warm (fallback or fixed summary) is a measured result, not a stop."
+  ],
+  "previous_run": "plugin-live-02 (SHA-256 of its protocol.json fc268347e88c53153637651714cc0c86532086e3d3ccdbec393ee0fc6216a6be): the DGX run is complete (40 sessions). The LM Studio run stopped by its stop rule in session 17 (manual mode, case failed_check_choice_quoted_file_note, plugin arm) after 16 completed sessions. The seed reply of the 4B thinking model reached the 4096-token limit two times (the second time at 8192 tokens after the Hermes retry), so no seed request completed and the plugin had no capture. Hermes then compacted in the seed turn: the plugin used its fallback summary (reason no_capture), and the next request completed. The check 'the seed turn makes no compaction' stopped the run. The earlier alpha-hermes-live LM Studio run saw the same seed cut on this case. The 16 completed LM Studio sessions are a stopped run and are not used for decisions. This protocol changes one rule: a seed turn that does not end normally is a recorded setup failure, and the run continues. Everything else is the same as plugin-live-02."
+ },
+ "settings": {
+  "plugin": {
+   "threshold": 0.95,
+   "tail_tokens": 0,
+   "user_copy_chars": 24000,
+   "warm": true
+  },
+  "host": {
+   "auto_threshold_tokens": 60000,
+   "key_config": "For an engine with a key variable (DGX), model.key_env names that variable, as a user configures a custom endpoint key. Hermes auxiliary calls that do not get the agent runtime (the plugin fallback through ctx.llm) read the key from it. A no-network probe on the frozen Hermes copy showed the engine key with model.key_env and the placeholder key without it. The worker gives the variable and gives the key to AIAgent, as in plugin-live-01. The worker does not set OPENAI_API_KEY: Hermes does not read it for a configured custom endpoint."
+  },
+  "config": {
+   "model": {
+    "provider": "custom",
+    "context_length": 131072
+   },
+   "compression": {
+    "threshold": 0.99
+   },
+   "auxiliary": {
+    "transient_retries": 0,
+    "title_generation": {
+     "enabled": false
+    },
+    "compression": {
+     "provider": "custom",
+     "api_mode": "chat_completions",
+     "timeout": 600
+    }
+   }
+  }
+ },
+ "decision_rules": {
+  "works": "Per engine and mode: the plugin arm takes the warm path (reason accepted) in at least 9 of 10 cases, and every accepted warm request keeps the prefix.",
+  "speed": "Per engine and mode: the plugin workflow is faster than the stock workflow when its median is lower over the paired cases and it is lower in at least 7 of 10 paired cases. Report the compaction alone the same way.",
+  "cache": "DGX: report the cached share of the warm request prompt. LM Studio: no cached-token counter, so report the cache as unknown and report the warm request time against the seed turn time of the same session.",
+  "quality": "Report next-action passes per arm and mode. No content review is planned. The 4B model is not a quality reference.",
+  "setup_failures": "A case with a setup failure in either arm is left out of the paired speed comparison. A plugin-arm setup failure counts as not accepted in the works rule: the count stays 9 of 10 cases. The report names each setup failure, and names a plugin-arm setup failure whose stock arm completed as a possible plugin effect."
+ },
+ "stopped_runs": [
+  {
+   "name": "plugin-live-01",
+   "engine": "dgx",
+   "protocol_sha256": "c111aa1b94c7e1e3bdde57615709388261a5dc093d820c7dd5597222191bda2b",
+   "freeze_receipt_sha256": "36911717914f3f07af91546b519bba4f99b5564897ecaaa75af7c5b389db4cd6",
+   "status": "aborted_after_first_session",
+   "date": "2026-10-05",
+   "sessions_completed": 1,
+   "sessions_planned": 40,
+   "first_session": {
+    "mode": "manual",
+    "case_id": "export_gate_target_update",
+    "arm": "plugin",
+    "seed_prompt_tokens": 107554,
+    "seed_cached_tokens": 107520,
+    "plugin_path": "fixed",
+    "warm_reason": "capacity",
+    "fallback_requests": 2,
+    "fallback_status": 404
+   },
+   "causes": [
+    "Plugin defect: the capacity check estimated the whole warm request as UTF-8 bytes / 4 plus 10% (478,820 request bytes, about 131,700 estimated tokens). That is above the 131,072-token window, although the server measured 107,554 prompt tokens. The plugin refused the warm request.",
+    "Harness defect: the custom endpoint key was given only to AIAgent. Hermes auxiliary calls without the agent runtime (the plugin fallback through ctx.llm) then send the placeholder key no-key-required, and the DGX router answers 404 Not found. A user config names the key with model.key_env.",
+    "Plugin defect found during the analysis: the fallback transcript stopped at the first row that did not fit, so long rows left only the first user message and the two newest short rows."
+   ],
+   "fixes": "Commit db0efda (capacity from the reported prompt count; fallback transcript row cap). The next protocol (.work/plugin-live-02) adds model.key_env for the DGX engine.",
+   "decision": "The run stopped after the first session because the remaining 39 sessions would only measure the defects. This run gives no comparison result."
+  },
+  {
+   "name": "plugin-live-02",
+   "engine": "lmstudio",
+   "attempt": 1,
+   "status": "stopped_by_operator",
+   "started_utc": "2026-10-05T11:17:24Z",
+   "sessions_completed": 2,
+   "session_process_seconds": [
+    188.173,
+    174.787
+   ],
+   "reason": "The operator stopped the first LM Studio attempt between sessions. Its first two sessions took 188 s and 175 s, so 40 sessions would take about 121 minutes, which is longer than the 2-hour limit of the background task that ran it. The run started again as a detached process with a new output folder. The sessions of this attempt are not used."
+  },
+  {
+   "name": "plugin-live-02",
+   "engine": "lmstudio",
+   "attempt": 2,
+   "started_utc": "2026-10-05T11:24:37Z",
+   "sessions_started": 17,
+   "status": "stopped_by_stop_rule",
+   "date": "2026-10-05",
+   "sessions_completed": 16,
+   "sessions_planned": 40,
+   "stopped_session": {
+    "mode": "manual",
+    "case_id": "failed_check_choice_quoted_file_note",
+    "arm": "plugin",
+    "error": "ValueError: seed_turn_changed_history",
+    "seed_main_requests": [
+     {
+      "prompt_tokens": 119686,
+      "completion_tokens": 4096,
+      "finish_reason": "length"
+     },
+     {
+      "prompt_tokens": 119722,
+      "completion_tokens": 8192,
+      "finish_reason": "length"
+     },
+     {
+      "prompt_tokens": 10468,
+      "completion_tokens": 188,
+      "finish_reason": "stop"
+     }
+    ],
+    "other_requests": [
+     "fallback"
+    ]
+   },
+   "cause": "The seed reply of the 4B model reached the 4096-token limit (finish_reason length). Hermes sent the request again with 8192 output tokens, and that reply also reached the limit. No ordinary request of the session completed with stop, so the plugin had no capture. Hermes then started a compaction in the seed turn; the plugin used its fallback summary (reason no_capture), and the next request completed. The step check 'the seed turn makes no compaction' stopped the run. The earlier alpha-hermes-live LM Studio run saw the same seed cut on this case. This is a setup failure of the synthetic seed on a small thinking model, not a plugin defect.",
+   "decision": "The completed 16 sessions (8 manual case pairs) are reported as a stopped run and are not used for decisions. Protocol plugin-live-03 runs LM Studio again with one change: a seed-turn setup failure is recorded and the run continues. The DGX run of plugin-live-02 is complete and stays valid."
+  }
+ ],
+ "engines": {
+  "dgx": {
+   "protocol": "plugin-live-02",
+   "model": "dgx-model",
+   "run": {
+    "started_utc": "2026-10-05T10:37:35Z",
+    "finished_utc": "2026-10-05T11:09:46Z",
+    "freeze_sha256": "b121536ba7c58f8c469a3f1d2726814c8229cdbcdb79def7fb891f880d5cca6d",
+    "server_state": {
+     "model_listed": true
+    },
+    "sessions": 40,
+    "worker_exits": [
+     0
+    ],
+    "install_exits": [
+     0
+    ],
+    "statuses": {},
+    "process_seconds_total": 1930.1
+   },
+   "modes": {
+    "manual": {
+     "summary": {
+      "plugin": {
+       "completed": 10,
+       "median_seconds": {
+        "seed": 2.66,
+        "compress": 10.188,
+        "continuation": 2.205
+       },
+       "median_workflow_seconds": 12.48,
+       "next_action_passed": 10,
+       "plugin_fence_denials": 0,
+       "accepted": 10,
+       "paths": {
+        "warm": 10
+       },
+       "reasons": {
+        "accepted": 10
+       },
+       "prefix_kept": 10,
+       "median_cached_share": 1.0,
+       "median_warm_request_seconds": 10.053
+      },
+      "stock": {
+       "completed": 10,
+       "median_seconds": {
+        "seed": 2.704,
+        "compress": 32.678,
+        "continuation": 3.964
+       },
+       "median_workflow_seconds": 36.866,
+       "next_action_passed": 9,
+       "plugin_fence_denials": 0,
+       "median_aux_cached_tokens": 0.0
+      }
+     },
+     "decision_rules": {
+      "works": true,
+      "speed_workflow": {
+       "paired": 10,
+       "plugin_faster": 10,
+       "median_plugin": 12.48,
+       "median_stock": 36.866,
+       "median_lower": true,
+       "passes_rule": true
+      },
+      "speed_compress": {
+       "paired": 10,
+       "plugin_faster": 10,
+       "median_plugin": 10.188,
+       "median_stock": 32.678,
+       "median_lower": true,
+       "passes_rule": true
+      }
+     },
+     "cases": {
+      "export_gate_target_update": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.377,
+         "compress": 10.797,
+         "continuation": 2.269
+        },
+        "workflow_seconds": 13.066,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.458,
+         "status": 200,
+         "prompt_tokens": 107554,
+         "completion_tokens": 9,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 10.645,
+          "status": 200,
+          "prompt_tokens": 108021,
+          "completion_tokens": 579,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4636,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.458,
+          "status": 200,
+          "prompt_tokens": 107554,
+          "completion_tokens": 9,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.172,
+          "status": 200,
+          "prompt_tokens": 2336,
+          "completion_tokens": 54,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.575,
+         "compress": 33.491,
+         "continuation": 3.082
+        },
+        "workflow_seconds": 36.573,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.679,
+         "status": 200,
+         "prompt_tokens": 107554,
+         "completion_tokens": 9,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 33.136,
+          "status": 200,
+          "prompt_tokens": 6762,
+          "completion_tokens": 1863,
+          "cached_tokens": 6464,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 88227,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.679,
+          "status": 200,
+          "prompt_tokens": 107554,
+          "completion_tokens": 9,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.978,
+          "status": 200,
+          "prompt_tokens": 38897,
+          "completion_tokens": 64,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "completed_validation_new_draft": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.472,
+         "compress": 8.695,
+         "continuation": 1.951
+        },
+        "workflow_seconds": 10.646,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.295,
+         "status": 200,
+         "prompt_tokens": 107506,
+         "completion_tokens": 4,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 8.581,
+          "status": 200,
+          "prompt_tokens": 107973,
+          "completion_tokens": 462,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4007,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.295,
+          "status": 200,
+          "prompt_tokens": 107506,
+          "completion_tokens": 4,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.852,
+          "status": 200,
+          "prompt_tokens": 2169,
+          "completion_tokens": 46,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.585,
+         "compress": 28.733,
+         "continuation": 8.426
+        },
+        "workflow_seconds": 37.159,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.676,
+         "status": 200,
+         "prompt_tokens": 107506,
+         "completion_tokens": 4,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 28.436,
+          "status": 200,
+          "prompt_tokens": 6769,
+          "completion_tokens": 1279,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 87234,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.676,
+          "status": 200,
+          "prompt_tokens": 107506,
+          "completion_tokens": 4,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 8.3,
+          "status": 200,
+          "prompt_tokens": 38529,
+          "completion_tokens": 62,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "quoted_note_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 3.011,
+         "compress": 10.922,
+         "continuation": 1.954
+        },
+        "workflow_seconds": 12.876,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.777,
+         "status": 200,
+         "prompt_tokens": 107546,
+         "completion_tokens": 10,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 10.753,
+          "status": 200,
+          "prompt_tokens": 108013,
+          "completion_tokens": 572,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4898,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.777,
+          "status": 200,
+          "prompt_tokens": 107546,
+          "completion_tokens": 10,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.834,
+          "status": 200,
+          "prompt_tokens": 2364,
+          "completion_tokens": 37,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.693,
+         "compress": 31.864,
+         "continuation": 3.692
+        },
+        "workflow_seconds": 35.556,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.743,
+         "status": 200,
+         "prompt_tokens": 107546,
+         "completion_tokens": 10,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 31.372,
+          "status": 200,
+          "prompt_tokens": 6763,
+          "completion_tokens": 1459,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 87400,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.743,
+          "status": 200,
+          "prompt_tokens": 107546,
+          "completion_tokens": 10,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.579,
+          "status": 200,
+          "prompt_tokens": 38644,
+          "completion_tokens": 107,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "revoked_rule_completed_export": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.404,
+         "compress": 15.298,
+         "continuation": 2.332
+        },
+        "workflow_seconds": 17.63,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.342,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 15.184,
+          "status": 200,
+          "prompt_tokens": 107967,
+          "completion_tokens": 776,
+          "cached_tokens": 107904,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4198,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.342,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.222,
+          "status": 200,
+          "prompt_tokens": 2222,
+          "completion_tokens": 45,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.714,
+         "compress": 36.509,
+         "continuation": 4.236
+        },
+        "workflow_seconds": 40.745,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.696,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 36.171,
+          "status": 200,
+          "prompt_tokens": 6719,
+          "completion_tokens": 1707,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 86742,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.696,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 4.121,
+          "status": 200,
+          "prompt_tokens": 38539,
+          "completion_tokens": 120,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "decision_reason_unverified_claim": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 13.07,
+         "compress": 7.138,
+         "continuation": 2.854
+        },
+        "workflow_seconds": 9.992,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 12.127,
+         "status": 200,
+         "prompt_tokens": 107493,
+         "completion_tokens": 515,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 7.02,
+          "status": 200,
+          "prompt_tokens": 107960,
+          "completion_tokens": 370,
+          "cached_tokens": 107904,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3980,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 12.127,
+          "status": 200,
+          "prompt_tokens": 107493,
+          "completion_tokens": 515,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.746,
+          "status": 200,
+          "prompt_tokens": 2146,
+          "completion_tokens": 84,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 13.285,
+         "compress": 34.454,
+         "continuation": 6.209
+        },
+        "workflow_seconds": 40.663,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 12.207,
+         "status": 200,
+         "prompt_tokens": 107493,
+         "completion_tokens": 515,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 34.116,
+          "status": 200,
+          "prompt_tokens": 6725,
+          "completion_tokens": 1608,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 87716,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 4,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 12.207,
+          "status": 200,
+          "prompt_tokens": 107493,
+          "completion_tokens": 515,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 6.097,
+          "status": 200,
+          "prompt_tokens": 38744,
+          "completion_tokens": 239,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "cancelled_task_tail_rule_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.775,
+         "compress": 12.071,
+         "continuation": 1.91
+        },
+        "workflow_seconds": 13.981,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.65,
+         "status": 200,
+         "prompt_tokens": 107510,
+         "completion_tokens": 20,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 11.961,
+          "status": 200,
+          "prompt_tokens": 107977,
+          "completion_tokens": 657,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4967,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.65,
+          "status": 200,
+          "prompt_tokens": 107510,
+          "completion_tokens": 20,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.809,
+          "status": 200,
+          "prompt_tokens": 2420,
+          "completion_tokens": 35,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 3.402,
+         "compress": 31.073,
+         "continuation": 3.198
+        },
+        "workflow_seconds": 34.271,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 2.187,
+         "status": 200,
+         "prompt_tokens": 107510,
+         "completion_tokens": 20,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 30.725,
+          "status": 200,
+          "prompt_tokens": 6745,
+          "completion_tokens": 1456,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 86897,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 2.187,
+          "status": 200,
+          "prompt_tokens": 107510,
+          "completion_tokens": 20,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.098,
+          "status": 200,
+          "prompt_tokens": 38557,
+          "completion_tokens": 78,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "granted_approval_completed_check": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.837,
+         "compress": 9.13,
+         "continuation": 2.639
+        },
+        "workflow_seconds": 11.769,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.812,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 8.99,
+          "status": 200,
+          "prompt_tokens": 107967,
+          "completion_tokens": 466,
+          "cached_tokens": 107904,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4099,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.812,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.515,
+          "status": 200,
+          "prompt_tokens": 2241,
+          "completion_tokens": 75,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.538,
+         "compress": 38.033,
+         "continuation": 4.604
+        },
+        "workflow_seconds": 42.637,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.589,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 37.715,
+          "status": 200,
+          "prompt_tokens": 6727,
+          "completion_tokens": 1905,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 87391,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.589,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 4.494,
+          "status": 200,
+          "prompt_tokens": 38808,
+          "completion_tokens": 152,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "unverified_approval_blocks_publication": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 6.679,
+         "compress": 9.578,
+         "continuation": 1.974
+        },
+        "workflow_seconds": 11.552,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 5.508,
+         "status": 200,
+         "prompt_tokens": 107505,
+         "completion_tokens": 219,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 9.461,
+          "status": 200,
+          "prompt_tokens": 107972,
+          "completion_tokens": 512,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4833,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 5.508,
+          "status": 200,
+          "prompt_tokens": 107505,
+          "completion_tokens": 219,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.846,
+          "status": 200,
+          "prompt_tokens": 2353,
+          "completion_tokens": 35,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 6.898,
+         "compress": 27.572,
+         "continuation": 2.842
+        },
+        "workflow_seconds": 30.414,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 5.878,
+         "status": 200,
+         "prompt_tokens": 107505,
+         "completion_tokens": 219,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 27.27,
+          "status": 200,
+          "prompt_tokens": 6739,
+          "completion_tokens": 1280,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 86090,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 5.878,
+          "status": 200,
+          "prompt_tokens": 107505,
+          "completion_tokens": 219,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.726,
+          "status": 200,
+          "prompt_tokens": 38315,
+          "completion_tokens": 54,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "failed_check_choice_quoted_file_note": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.546,
+         "compress": 13.613,
+         "continuation": 2.142
+        },
+        "workflow_seconds": 15.755,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.56,
+         "status": 200,
+         "prompt_tokens": 107538,
+         "completion_tokens": 7,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 13.491,
+          "status": 200,
+          "prompt_tokens": 108005,
+          "completion_tokens": 746,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4646,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.56,
+          "status": 200,
+          "prompt_tokens": 107538,
+          "completion_tokens": 7,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.037,
+          "status": 200,
+          "prompt_tokens": 2364,
+          "completion_tokens": 47,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.524,
+         "compress": 34.994,
+         "continuation": 4.6
+        },
+        "workflow_seconds": 39.594,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.536,
+         "status": 200,
+         "prompt_tokens": 107538,
+         "completion_tokens": 7,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 34.674,
+          "status": 200,
+          "prompt_tokens": 6812,
+          "completion_tokens": 1677,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 87339,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.536,
+          "status": 200,
+          "prompt_tokens": 107538,
+          "completion_tokens": 7,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 4.495,
+          "status": 200,
+          "prompt_tokens": 38726,
+          "completion_tokens": 144,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "supplied_input_stale_problem_tail_rule": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.329,
+         "compress": 9.412,
+         "continuation": 2.672
+        },
+        "workflow_seconds": 12.084,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.391,
+         "status": 200,
+         "prompt_tokens": 107515,
+         "completion_tokens": 6,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 9.3,
+          "status": 200,
+          "prompt_tokens": 107982,
+          "completion_tokens": 463,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4175,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.391,
+          "status": 200,
+          "prompt_tokens": 107515,
+          "completion_tokens": 6,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.565,
+          "status": 200,
+          "prompt_tokens": 2242,
+          "completion_tokens": 66,
+          "cached_tokens": 1216,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 3.007,
+         "compress": 18.817,
+         "continuation": 3.438
+        },
+        "workflow_seconds": 22.255,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.825,
+         "status": 200,
+         "prompt_tokens": 107515,
+         "completion_tokens": 6,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 18.466,
+          "status": 200,
+          "prompt_tokens": 6741,
+          "completion_tokens": 797,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 85079,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.825,
+          "status": 200,
+          "prompt_tokens": 107515,
+          "completion_tokens": 6,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.213,
+          "status": 200,
+          "prompt_tokens": 38108,
+          "completion_tokens": 86,
+          "cached_tokens": 37056,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      }
+     }
+    },
+    "auto": {
+     "summary": {
+      "plugin": {
+       "completed": 10,
+       "median_seconds": {
+        "seed": 2.716,
+        "compress": 10.145,
+        "continuation": 1.207
+       },
+       "median_workflow_seconds": 11.479,
+       "next_action_passed": 10,
+       "plugin_fence_denials": 0,
+       "accepted": 10,
+       "paths": {
+        "warm": 10
+       },
+       "reasons": {
+        "accepted": 10
+       },
+       "prefix_kept": 10,
+       "median_cached_share": 1.0,
+       "median_warm_request_seconds": 10.046
+      },
+      "stock": {
+       "completed": 10,
+       "median_seconds": {
+        "seed": 2.683,
+        "compress": 39.88,
+        "continuation": 3.064
+       },
+       "median_workflow_seconds": 42.926,
+       "next_action_passed": 6,
+       "plugin_fence_denials": 0,
+       "median_aux_cached_tokens": 0.0
+      }
+     },
+     "decision_rules": {
+      "works": true,
+      "speed_workflow": {
+       "paired": 10,
+       "plugin_faster": 10,
+       "median_plugin": 11.479,
+       "median_stock": 42.926,
+       "median_lower": true,
+       "passes_rule": true
+      },
+      "speed_compress": {
+       "paired": 10,
+       "plugin_faster": 10,
+       "median_plugin": 10.145,
+       "median_stock": 39.88,
+       "median_lower": true,
+       "passes_rule": true
+      }
+     },
+     "cases": {
+      "export_gate_target_update": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.652,
+         "compress": 10.884,
+         "continuation": 1.275
+        },
+        "workflow_seconds": 12.159,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.664,
+         "status": 200,
+         "prompt_tokens": 107554,
+         "completion_tokens": 9,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 10.786,
+          "status": 200,
+          "prompt_tokens": 108021,
+          "completion_tokens": 579,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4636,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.664,
+          "status": 200,
+          "prompt_tokens": 107554,
+          "completion_tokens": 9,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.178,
+          "status": 200,
+          "prompt_tokens": 2336,
+          "completion_tokens": 54,
+          "cached_tokens": 2240,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.557,
+         "compress": 41.342,
+         "continuation": 3.047
+        },
+        "workflow_seconds": 44.389,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.592,
+         "status": 200,
+         "prompt_tokens": 107554,
+         "completion_tokens": 9,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 40.974,
+          "status": 200,
+          "prompt_tokens": 8046,
+          "completion_tokens": 2020,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 9533,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.592,
+          "status": 200,
+          "prompt_tokens": 107554,
+          "completion_tokens": 9,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.949,
+          "status": 200,
+          "prompt_tokens": 21298,
+          "completion_tokens": 59,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "completed_validation_new_draft": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.268,
+         "compress": 8.665,
+         "continuation": 1.206
+        },
+        "workflow_seconds": 9.871,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.28,
+         "status": 200,
+         "prompt_tokens": 107506,
+         "completion_tokens": 4,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 8.558,
+          "status": 200,
+          "prompt_tokens": 107973,
+          "completion_tokens": 462,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4007,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.28,
+          "status": 200,
+          "prompt_tokens": 107506,
+          "completion_tokens": 4,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.109,
+          "status": 200,
+          "prompt_tokens": 2169,
+          "completion_tokens": 46,
+          "cached_tokens": 2112,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.815,
+         "compress": 39.521,
+         "continuation": 3.011
+        },
+        "workflow_seconds": 42.532,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.795,
+         "status": 200,
+         "prompt_tokens": 107506,
+         "completion_tokens": 4,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 39.184,
+          "status": 200,
+          "prompt_tokens": 8034,
+          "completion_tokens": 1919,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 9436,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.795,
+          "status": 200,
+          "prompt_tokens": 107506,
+          "completion_tokens": 4,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.918,
+          "status": 200,
+          "prompt_tokens": 21212,
+          "completion_tokens": 47,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "quoted_note_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.741,
+         "compress": 10.86,
+         "continuation": 0.981
+        },
+        "workflow_seconds": 11.841,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.649,
+         "status": 200,
+         "prompt_tokens": 107546,
+         "completion_tokens": 10,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 10.762,
+          "status": 200,
+          "prompt_tokens": 108013,
+          "completion_tokens": 572,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4898,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.649,
+          "status": 200,
+          "prompt_tokens": 107546,
+          "completion_tokens": 10,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 0.845,
+          "status": 200,
+          "prompt_tokens": 2364,
+          "completion_tokens": 37,
+          "cached_tokens": 2304,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.559,
+         "compress": 43.039,
+         "continuation": 2.721
+        },
+        "workflow_seconds": 45.76,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.558,
+         "status": 200,
+         "prompt_tokens": 107546,
+         "completion_tokens": 10,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 42.695,
+          "status": 200,
+          "prompt_tokens": 8052,
+          "completion_tokens": 2035,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 9281,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.558,
+          "status": 200,
+          "prompt_tokens": 107546,
+          "completion_tokens": 10,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.632,
+          "status": 200,
+          "prompt_tokens": 21212,
+          "completion_tokens": 39,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "revoked_rule_completed_export": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.448,
+         "compress": 15.251,
+         "continuation": 1.208
+        },
+        "workflow_seconds": 16.459,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.515,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 15.155,
+          "status": 200,
+          "prompt_tokens": 107967,
+          "completion_tokens": 776,
+          "cached_tokens": 107904,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4198,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.515,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.122,
+          "status": 200,
+          "prompt_tokens": 2222,
+          "completion_tokens": 45,
+          "cached_tokens": 2176,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.618,
+         "compress": 36.052,
+         "continuation": 3.094
+        },
+        "workflow_seconds": 39.146,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.657,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 35.691,
+          "status": 200,
+          "prompt_tokens": 8009,
+          "completion_tokens": 1709,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 8730,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 4,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.657,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.003,
+          "status": 200,
+          "prompt_tokens": 21102,
+          "completion_tokens": 57,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "decision_reason_unverified_claim": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 13.524,
+         "compress": 7.117,
+         "continuation": 1.996
+        },
+        "workflow_seconds": 9.113,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 12.539,
+         "status": 200,
+         "prompt_tokens": 107493,
+         "completion_tokens": 515,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 7.016,
+          "status": 200,
+          "prompt_tokens": 107960,
+          "completion_tokens": 370,
+          "cached_tokens": 107904,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3980,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 12.539,
+          "status": 200,
+          "prompt_tokens": 107493,
+          "completion_tokens": 515,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.901,
+          "status": 200,
+          "prompt_tokens": 2146,
+          "completion_tokens": 84,
+          "cached_tokens": 2048,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 13.251,
+         "compress": 34.214,
+         "continuation": 3.619
+        },
+        "workflow_seconds": 37.833,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 12.062,
+         "status": 200,
+         "prompt_tokens": 107493,
+         "completion_tokens": 515,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 33.854,
+          "status": 200,
+          "prompt_tokens": 8014,
+          "completion_tokens": 1607,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 8705,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 12.062,
+          "status": 200,
+          "prompt_tokens": 107493,
+          "completion_tokens": 515,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.519,
+          "status": 200,
+          "prompt_tokens": 20998,
+          "completion_tokens": 101,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "cancelled_task_tail_rule_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 3.081,
+         "compress": 12.227,
+         "continuation": 0.889
+        },
+        "workflow_seconds": 13.116,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.939,
+         "status": 200,
+         "prompt_tokens": 107510,
+         "completion_tokens": 20,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 12.115,
+          "status": 200,
+          "prompt_tokens": 107977,
+          "completion_tokens": 657,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4967,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.939,
+          "status": 200,
+          "prompt_tokens": 107510,
+          "completion_tokens": 20,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 0.798,
+          "status": 200,
+          "prompt_tokens": 2420,
+          "completion_tokens": 35,
+          "cached_tokens": 2368,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 3.048,
+         "compress": 50.164,
+         "continuation": 3.232
+        },
+        "workflow_seconds": 53.396,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.918,
+         "status": 200,
+         "prompt_tokens": 107510,
+         "completion_tokens": 20,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 49.792,
+          "status": 200,
+          "prompt_tokens": 8037,
+          "completion_tokens": 2637,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 13324,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.918,
+          "status": 200,
+          "prompt_tokens": 107510,
+          "completion_tokens": 20,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.135,
+          "status": 200,
+          "prompt_tokens": 22225,
+          "completion_tokens": 39,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "granted_approval_completed_check": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.919,
+         "compress": 8.974,
+         "continuation": 1.689
+        },
+        "workflow_seconds": 10.663,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.796,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 8.866,
+          "status": 200,
+          "prompt_tokens": 107967,
+          "completion_tokens": 466,
+          "cached_tokens": 107904,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4099,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.796,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.582,
+          "status": 200,
+          "prompt_tokens": 2241,
+          "completion_tokens": 75,
+          "cached_tokens": 2176,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.749,
+         "compress": 24.028,
+         "continuation": 2.65
+        },
+        "workflow_seconds": 26.678,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.722,
+         "status": 200,
+         "prompt_tokens": 107500,
+         "completion_tokens": 9,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 23.683,
+          "status": 200,
+          "prompt_tokens": 8021,
+          "completion_tokens": 1006,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 6904,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.722,
+          "status": 200,
+          "prompt_tokens": 107500,
+          "completion_tokens": 9,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.562,
+          "status": 200,
+          "prompt_tokens": 20634,
+          "completion_tokens": 54,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "unverified_approval_blocks_publication": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 6.594,
+         "compress": 9.429,
+         "continuation": 0.963
+        },
+        "workflow_seconds": 10.392,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 5.587,
+         "status": 200,
+         "prompt_tokens": 107505,
+         "completion_tokens": 219,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 9.33,
+          "status": 200,
+          "prompt_tokens": 107972,
+          "completion_tokens": 512,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4833,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 5.587,
+          "status": 200,
+          "prompt_tokens": 107505,
+          "completion_tokens": 219,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 0.863,
+          "status": 200,
+          "prompt_tokens": 2353,
+          "completion_tokens": 35,
+          "cached_tokens": 2304,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 7.208,
+         "compress": 27.956,
+         "continuation": 2.687
+        },
+        "workflow_seconds": 30.643,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 6.135,
+         "status": 200,
+         "prompt_tokens": 107505,
+         "completion_tokens": 219,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 27.618,
+          "status": 200,
+          "prompt_tokens": 8028,
+          "completion_tokens": 1213,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 7377,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 6.135,
+          "status": 200,
+          "prompt_tokens": 107505,
+          "completion_tokens": 219,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.577,
+          "status": 200,
+          "prompt_tokens": 20630,
+          "completion_tokens": 55,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "failed_check_choice_quoted_file_note": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.69,
+         "compress": 13.71,
+         "continuation": 1.136
+        },
+        "workflow_seconds": 14.846,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.758,
+         "status": 200,
+         "prompt_tokens": 107538,
+         "completion_tokens": 7,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 13.613,
+          "status": 200,
+          "prompt_tokens": 108005,
+          "completion_tokens": 746,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4646,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.758,
+          "status": 200,
+          "prompt_tokens": 107538,
+          "completion_tokens": 7,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.044,
+          "status": 200,
+          "prompt_tokens": 2364,
+          "completion_tokens": 47,
+          "cached_tokens": 2304,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.498,
+         "compress": 45.311,
+         "continuation": 3.209
+        },
+        "workflow_seconds": 48.52,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.496,
+         "status": 200,
+         "prompt_tokens": 107538,
+         "completion_tokens": 7,
+         "cached_tokens": 107520,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 44.957,
+          "status": 200,
+          "prompt_tokens": 8051,
+          "completion_tokens": 2325,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 10873,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.496,
+          "status": 200,
+          "prompt_tokens": 107538,
+          "completion_tokens": 7,
+          "cached_tokens": 107520,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.118,
+          "status": 200,
+          "prompt_tokens": 21673,
+          "completion_tokens": 52,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "supplied_input_stale_problem_tail_rule": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.645,
+         "compress": 9.37,
+         "continuation": 1.747
+        },
+        "workflow_seconds": 11.117,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.345,
+         "status": 200,
+         "prompt_tokens": 107515,
+         "completion_tokens": 6,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 9.266,
+          "status": 200,
+          "prompt_tokens": 107982,
+          "completion_tokens": 463,
+          "cached_tokens": 107968,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4175,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.345,
+          "status": 200,
+          "prompt_tokens": 107515,
+          "completion_tokens": 6,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 1.642,
+          "status": 200,
+          "prompt_tokens": 2242,
+          "completion_tokens": 66,
+          "cached_tokens": 2176,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 2.606,
+         "compress": 40.239,
+         "continuation": 3.082
+        },
+        "workflow_seconds": 43.321,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 1.582,
+         "status": 200,
+         "prompt_tokens": 107515,
+         "completion_tokens": 6,
+         "cached_tokens": 107456,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 39.839,
+          "status": 200,
+          "prompt_tokens": 8031,
+          "completion_tokens": 1864,
+          "cached_tokens": 0,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 10030,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 1.582,
+          "status": 200,
+          "prompt_tokens": 107515,
+          "completion_tokens": 6,
+          "cached_tokens": 107456,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.986,
+          "status": 200,
+          "prompt_tokens": 21407,
+          "completion_tokens": 40,
+          "cached_tokens": 18944,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      }
+     }
+    }
+   }
+  },
+  "lmstudio": {
+   "protocol": "plugin-live-03",
+   "model": "qwen3.5-4b-mtp",
+   "run": {
+    "started_utc": "2026-10-05T12:30:40Z",
+    "finished_utc": "2026-10-05T14:37:24Z",
+    "freeze_sha256": "6cd99c7e3620d46a38d71412b6478a0b8e5f02e0a7cb8c09fa39e96ea5d7ec84",
+    "server_state": {
+     "state": "loaded",
+     "arch": "qwen35",
+     "quantization": "Q8_K_XL",
+     "loaded_context_length": 131072
+    },
+    "sessions": 40,
+    "worker_exits": [
+     0
+    ],
+    "install_exits": [
+     0
+    ],
+    "statuses": {
+     "completed": 36,
+     "setup_failed": 4
+    },
+    "process_seconds_total": 7602.5
+   },
+   "modes": {
+    "manual": {
+     "summary": {
+      "plugin": {
+       "completed": 9,
+       "setup_failed": 1,
+       "median_seconds": {
+        "seed": 77.973,
+        "compress": 20.851,
+        "continuation": 3.679
+       },
+       "median_workflow_seconds": 25.243,
+       "next_action_passed": 4,
+       "plugin_fence_denials": 0,
+       "accepted": 9,
+       "paths": {
+        "warm": 9
+       },
+       "reasons": {
+        "accepted": 9
+       },
+       "prefix_kept": 9,
+       "median_cached_share": null,
+       "median_warm_request_seconds": 20.707,
+       "setup_failed_plugin_only": []
+      },
+      "stock": {
+       "completed": 9,
+       "setup_failed": 1,
+       "median_seconds": {
+        "seed": 81.236,
+        "compress": 34.425,
+        "continuation": 27.264
+       },
+       "median_workflow_seconds": 64.497,
+       "next_action_passed": 4,
+       "plugin_fence_denials": 0,
+       "median_aux_cached_tokens": null
+      }
+     },
+     "decision_rules": {
+      "works": true,
+      "speed_workflow": {
+       "paired": 9,
+       "plugin_faster": 9,
+       "median_plugin": 25.243,
+       "median_stock": 64.497,
+       "median_lower": true,
+       "passes_rule": true
+      },
+      "speed_compress": {
+       "paired": 9,
+       "plugin_faster": 6,
+       "median_plugin": 20.851,
+       "median_stock": 34.425,
+       "median_lower": true,
+       "passes_rule": true
+      }
+     },
+     "cases": {
+      "export_gate_target_update": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 96.212,
+         "compress": 55.544,
+         "continuation": 3.66
+        },
+        "workflow_seconds": 59.204,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 95.101,
+         "status": 200,
+         "prompt_tokens": 119701,
+         "completion_tokens": 1262,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 55.389,
+          "status": 200,
+          "prompt_tokens": 120192,
+          "completion_tokens": 2082,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3694,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 95.101,
+          "status": 200,
+          "prompt_tokens": 119701,
+          "completion_tokens": 1262,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.54,
+          "status": 200,
+          "prompt_tokens": 2185,
+          "completion_tokens": 173,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 97.341,
+         "compress": 37.308,
+         "continuation": 29.098
+        },
+        "workflow_seconds": 66.406,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 96.15,
+         "status": 200,
+         "prompt_tokens": 119701,
+         "completion_tokens": 1262,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 37.017,
+          "status": 200,
+          "prompt_tokens": 7412,
+          "completion_tokens": 1854,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 88804,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 96.15,
+          "status": 200,
+          "prompt_tokens": 119701,
+          "completion_tokens": 1262,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 28.99,
+          "status": 200,
+          "prompt_tokens": 43197,
+          "completion_tokens": 556,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "completed_validation_new_draft": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 64.583,
+         "compress": 22.211,
+         "continuation": 3.032
+        },
+        "workflow_seconds": 25.243,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 63.315,
+         "status": 200,
+         "prompt_tokens": 119651,
+         "completion_tokens": 346,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 22.086,
+          "status": 200,
+          "prompt_tokens": 120142,
+          "completion_tokens": 807,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4194,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 63.315,
+          "status": 200,
+          "prompt_tokens": 119651,
+          "completion_tokens": 346,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 2.939,
+          "status": 200,
+          "prompt_tokens": 2325,
+          "completion_tokens": 133,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 73.821,
+         "compress": 51.516,
+         "continuation": 53.18
+        },
+        "workflow_seconds": 104.696,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 72.782,
+         "status": 200,
+         "prompt_tokens": 119651,
+         "completion_tokens": 346,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 51.225,
+          "status": 200,
+          "prompt_tokens": 7420,
+          "completion_tokens": 2599,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 91010,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 72.782,
+          "status": 200,
+          "prompt_tokens": 119651,
+          "completion_tokens": 346,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 53.043,
+          "status": 200,
+          "prompt_tokens": 43878,
+          "completion_tokens": 1715,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "quoted_note_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 131.867,
+         "compress": 21.625,
+         "continuation": 3.775
+        },
+        "workflow_seconds": 25.4,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 130.712,
+         "status": 200,
+         "prompt_tokens": 119689,
+         "completion_tokens": 2522,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 21.501,
+          "status": 200,
+          "prompt_tokens": 120179,
+          "completion_tokens": 783,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4393,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 130.712,
+          "status": 200,
+          "prompt_tokens": 119689,
+          "completion_tokens": 2522,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.666,
+          "status": 200,
+          "prompt_tokens": 2345,
+          "completion_tokens": 177,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 131.656,
+         "compress": 42.013,
+         "continuation": 24.503
+        },
+        "workflow_seconds": 66.516,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 130.577,
+         "status": 200,
+         "prompt_tokens": 119689,
+         "completion_tokens": 2522,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 41.668,
+          "status": 200,
+          "prompt_tokens": 7409,
+          "completion_tokens": 2096,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 89781,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 130.577,
+          "status": 200,
+          "prompt_tokens": 119689,
+          "completion_tokens": 2522,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 24.385,
+          "status": 200,
+          "prompt_tokens": 43439,
+          "completion_tokens": 349,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "revoked_rule_completed_export": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 68.28,
+         "compress": 19.483,
+         "continuation": 3.679
+        },
+        "workflow_seconds": 23.162,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 67.16,
+         "status": 200,
+         "prompt_tokens": 119644,
+         "completion_tokens": 418,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 19.363,
+          "status": 200,
+          "prompt_tokens": 120135,
+          "completion_tokens": 703,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4058,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 67.16,
+          "status": 200,
+          "prompt_tokens": 119644,
+          "completion_tokens": 418,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.571,
+          "status": 200,
+          "prompt_tokens": 2284,
+          "completion_tokens": 170,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 75.154,
+         "compress": 34.425,
+         "continuation": 30.541
+        },
+        "workflow_seconds": 64.966,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 74.104,
+         "status": 200,
+         "prompt_tokens": 119644,
+         "completion_tokens": 418,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 34.134,
+          "status": 200,
+          "prompt_tokens": 7368,
+          "completion_tokens": 1708,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 88409,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 74.104,
+          "status": 200,
+          "prompt_tokens": 119644,
+          "completion_tokens": 418,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 30.425,
+          "status": 200,
+          "prompt_tokens": 42956,
+          "completion_tokens": 616,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "decision_reason_unverified_claim": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 81.385,
+         "compress": 20.368,
+         "continuation": 9.328
+        },
+        "workflow_seconds": 29.696,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 80.332,
+         "status": 200,
+         "prompt_tokens": 119639,
+         "completion_tokens": 667,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 20.235,
+          "status": 200,
+          "prompt_tokens": 120130,
+          "completion_tokens": 736,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3941,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 80.332,
+          "status": 200,
+          "prompt_tokens": 119639,
+          "completion_tokens": 667,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 9.222,
+          "status": 200,
+          "prompt_tokens": 2222,
+          "completion_tokens": 472,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 81.076,
+         "compress": 30.242,
+         "continuation": 25.588
+        },
+        "workflow_seconds": 55.83,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 80.029,
+         "status": 200,
+         "prompt_tokens": 119639,
+         "completion_tokens": 667,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 29.983,
+          "status": 200,
+          "prompt_tokens": 7375,
+          "completion_tokens": 1448,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 86838,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 80.029,
+          "status": 200,
+          "prompt_tokens": 119639,
+          "completion_tokens": 667,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 25.48,
+          "status": 200,
+          "prompt_tokens": 42701,
+          "completion_tokens": 416,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "cancelled_task_tail_rule_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 74.508,
+         "compress": 17.274,
+         "continuation": 3.558
+        },
+        "workflow_seconds": 20.832,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 73.441,
+         "status": 200,
+         "prompt_tokens": 119657,
+         "completion_tokens": 648,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 17.156,
+          "status": 200,
+          "prompt_tokens": 120147,
+          "completion_tokens": 621,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3580,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 73.441,
+          "status": 200,
+          "prompt_tokens": 119657,
+          "completion_tokens": 648,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.449,
+          "status": 200,
+          "prompt_tokens": 2157,
+          "completion_tokens": 160,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 81.236,
+         "compress": 41.404,
+         "continuation": 23.093
+        },
+        "workflow_seconds": 64.497,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 80.266,
+         "status": 200,
+         "prompt_tokens": 119657,
+         "completion_tokens": 648,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 41.129,
+          "status": 200,
+          "prompt_tokens": 7394,
+          "completion_tokens": 2081,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 88300,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 80.266,
+          "status": 200,
+          "prompt_tokens": 119657,
+          "completion_tokens": 648,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 22.989,
+          "status": 200,
+          "prompt_tokens": 43376,
+          "completion_tokens": 284,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "granted_approval_completed_check": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 136.749,
+         "compress": 20.851,
+         "continuation": 3.778
+        },
+        "workflow_seconds": 24.629,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 135.79,
+         "status": 200,
+         "prompt_tokens": 119648,
+         "completion_tokens": 2650,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 20.707,
+          "status": 200,
+          "prompt_tokens": 120139,
+          "completion_tokens": 746,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3621,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 135.79,
+          "status": 200,
+          "prompt_tokens": 119648,
+          "completion_tokens": 2650,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.643,
+          "status": 200,
+          "prompt_tokens": 2180,
+          "completion_tokens": 181,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 133.167,
+         "compress": 18.274,
+         "continuation": 29.121
+        },
+        "workflow_seconds": 47.395,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 132.133,
+         "status": 200,
+         "prompt_tokens": 119648,
+         "completion_tokens": 2650,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 17.909,
+          "status": 200,
+          "prompt_tokens": 7381,
+          "completion_tokens": 853,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 84978,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 132.133,
+          "status": 200,
+          "prompt_tokens": 119648,
+          "completion_tokens": 2650,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 28.962,
+          "status": 200,
+          "prompt_tokens": 42170,
+          "completion_tokens": 625,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "unverified_approval_blocks_publication": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 72.509,
+         "compress": 20.656,
+         "continuation": 3.635
+        },
+        "workflow_seconds": 24.291,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 71.308,
+         "status": 200,
+         "prompt_tokens": 119647,
+         "completion_tokens": 629,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 20.518,
+          "status": 200,
+          "prompt_tokens": 120138,
+          "completion_tokens": 762,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3877,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 71.308,
+          "status": 200,
+          "prompt_tokens": 119647,
+          "completion_tokens": 629,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.518,
+          "status": 200,
+          "prompt_tokens": 2219,
+          "completion_tokens": 172,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 78.837,
+         "compress": 31.187,
+         "continuation": 23.075
+        },
+        "workflow_seconds": 54.262,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 77.639,
+         "status": 200,
+         "prompt_tokens": 119647,
+         "completion_tokens": 629,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 30.871,
+          "status": 200,
+          "prompt_tokens": 7386,
+          "completion_tokens": 1557,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 88095,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 77.639,
+          "status": 200,
+          "prompt_tokens": 119647,
+          "completion_tokens": 629,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 22.962,
+          "status": 200,
+          "prompt_tokens": 42844,
+          "completion_tokens": 296,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "failed_check_choice_quoted_file_note": {
+       "plugin": {
+        "status": "setup_failed",
+        "setup_failure": "seed_reply_cut_at_token_limit",
+        "seconds": {
+         "seed": 407.104,
+         "compress": null,
+         "continuation": null
+        },
+        "workflow_seconds": null,
+        "path": "fallback",
+        "reason": "no_capture",
+        "accepted": false,
+        "request_counts": {
+         "main": 3,
+         "warm": 0,
+         "aux": 0,
+         "fallback": 1
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 174.244,
+         "status": 200,
+         "prompt_tokens": 119686,
+         "completion_tokens": 4096,
+         "cached_tokens": null,
+         "finish_reason": "length"
+        },
+        "compress_requests": [
+         {
+          "kind": "fallback",
+          "seconds": 8.024,
+          "status": 200,
+          "prompt_tokens": 7689,
+          "completion_tokens": 300,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": false,
+        "summary_rows": null,
+        "summary_chars": 0,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 174.244,
+          "status": 200,
+          "prompt_tokens": 119686,
+          "completion_tokens": 4096,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 216.68,
+          "status": 200,
+          "prompt_tokens": 119722,
+          "completion_tokens": 8192,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 8192
+         },
+         {
+          "kind": "main",
+          "seconds": 6.634,
+          "status": 200,
+          "prompt_tokens": 10468,
+          "completion_tokens": 188,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 16384
+         }
+        ]
+       },
+       "stock": {
+        "status": "setup_failed",
+        "setup_failure": "seed_reply_cut_at_token_limit",
+        "seconds": {
+         "seed": 501.465,
+         "compress": null,
+         "continuation": null
+        },
+        "workflow_seconds": null,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 4,
+         "warm": 0,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 172.939,
+         "status": 200,
+         "prompt_tokens": 119686,
+         "completion_tokens": 4096,
+         "cached_tokens": null,
+         "finish_reason": "length"
+        },
+        "compress_requests": [],
+        "prefix_kept": null,
+        "summary_rows": null,
+        "summary_chars": 0,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 172.939,
+          "status": 200,
+          "prompt_tokens": 119686,
+          "completion_tokens": 4096,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 222.831,
+          "status": 200,
+          "prompt_tokens": 119722,
+          "completion_tokens": 8192,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 8192
+         },
+         {
+          "kind": "main",
+          "seconds": 93.459,
+          "status": 200,
+          "prompt_tokens": 127955,
+          "completion_tokens": 3117,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 16384
+         },
+         {
+          "kind": "main",
+          "seconds": 10.605,
+          "status": 200,
+          "prompt_tokens": 130784,
+          "completion_tokens": 288,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 32768
+         }
+        ]
+       }
+      },
+      "supplied_input_stale_problem_tail_rule": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 77.973,
+         "compress": 27.285,
+         "continuation": 5.31
+        },
+        "workflow_seconds": 32.595,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 76.871,
+         "status": 200,
+         "prompt_tokens": 119662,
+         "completion_tokens": 803,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 27.168,
+          "status": 200,
+          "prompt_tokens": 120153,
+          "completion_tokens": 1000,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3948,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 76.871,
+          "status": 200,
+          "prompt_tokens": 119662,
+          "completion_tokens": 803,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 5.196,
+          "status": 200,
+          "prompt_tokens": 2259,
+          "completion_tokens": 260,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 84.713,
+         "compress": 26.004,
+         "continuation": 27.264
+        },
+        "workflow_seconds": 53.268,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 83.665,
+         "status": 200,
+         "prompt_tokens": 119662,
+         "completion_tokens": 803,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 25.731,
+          "status": 200,
+          "prompt_tokens": 7392,
+          "completion_tokens": 1247,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 86361,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 83.665,
+          "status": 200,
+          "prompt_tokens": 119662,
+          "completion_tokens": 803,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 27.157,
+          "status": 200,
+          "prompt_tokens": 42621,
+          "completion_tokens": 479,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      }
+     }
+    },
+    "auto": {
+     "summary": {
+      "plugin": {
+       "completed": 9,
+       "setup_failed": 1,
+       "median_seconds": {
+        "seed": 79.609,
+        "compress": 21.052,
+        "continuation": 3.783
+       },
+       "median_workflow_seconds": 25.692,
+       "next_action_passed": 4,
+       "plugin_fence_denials": 0,
+       "accepted": 9,
+       "paths": {
+        "warm": 9
+       },
+       "reasons": {
+        "accepted": 9
+       },
+       "prefix_kept": 9,
+       "median_cached_share": null,
+       "median_warm_request_seconds": 20.951,
+       "setup_failed_plugin_only": []
+      },
+      "stock": {
+       "completed": 9,
+       "setup_failed": 1,
+       "median_seconds": {
+        "seed": 83.125,
+        "compress": 41.794,
+        "continuation": 13.084
+       },
+       "median_workflow_seconds": 54.878,
+       "next_action_passed": 5,
+       "plugin_fence_denials": 0,
+       "median_aux_cached_tokens": null
+      }
+     },
+     "decision_rules": {
+      "works": true,
+      "speed_workflow": {
+       "paired": 9,
+       "plugin_faster": 8,
+       "median_plugin": 25.692,
+       "median_stock": 54.878,
+       "median_lower": true,
+       "passes_rule": true
+      },
+      "speed_compress": {
+       "paired": 9,
+       "plugin_faster": 8,
+       "median_plugin": 21.052,
+       "median_stock": 41.794,
+       "median_lower": true,
+       "passes_rule": true
+      }
+     },
+     "cases": {
+      "export_gate_target_update": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 96.276,
+         "compress": 56.401,
+         "continuation": 3.932
+        },
+        "workflow_seconds": 60.333,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 95.23,
+         "status": 200,
+         "prompt_tokens": 119701,
+         "completion_tokens": 1262,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 56.258,
+          "status": 200,
+          "prompt_tokens": 120192,
+          "completion_tokens": 2082,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3694,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 95.23,
+          "status": 200,
+          "prompt_tokens": 119701,
+          "completion_tokens": 1262,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.822,
+          "status": 200,
+          "prompt_tokens": 2185,
+          "completion_tokens": 173,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 99.59,
+         "compress": 30.188,
+         "continuation": 11.088
+        },
+        "workflow_seconds": 41.276,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 98.538,
+         "status": 200,
+         "prompt_tokens": 119701,
+         "completion_tokens": 1262,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 29.882,
+          "status": 200,
+          "prompt_tokens": 8860,
+          "completion_tokens": 1434,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 8952,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 98.538,
+          "status": 200,
+          "prompt_tokens": 119701,
+          "completion_tokens": 1262,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 10.96,
+          "status": 200,
+          "prompt_tokens": 22808,
+          "completion_tokens": 168,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "completed_validation_new_draft": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 66.464,
+         "compress": 22.567,
+         "continuation": 3.125
+        },
+        "workflow_seconds": 25.692,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 65.447,
+         "status": 200,
+         "prompt_tokens": 119651,
+         "completion_tokens": 346,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 22.457,
+          "status": 200,
+          "prompt_tokens": 120142,
+          "completion_tokens": 807,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4194,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 65.447,
+          "status": 200,
+          "prompt_tokens": 119651,
+          "completion_tokens": 346,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.022,
+          "status": 200,
+          "prompt_tokens": 2325,
+          "completion_tokens": 133,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 74.835,
+         "compress": 43.072,
+         "continuation": 14.974
+        },
+        "workflow_seconds": 58.046,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 73.773,
+         "status": 200,
+         "prompt_tokens": 119651,
+         "completion_tokens": 346,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 42.763,
+          "status": 200,
+          "prompt_tokens": 8847,
+          "completion_tokens": 2074,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 10888,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 73.773,
+          "status": 200,
+          "prompt_tokens": 119651,
+          "completion_tokens": 346,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 14.876,
+          "status": 200,
+          "prompt_tokens": 23359,
+          "completion_tokens": 312,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "quoted_note_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 133.833,
+         "compress": 21.821,
+         "continuation": 3.89
+        },
+        "workflow_seconds": 25.711,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 132.803,
+         "status": 200,
+         "prompt_tokens": 119689,
+         "completion_tokens": 2522,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 21.72,
+          "status": 200,
+          "prompt_tokens": 120179,
+          "completion_tokens": 783,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4393,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 132.803,
+          "status": 200,
+          "prompt_tokens": 119689,
+          "completion_tokens": 2522,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.796,
+          "status": 200,
+          "prompt_tokens": 2345,
+          "completion_tokens": 177,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 132.721,
+         "compress": 43.406,
+         "continuation": 20.019
+        },
+        "workflow_seconds": 63.425,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 131.711,
+         "status": 200,
+         "prompt_tokens": 119689,
+         "completion_tokens": 2522,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 43.059,
+          "status": 200,
+          "prompt_tokens": 8862,
+          "completion_tokens": 2094,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 11033,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 131.711,
+          "status": 200,
+          "prompt_tokens": 119689,
+          "completion_tokens": 2522,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 19.914,
+          "status": 200,
+          "prompt_tokens": 23438,
+          "completion_tokens": 574,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "revoked_rule_completed_export": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 68.767,
+         "compress": 20.022,
+         "continuation": 3.712
+        },
+        "workflow_seconds": 23.734,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 67.528,
+         "status": 200,
+         "prompt_tokens": 119644,
+         "completion_tokens": 418,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 19.867,
+          "status": 200,
+          "prompt_tokens": 120135,
+          "completion_tokens": 703,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 4058,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 67.528,
+          "status": 200,
+          "prompt_tokens": 119644,
+          "completion_tokens": 418,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.597,
+          "status": 200,
+          "prompt_tokens": 2284,
+          "completion_tokens": 170,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 76.583,
+         "compress": 30.434,
+         "continuation": 13.694
+        },
+        "workflow_seconds": 44.128,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 75.585,
+         "status": 200,
+         "prompt_tokens": 119644,
+         "completion_tokens": 418,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 30.135,
+          "status": 200,
+          "prompt_tokens": 8822,
+          "completion_tokens": 1404,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 8180,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 75.585,
+          "status": 200,
+          "prompt_tokens": 119644,
+          "completion_tokens": 418,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 13.597,
+          "status": 200,
+          "prompt_tokens": 22723,
+          "completion_tokens": 257,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "decision_reason_unverified_claim": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 81.45,
+         "compress": 20.659,
+         "continuation": 9.148
+        },
+        "workflow_seconds": 29.807,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 80.345,
+         "status": 200,
+         "prompt_tokens": 119639,
+         "completion_tokens": 667,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 20.554,
+          "status": 200,
+          "prompt_tokens": 120130,
+          "completion_tokens": 736,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3941,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 80.345,
+          "status": 200,
+          "prompt_tokens": 119639,
+          "completion_tokens": 667,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 9.04,
+          "status": 200,
+          "prompt_tokens": 2222,
+          "completion_tokens": 472,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 83.125,
+         "compress": 41.502,
+         "continuation": 11.66
+        },
+        "workflow_seconds": 53.162,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 82.181,
+         "status": 200,
+         "prompt_tokens": 119639,
+         "completion_tokens": 667,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 41.191,
+          "status": 200,
+          "prompt_tokens": 8828,
+          "completion_tokens": 2004,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 10763,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 82.181,
+          "status": 200,
+          "prompt_tokens": 119639,
+          "completion_tokens": 667,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 11.561,
+          "status": 200,
+          "prompt_tokens": 23303,
+          "completion_tokens": 168,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "cancelled_task_tail_rule_missing_input": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 73.92,
+         "compress": 17.75,
+         "continuation": 3.451
+        },
+        "workflow_seconds": 21.201,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 72.877,
+         "status": 200,
+         "prompt_tokens": 119657,
+         "completion_tokens": 648,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 17.633,
+          "status": 200,
+          "prompt_tokens": 120147,
+          "completion_tokens": 621,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3580,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 72.877,
+          "status": 200,
+          "prompt_tokens": 119657,
+          "completion_tokens": 648,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.353,
+          "status": 200,
+          "prompt_tokens": 2157,
+          "completion_tokens": 160,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 81.06,
+         "compress": 41.923,
+         "continuation": 12.968
+        },
+        "workflow_seconds": 54.891,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 79.936,
+         "status": 200,
+         "prompt_tokens": 119657,
+         "completion_tokens": 648,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 41.585,
+          "status": 200,
+          "prompt_tokens": 8850,
+          "completion_tokens": 2027,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 10103,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 79.936,
+          "status": 200,
+          "prompt_tokens": 119657,
+          "completion_tokens": 648,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 12.849,
+          "status": 200,
+          "prompt_tokens": 23304,
+          "completion_tokens": 219,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "granted_approval_completed_check": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 137.411,
+         "compress": 21.052,
+         "continuation": 3.783
+        },
+        "workflow_seconds": 24.835,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 136.362,
+         "status": 200,
+         "prompt_tokens": 119648,
+         "completion_tokens": 2650,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 20.951,
+          "status": 200,
+          "prompt_tokens": 120139,
+          "completion_tokens": 746,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3621,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 136.362,
+          "status": 200,
+          "prompt_tokens": 119648,
+          "completion_tokens": 2650,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.686,
+          "status": 200,
+          "prompt_tokens": 2180,
+          "completion_tokens": 181,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 137.948,
+         "compress": 119.994,
+         "continuation": 20.446
+        },
+        "workflow_seconds": 140.44,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 136.907,
+         "status": 200,
+         "prompt_tokens": 119648,
+         "completion_tokens": 2650,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 119.655,
+          "status": 200,
+          "prompt_tokens": 8840,
+          "completion_tokens": 6043,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 21215,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 136.907,
+          "status": 200,
+          "prompt_tokens": 119648,
+          "completion_tokens": 2650,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 20.351,
+          "status": 200,
+          "prompt_tokens": 27340,
+          "completion_tokens": 496,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "unverified_approval_blocks_publication": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 73.906,
+         "compress": 20.927,
+         "continuation": 3.695
+        },
+        "workflow_seconds": 24.622,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 72.88,
+         "status": 200,
+         "prompt_tokens": 119647,
+         "completion_tokens": 629,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 20.824,
+          "status": 200,
+          "prompt_tokens": 120138,
+          "completion_tokens": 762,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3877,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 72.88,
+          "status": 200,
+          "prompt_tokens": 119647,
+          "completion_tokens": 629,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 3.595,
+          "status": 200,
+          "prompt_tokens": 2219,
+          "completion_tokens": 172,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 82.679,
+         "compress": 37.674,
+         "continuation": 11.851
+        },
+        "workflow_seconds": 49.525,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 81.692,
+         "status": 200,
+         "prompt_tokens": 119647,
+         "completion_tokens": 629,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 37.371,
+          "status": 200,
+          "prompt_tokens": 8839,
+          "completion_tokens": 1830,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 9863,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 81.692,
+          "status": 200,
+          "prompt_tokens": 119647,
+          "completion_tokens": 629,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 11.751,
+          "status": 200,
+          "prompt_tokens": 23146,
+          "completion_tokens": 161,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      },
+      "failed_check_choice_quoted_file_note": {
+       "plugin": {
+        "status": "setup_failed",
+        "setup_failure": "seed_reply_cut_at_token_limit",
+        "seconds": {
+         "seed": 415.843,
+         "compress": null,
+         "continuation": null
+        },
+        "workflow_seconds": null,
+        "path": "fallback",
+        "reason": "no_capture",
+        "accepted": false,
+        "request_counts": {
+         "main": 3,
+         "warm": 0,
+         "aux": 0,
+         "fallback": 1
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 174.089,
+         "status": 200,
+         "prompt_tokens": 119686,
+         "completion_tokens": 4096,
+         "cached_tokens": null,
+         "finish_reason": "length"
+        },
+        "compress_requests": [
+         {
+          "kind": "fallback",
+          "seconds": 8.377,
+          "status": 200,
+          "prompt_tokens": 7689,
+          "completion_tokens": 300,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": false,
+        "summary_rows": null,
+        "summary_chars": 0,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 174.089,
+          "status": 200,
+          "prompt_tokens": 119686,
+          "completion_tokens": 4096,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 225.136,
+          "status": 200,
+          "prompt_tokens": 119722,
+          "completion_tokens": 8192,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 8192
+         },
+         {
+          "kind": "main",
+          "seconds": 6.832,
+          "status": 200,
+          "prompt_tokens": 10468,
+          "completion_tokens": 188,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 16384
+         }
+        ]
+       },
+       "stock": {
+        "status": "setup_failed",
+        "setup_failure": "seed_reply_cut_at_token_limit",
+        "seconds": {
+         "seed": 504.71,
+         "compress": null,
+         "continuation": null
+        },
+        "workflow_seconds": null,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 4,
+         "warm": 0,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 176.008,
+         "status": 200,
+         "prompt_tokens": 119686,
+         "completion_tokens": 4096,
+         "cached_tokens": null,
+         "finish_reason": "length"
+        },
+        "compress_requests": [],
+        "prefix_kept": null,
+        "summary_rows": null,
+        "summary_chars": 0,
+        "next_action": "failed",
+        "next_action_reason": "invalid_json",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 176.008,
+          "status": 200,
+          "prompt_tokens": 119686,
+          "completion_tokens": 4096,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 223.897,
+          "status": 200,
+          "prompt_tokens": 119722,
+          "completion_tokens": 8192,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 8192
+         },
+         {
+          "kind": "main",
+          "seconds": 93.088,
+          "status": 200,
+          "prompt_tokens": 127955,
+          "completion_tokens": 3117,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 16384
+         },
+         {
+          "kind": "main",
+          "seconds": 10.583,
+          "status": 200,
+          "prompt_tokens": 130784,
+          "completion_tokens": 288,
+          "cached_tokens": null,
+          "finish_reason": "length",
+          "max_tokens": 32768
+         }
+        ]
+       }
+      },
+      "supplied_input_stale_problem_tail_rule": {
+       "plugin": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 79.609,
+         "compress": 27.5,
+         "continuation": 5.328
+        },
+        "workflow_seconds": 32.828,
+        "path": "warm",
+        "reason": "accepted",
+        "accepted": true,
+        "request_counts": {
+         "main": 2,
+         "warm": 1,
+         "aux": 0,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 78.684,
+         "status": 200,
+         "prompt_tokens": 119662,
+         "completion_tokens": 803,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "warm",
+          "seconds": 27.392,
+          "status": 200,
+          "prompt_tokens": 120153,
+          "completion_tokens": 1000,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": true,
+        "summary_rows": 2,
+        "summary_chars": 3948,
+        "next_action": "failed",
+        "next_action_reason": "wrong_action_state",
+        "fence_denied": {
+         "child_process_blocked": 5,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 78.684,
+          "status": 200,
+          "prompt_tokens": 119662,
+          "completion_tokens": 803,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 5.233,
+          "status": 200,
+          "prompt_tokens": 2259,
+          "completion_tokens": 260,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       },
+       "stock": {
+        "status": "completed",
+        "setup_failure": null,
+        "seconds": {
+         "seed": 86.921,
+         "compress": 41.794,
+         "continuation": 13.084
+        },
+        "workflow_seconds": 54.878,
+        "path": "stock",
+        "reason": null,
+        "accepted": false,
+        "request_counts": {
+         "main": 2,
+         "warm": 0,
+         "aux": 1,
+         "fallback": 0
+        },
+        "seed_request": {
+         "kind": "main",
+         "seconds": 85.993,
+         "status": 200,
+         "prompt_tokens": 119662,
+         "completion_tokens": 803,
+         "cached_tokens": null,
+         "finish_reason": "stop"
+        },
+        "compress_requests": [
+         {
+          "kind": "aux",
+          "seconds": 41.5,
+          "status": 200,
+          "prompt_tokens": 8846,
+          "completion_tokens": 2024,
+          "cached_tokens": null,
+          "finish_reason": "stop"
+         }
+        ],
+        "prefix_kept": null,
+        "summary_rows": 1,
+        "summary_chars": 9696,
+        "next_action": "passed",
+        "next_action_reason": "exact_match",
+        "fence_denied": {
+         "child_process_blocked": 6,
+         "network_host_blocked": 1
+        },
+        "plugin_fence_denied": 0,
+        "main_requests": [
+         {
+          "kind": "main",
+          "seconds": 85.993,
+          "status": 200,
+          "prompt_tokens": 119662,
+          "completion_tokens": 803,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         },
+         {
+          "kind": "main",
+          "seconds": 12.99,
+          "status": 200,
+          "prompt_tokens": 23370,
+          "completion_tokens": 211,
+          "cached_tokens": null,
+          "finish_reason": "stop",
+          "max_tokens": 4096
+         }
+        ]
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "limits": [
+  "One synthetic task family, one session shape (six large assistant rows), and the order effects of one server cache per engine.",
+  "In auto mode, the stock summary request can reuse the server cache of the manual stock summary request of the same case, and the DGX cache can hold requests of the earlier alpha runs. The recorded cached tokens show this. This bias favors the stock arm.",
+  "Results describe this plugin version on Hermes 45871e10 and these engine loads only. They do not prove M0, M3, deployed compatibility, or other models.",
+  "LM Studio ran 17 sessions of plugin-live-02 before this run. If its cache still holds an earlier request, the effect is as in plugin-live-02: it can make a stock summary request faster, which favors the stock arm. LM Studio reports no cached tokens, so this is unknown.",
+  "Automatic compaction ran at the start of a turn. The runs do not test the warm instruction after tool rows on a real chat template.",
+  "The plugin arm took the warm path in the accepted cases, so the runs do not measure the fallback summary quality.",
+  "The DGX run and the LM Studio run used two protocols. The only difference is the seed setup rule, and no DGX seed turn met a setup failure condition."
+ ]
+}
