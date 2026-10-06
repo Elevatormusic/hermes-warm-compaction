@@ -133,6 +133,25 @@ class BuildRequestTest(unittest.TestCase):
         self.messages = [*self.rows, assistant("", [("c1", "read", "{}")], reasoning="look"), tool("c1", "r1")]
         self.assertNotIn("reasoning_content", self.build(capture_for(self.rows, self.reply))["messages"][-3])
 
+    def test_appended_tool_calls_keep_the_gemini_thought_signature(self):
+        signed = {"google": {"thought_signature": "sig-1"}}
+        reply = assistant("", [("c1", "read", "{}")])
+        reply["tool_calls"][0]["extra_content"] = signed
+        reply["tool_calls"][0]["call_id"] = "c1"
+        self.messages = [*self.rows, reply, tool("c1", "r1")]
+        gemini = capture_for(self.rows, self.reply, route=("gemini-3-pro", ROUTE[1], ROUTE[2]))
+        sent = build_request(gemini, self.messages, ("gemini-3-pro", ROUTE[1], ROUTE[2]), 100_000,
+                             INSTRUCTION)["messages"][-3]
+        self.assertEqual(sent["tool_calls"][0], {"id": "c1", "type": "function", "extra_content": signed,
+                                                 "function": {"name": "read", "arguments": "{}"}})
+        # Other models reject the field; an empty signature is not sent.
+        other = self.build(capture_for(self.rows, self.reply))["messages"][-3]
+        self.assertNotIn("extra_content", other["tool_calls"][0])
+        reply["tool_calls"][0]["extra_content"] = {"google": {"thought_signature": " "}}
+        sent = build_request(gemini, self.messages, ("gemini-3-pro", ROUTE[1], ROUTE[2]), 100_000,
+                             INSTRUCTION)["messages"][-3]
+        self.assertNotIn("extra_content", sent["tool_calls"][0])
+
     def test_sends_every_trailing_user_row(self):
         # The tail can keep only the newest of several user rows. The handoff must see the older ones too.
         self.messages = [*self.messages, user("u4 " + "x" * 5_000)]

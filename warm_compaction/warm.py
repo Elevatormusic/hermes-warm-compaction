@@ -170,10 +170,28 @@ def needs_reasoning_echo(body: dict[str, Any], rows: list) -> bool:
         attr(row, "role") == "assistant" and isinstance(attr(row, "reasoning_content"), str) for row in rows)
 
 
-def wire_row(row: Any, reasoning_echo: bool = False) -> dict[str, Any]:
+def _model_consumes_thought_signature(model: Any) -> bool:
+    """Hermes 45871e10 (agent.transports.chat_completions): Gemini and Gemma models need the tool-call
+    extra_content replayed; other providers reject it."""
+    name = str(model or "").lower()
+    return "gemini" in name or "gemma" in name
+
+
+def _signature(extra: Any) -> Any:
+    """Return the tool-call extra_content when it has a usable thought signature, else None."""
+    if not isinstance(extra, dict):
+        return None
+    candidate = extra.get("thought_signature")
+    google = extra.get("google")
+    if candidate is None and isinstance(google, dict):
+        candidate = google.get("thought_signature")
+    return copy.deepcopy(extra) if isinstance(candidate, str) and candidate.strip() else None
+
+
+def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None) -> dict[str, Any]:
     """Return the wire form of a stored row, as Hermes sends it: only the fields that the API reads, the
-    api_content sidecar of a user or assistant row in place of its content, and reasoning_content on an assistant
-    row when the route needs it."""
+    api_content sidecar of a user or assistant row in place of its content, reasoning_content on an assistant
+    row when the route needs it, and the thought signature (extra_content) of a tool call for a Gemini model."""
     wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(api_content(row))}
     for key in ("tool_call_id", "name"):
         value = attr(row, key)
@@ -189,6 +207,13 @@ def wire_row(row: Any, reasoning_echo: bool = False) -> dict[str, Any]:
             }}
             for call_id, name, arguments in calls
         ]
+        consumes = hermes_value("agent.transports.chat_completions", "_model_consumes_thought_signature",
+                                _model_consumes_thought_signature)(model)
+        stored = attr(row, "tool_calls") or []
+        for call, source in zip(wire["tool_calls"], stored):
+            extra = _signature(attr(source, "extra_content")) if consumes else None
+            if extra is not None:
+                call["extra_content"] = extra
     if isinstance(row, dict):
         policy = hermes_value("agent.message_sanitization", "apply_reasoning_content_policy", _reasoning_policy)
         policy(row, wire, reasoning_echo)
@@ -229,8 +254,8 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request = dict(body)
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
     echo = needs_reasoning_echo(body, new_rows)
-    request["messages"] = [*body["messages"], *(wire_row(row, echo) for row in (*new_rows, *trailing)),
-                           {"role": "user", "content": instruction}]
+    added = [wire_row(row, echo, body.get("model")) for row in (*new_rows, *trailing)]
+    request["messages"] = [*body["messages"], *added, {"role": "user", "content": instruction}]
     request["stream"] = False
     request.pop("stream_options", None)
     if not fits(request, context_length, capture.get("prompt_tokens"), len(body["messages"])):

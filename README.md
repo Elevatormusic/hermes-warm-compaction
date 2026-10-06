@@ -100,7 +100,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | Key | Type and range | Default | Use |
 | --- | --- | --- | --- |
 | `threshold` | float, 0.10 to 0.95 | 0.50 | Fraction of the context window at which automatic compaction starts |
-| `tail_tokens` | int, 0 or more | 0: 2.5% of the context window, from 10,000 to 25,000 | Size of the verbatim tail |
+| `tail_tokens` | int, 0 or more | 0: 2.5% of the context window, from 10,000 to 25,000 | Size of the verbatim tail, at most half of the compaction threshold |
 | `user_copy_chars` | int, 0 or more | 24,000 | Total characters of user messages that the summary copies |
 | `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
 
@@ -138,7 +138,7 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 ```
 
 - `path` is `warm`, `fallback`, or `fixed`.
-- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
+- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
 The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.

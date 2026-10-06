@@ -59,11 +59,9 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
 
 def tail_budget(setting: int, context_length: int, threshold_tokens: int = 0) -> int:
     """Return the tail size: the setting, or 2.5% of the context window kept between 10,000 and 25,000.
-    The automatic size is also at most half of the compaction threshold. Otherwise the tail can hold the
-    whole history when compaction starts, and nothing comes before the tail."""
-    if setting > 0:
-        return setting
-    budget = max(TAIL_MIN, min(TAIL_MAX, int(context_length * TAIL_SHARE)))
+    The size is also at most half of the compaction threshold, for a set value too. Otherwise the tail can hold
+    the whole history when compaction starts, and nothing comes before the tail."""
+    budget = setting if setting > 0 else max(TAIL_MIN, min(TAIL_MAX, int(context_length * TAIL_SHARE)))
     return min(budget, threshold_tokens // 2) if threshold_tokens > 0 else budget
 
 
@@ -215,7 +213,7 @@ class WarmCompactionEngine(ContextEngine):
                                       handoff.build_instruction(focus_topic, memory))
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
-            reply = self._execute(body)
+            reply = self._execute(body, len(capture["body"]["messages"]))
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
             if text is None:
@@ -229,11 +227,12 @@ class WarmCompactionEngine(ContextEngine):
         record.update(path="warm", reason="accepted")
         return text
 
-    def _execute(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, body: dict[str, Any], captured: int) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
         execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
-        stops the warm request; the fallback summary then runs."""
+        stops the warm request; the fallback summary then runs. The first captured messages of the body are
+        the captured request, which already went through the request middleware."""
         try:
             from hermes_cli.middleware import apply_llm_request_middleware, run_llm_execution_middleware
         except Exception as error:
@@ -241,20 +240,32 @@ class WarmCompactionEngine(ContextEngine):
         context = {"purpose": NAME, "api_request_id": None, "session_id": self._wc_session_id,
                    "model": self._wc_route[0], "base_url": self._wc_route[1], "api_mode": self._wc_route[2]}
         try:
-            body = apply_llm_request_middleware(body, **context).payload
+            changed = apply_llm_request_middleware(body, **context).payload
         except Exception as error:
             raise warm.WarmRefusal("middleware_refused") from error
-        if not isinstance(body, dict):
+        if not isinstance(changed, dict) or not isinstance(changed.get("messages"), list):
             raise warm.WarmRefusal("middleware_refused")
+        # The captured part went through the request middleware already. A middleware that changes it again (for
+        # example, adds a system row) would apply twice and change the cached prefix. It can change the new rows.
+        if ({k: v for k, v in changed.items() if k != "messages"} != {k: v for k, v in body.items() if k != "messages"}
+                or changed["messages"][:captured] != body["messages"][:captured]):
+            raise warm.WarmRefusal("middleware_rewrite")
+        body = changed
         # A copy that no middleware can change in place.
         base = copy.deepcopy(body)
         sent: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        repeated: list[bool] = []
 
         def terminal(request: Any) -> dict[str, Any]:
             # The capture keeps the body before the execution middleware. An execution middleware that rewrites
             # this request can also have rewritten the captured request, so the warm request is not sent.
             if request != base:
                 raise warm.WarmRefusal("middleware_rewrite")
+            if sent:
+                # One request only: a middleware that calls next_call again does not send it again, and the
+                # attempt stops even when the middleware catches this refusal.
+                repeated.append(True)
+                raise warm.WarmRefusal("middleware_repeated")
             result = warm.send(base, self._wc_route[1], self._wc_api_key, post=self._post)
             sent.append((result, dict(result)))
             return result
@@ -264,6 +275,8 @@ class WarmCompactionEngine(ContextEngine):
             raise
         except Exception as error:
             raise warm.WarmRefusal("middleware_refused") from error
+        if repeated:
+            raise warm.WarmRefusal("middleware_repeated")
         # Only the reply of this request: a middleware that skipped the request or changed its reply stops it.
         if not sent or reply is not sent[0][0] or reply != sent[0][1]:
             raise warm.WarmRefusal("middleware_changed_reply")

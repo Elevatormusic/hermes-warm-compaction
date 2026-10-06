@@ -206,6 +206,37 @@ class EngineTest(unittest.TestCase):
                 self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
                                  ("fallback", "middleware_changed_reply"))
 
+    def test_a_second_send_is_refused_before_it_sends(self):
+        def twice(request=None, next_call=None, **context):
+            first = next_call()
+            try:
+                next_call()
+            except Exception:
+                pass
+            return first
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(twice)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(len(self.post.calls), 1)
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "middleware_repeated"))
+
+    def test_a_request_middleware_that_changes_the_captured_part_stops_the_warm_request(self):
+        # The captured body already went through the request middleware. A second pass would apply it twice.
+        def prepend(request=None, **context):
+            return {"request": {**request, "messages": [{"role": "system", "content": "policy"},
+                                                        *request["messages"]]}}
+        wc_hermes_stub.REQUEST_MIDDLEWARE.append(prepend)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "middleware_rewrite"))
+        self.assertEqual(self.post.calls, [])
+
     def test_a_rewriting_middleware_stops_the_warm_request(self):
         # The capture keeps the body before later middleware. A middleware that rewrites requests can have
         # rewritten the captured request too, so the warm request is not sent.
@@ -366,7 +397,9 @@ class SettingsTest(unittest.TestCase):
         # The automatic tail stays at or below half of the compaction threshold, so a small window can compact.
         self.assertEqual(self.module.tail_budget(0, 20_000, 10_000), 5_000)
         self.assertEqual(self.module.tail_budget(0, 200_000, 100_000), 10_000)
-        self.assertEqual(self.module.tail_budget(7, 20_000, 10), 7)
+        self.assertEqual(self.module.tail_budget(7, 20_000, 10), 5)
+        self.assertEqual(self.module.tail_budget(100_000, 128_000, 64_000), 32_000)
+        self.assertEqual(self.module.tail_budget(7, 20_000, 10_000), 7)
 
     def test_hermes_value_uses_the_replacement(self):
         read = self.module.hermes_value
