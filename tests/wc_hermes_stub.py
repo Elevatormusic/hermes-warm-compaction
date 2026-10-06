@@ -101,6 +101,8 @@ AGENT.context_compressor = CONTEXT_COMPRESSOR
 # factory or the provider profile, then model.default_headers, then providers.<name>.extra_headers.
 HOST_HEADERS: dict = {}
 PROFILE_HEADERS: dict = {}
+# Other fields of the provider profile (native_reasoning_details_type, for example).
+PROFILE_FIELDS: dict = {}
 USER_HEADERS: dict = {}
 CUSTOM_HEADERS: dict = {}
 # The value that agent.ssl_verify.resolve_httpx_verify gives (True, False, or an SSL context); an exception
@@ -122,7 +124,8 @@ AGENT_INIT = _module("agent.agent_init", _host_default_headers_factory=lambda ba
 AUXILIARY_CLIENT = _module("agent.auxiliary_client", _apply_user_default_headers=lambda headers: (
     {**(headers or {}), **USER_HEADERS} if USER_HEADERS else headers))
 PROVIDERS = _module("providers", get_provider_profile=lambda name: (
-    SimpleNamespace(default_headers=dict(PROFILE_HEADERS)) if PROFILE_HEADERS else None))
+    SimpleNamespace(default_headers=dict(PROFILE_HEADERS), **PROFILE_FIELDS)
+    if PROFILE_HEADERS or PROFILE_FIELDS else None))
 AGENT.agent_init = AGENT_INIT
 AGENT.auxiliary_client = AUXILIARY_CLIENT
 HERMES_CLI = _module("hermes_cli")
@@ -195,5 +198,5 @@ def install(test_case):
     test_case.addCleanup(EXECUTION_MIDDLEWARE.clear)
     test_case.addCleanup(REQUEST_MIDDLEWARE.clear)
     test_case.addCleanup(CAPTURE_CHAIN.clear)
-    for headers in (HOST_HEADERS, PROFILE_HEADERS, USER_HEADERS, CUSTOM_HEADERS, TLS_VERIFY):
+    for headers in (HOST_HEADERS, PROFILE_HEADERS, PROFILE_FIELDS, USER_HEADERS, CUSTOM_HEADERS, TLS_VERIFY):
         test_case.addCleanup(headers.clear)

@@ -177,7 +177,8 @@ def _same_replay_fields(wire: Any, expected: dict[str, Any]) -> bool:
         call.get("extra_content") for call in expected.get("tool_calls") or []]
 
 
-def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None) -> None:
+def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None,
+                 native_type: str | None = None) -> None:
     """Refuse a request whose messages are not system rows followed by the stored rows. A row that a hook or
     a middleware rewrote would make the handoff summarize text that is not in the history it replaces."""
     sent = body["messages"]
@@ -188,7 +189,7 @@ def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None)
         raise WarmRefusal("source_transform_unsupported")
     # The replayed fields follow the captured request only: the new rows do not change what Hermes sent.
     echo = needs_reasoning_echo(body, [])
-    expected = [wire_row(row, echo, body.get("model"), base_url) for row in history_rows]
+    expected = [wire_row(row, echo, body.get("model"), base_url, native_type) for row in history_rows]
     if not all(_same_replay_fields(wire, want) and _no_extra_fields(wire, want)
                for wire, want in zip(sent[offset:], expected)):
         raise WarmRefusal("source_transform_unsupported")
@@ -243,17 +244,32 @@ def _route_replays_reasoning_details(base_url: Any) -> bool:
     return any(host == name or host.endswith("." + name) for name in REPLAY_DETAILS_HOSTS)
 
 
-def _replay_details(details: Any) -> list | None:
-    """A copy of rows.replay_details: reasoning_details without private native-assistant carriers, or None."""
-    kept = replay_details(details)
+def native_details_type(provider: Any) -> str | None:
+    """The native reasoning carrier type of the provider profile (native_reasoning_details_type of Hermes
+    45871e10), or None. Hermes replays that carrier on every route of the provider."""
+    try:
+        from providers import get_provider_profile
+        profile = get_provider_profile(provider) if provider else None
+        value = getattr(profile, "native_reasoning_details_type", None)
+    except Exception:
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def _replay_details(details: Any, native_type: str | None = None) -> list | None:
+    """A copy of rows.replay_details: reasoning_details without private native-assistant carriers, except the
+    carrier of the provider profile, or None."""
+    kept = replay_details(details, native_type)
     return copy.deepcopy(kept) if kept is not None else None
 
 
-def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url: Any = None) -> dict[str, Any]:
+def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url: Any = None,
+             native_type: str | None = None) -> dict[str, Any]:
     """Return the wire form of a stored row, as Hermes sends it: only the fields that the API reads, the
     api_content sidecar of a user or assistant row in place of its content, reasoning_content on an assistant
     row when the route needs it, the thought signature (extra_content) of a tool call for a Gemini model, and
-    reasoning_details of an assistant row on a route that replays it."""
+    reasoning_details of an assistant row on a route that replays it or for a provider profile with a native
+    carrier type (native_type: that carrier only of the native carriers)."""
     wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(api_content(row))}
     for key in ("tool_call_id", "name"):
         value = attr(row, key)
@@ -277,10 +293,10 @@ def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url
             extra = _signature(attr(source, "extra_content")) if consumes else None
             if extra is not None:
                 call["extra_content"] = extra
-    if attr(row, "role") == "assistant" and hermes_value(
+    if attr(row, "role") == "assistant" and (native_type or hermes_value(
             "agent.transports.chat_completions", "_route_replays_reasoning_details",
-            _route_replays_reasoning_details)(base_url):
-        details = _replay_details(attr(row, "reasoning_details"))
+            _route_replays_reasoning_details)(base_url)):
+        details = _replay_details(attr(row, "reasoning_details"), native_type)
         if details is not None:
             wire["reasoning_details"] = details
     if isinstance(row, dict):
@@ -364,8 +380,9 @@ def fits(body: dict[str, Any], context_length: int, measured_tokens: int | None 
 
 
 def build_request(capture: dict[str, Any], messages: list, route: tuple, context_length: int,
-                  instruction: str) -> dict[str, Any]:
-    """Return the warm request body. Raise WarmRefusal when a condition is not true."""
+                  instruction: str, native_type: str | None = None) -> dict[str, Any]:
+    """Return the warm request body. Raise WarmRefusal when a condition is not true. native_type: the native
+    reasoning carrier type of the provider profile (native_details_type)."""
     if route[2] != "chat_completions":
         raise WarmRefusal("api_mode_unsupported")
     if tuple(capture["route"]) != tuple(route):
@@ -375,11 +392,11 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
         raise WarmRefusal(capture.get("refusal") or "settings_unsupported")
     check_settings(body)
     new_rows, trailing = split_history(capture, messages)
-    check_source(body, messages[: len(capture["digests"])], route[1])
+    check_source(body, messages[: len(capture["digests"])], route[1], native_type)
     request = dict(body)
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
     echo = needs_reasoning_echo(body, new_rows)
-    added = [wire_row(row, echo, body.get("model"), route[1]) for row in (*new_rows, *trailing)]
+    added = [wire_row(row, echo, body.get("model"), route[1], native_type) for row in (*new_rows, *trailing)]
     request["messages"] = [*body["messages"], *_join_user_rows(added, instruction)]
     request["stream"] = False
     request.pop("stream_options", None)
@@ -433,7 +450,8 @@ def urllib_post(url: str, data: bytes, headers: dict[str, str], timeout_s: float
         raise
 
 
-def _api_key_text(api_key: Any) -> str:
+def api_key_text(api_key: Any) -> str:
+    """The key as text: the value of a key function now, or "" when it cannot be read."""
     if callable(api_key):
         try:
             api_key = api_key()
@@ -468,7 +486,7 @@ def route_headers(api_key: Any, base_url: Any, provider: Any) -> dict[str, str]:
         from hermes_cli.config_providers import get_custom_provider_extra_headers
         factory = _host_default_headers_factory(url)
         if factory is not None:
-            headers = dict(factory(_api_key_text(api_key), url) or {})
+            headers = dict(factory(api_key_text(api_key), url) or {})
         else:
             from providers import get_provider_profile
             profile = get_provider_profile(provider) if provider else None
@@ -519,7 +537,7 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
     if not base_url:
         raise WarmRefusal("provider_error")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    key = _api_key_text(api_key)
+    key = api_key_text(api_key)
     if key:
         headers["Authorization"] = f"Bearer {key}"
     headers.update(extra_headers or {})

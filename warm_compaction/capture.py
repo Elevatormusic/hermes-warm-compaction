@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import threading
 import time
@@ -15,6 +16,12 @@ MAX_OPEN = 8
 MAX_SESSIONS = 16
 CLIENT_OPTIONS = ("extra_body", "extra_headers", "extra_query", "timeout")
 CAPTURE_FINISH = ("stop", "tool_calls")
+
+
+def key_stamp(key: str) -> str:
+    """A digest of a resolved API key. A capture keeps it, never the key: the capture belongs to the key that
+    sent it."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 class UnsupportedRequest(ValueError):
@@ -60,9 +67,30 @@ class CaptureStore:
         self._lock = threading.Lock()
         self._open: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._sessions: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._stamps: OrderedDict[str, Callable[[], Any]] = OrderedDict()
         self._max_open = max_open
         self._max_sessions = max_sessions
         self._clock = clock
+
+    def set_stamp(self, session_id: Any, stamp: Callable[[], Any]) -> None:
+        """Keep the function that gives the key stamp (key_stamp) of a session now. Hermes can give the key as a
+        function whose value changes (a token that refreshes or rotates), and the hooks do not get the key. A
+        request keeps its capture only when the stamp is the same at its start and at its end."""
+        key = str(session_id or "")
+        with self._lock:
+            self._stamps[key] = stamp
+            self._stamps.move_to_end(key)
+            while len(self._stamps) > self._max_sessions:
+                self._stamps.popitem(last=False)
+
+    def _stamp(self, session_id: Any) -> str | None:
+        with self._lock:
+            stamp = self._stamps.get(str(session_id or ""))
+        try:
+            value = stamp() if stamp is not None else None
+        except Exception:
+            return None
+        return value if isinstance(value, str) else None
 
     def on_pre_api_request(self, api_request_id: Any = None, session_id: Any = None,
                            conversation_history: Any = None, model: Any = None, base_url: Any = None,
@@ -75,7 +103,7 @@ class CaptureStore:
         except Exception:
             return None
         entry = {"session_id": str(session_id), "route": (model, base_url, api_mode), "digests": digests, "body": None,
-                 "refusal": None}
+                 "refusal": None, "key_stamp": self._stamp(session_id)}
         with self._lock:
             self._open[str(api_request_id)] = entry
             self._open.move_to_end(str(api_request_id))
@@ -139,6 +167,9 @@ class CaptureStore:
         if entry is None or str(session_id or "") != entry["session_id"]:
             return None
         if finish_reason not in CAPTURE_FINISH or assistant_message is None:
+            return None
+        # A key that changed while the request was open: the request can have gone out with either key.
+        if self._stamp(entry["session_id"]) != entry["key_stamp"]:
             return None
         try:
             reply = {

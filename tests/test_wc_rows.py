@@ -82,9 +82,13 @@ class SentRowsTest(unittest.TestCase):
         self.assertGreater(sent_tokens(details), small + 900)
         from warm_compaction.rows import SendPolicy
         self.assertEqual(sent_tokens(details, SendPolicy(details=False, echo=False)), small)
-        # The private native-assistant carriers are not replayed (warm._replay_details).
+        # The private native-assistant carriers are not replayed (warm._replay_details), except the carrier of
+        # the provider profile (native_reasoning_details_type).
         native = {**base, "reasoning_details": [{"type": "anthropic.native_assistant", "text": "n" * 8_000}]}
         self.assertEqual(sent_tokens(native, SendPolicy(echo=False)), small)
+        self.assertEqual(sent_tokens(native, SendPolicy(echo=False, native_type="other.native_assistant")), small)
+        self.assertGreater(sent_tokens(native, SendPolicy(echo=False, native_type="anthropic.native_assistant")),
+                           small + 1_900)
 
     def test_the_estimate_uses_the_tool_call_fields_that_hermes_sends(self):
         # wire_row: id, type, and function name and arguments; the thought signature only for a model that reads it.

@@ -10,7 +10,7 @@ from typing import Any, Callable
 from agent.context_engine import ContextEngine
 
 from . import fallback, handoff, layout, warm
-from .capture import CaptureStore
+from .capture import CaptureStore, key_stamp
 from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
 logger = logging.getLogger(__name__)
@@ -161,6 +161,11 @@ class WarmCompactionEngine(ContextEngine):
         if kwargs.get("boundary_reason") == "compression" and kwargs.get("old_session_id"):
             self._store.forget(session_id=kwargs["old_session_id"])
         self._wc_session_id = str(session_id or "")
+        # The hooks do not get the key: the store asks the engine for the stamp of the key now.
+        self._store.set_stamp(self._wc_session_id, self._key_stamp)
+
+    def _key_stamp(self) -> str:
+        return key_stamp(warm.api_key_text(self._wc_api_key))
 
     def update_model(self, model: str, context_length: int, base_url: str = "", api_key: Any = "",
                      provider: str = "", api_mode: str = "") -> None:
@@ -373,11 +378,12 @@ class WarmCompactionEngine(ContextEngine):
         else:
             echo, known = warm.needs_reasoning_echo({}, messages), False
         module = "agent.transports.chat_completions"
+        native = warm.native_details_type(self._wc_provider)
         return SendPolicy(
             # Without a capture, stored reasoning can be of an earlier route: count it, but do not cut it.
-            echo=echo, cut_reasoning=known,
-            details=bool(hermes_value(module, "_route_replays_reasoning_details",
-                                      warm._route_replays_reasoning_details)(self._wc_route[1])),
+            echo=echo, cut_reasoning=known, native_type=native,
+            details=bool(native) or bool(hermes_value(module, "_route_replays_reasoning_details",
+                                                      warm._route_replays_reasoning_details)(self._wc_route[1])),
             signatures=bool(hermes_value(module, "_model_consumes_thought_signature",
                                          warm._model_consumes_thought_signature)(self._wc_route[0])))
 
@@ -402,12 +408,18 @@ class WarmCompactionEngine(ContextEngine):
                 raise warm.WarmRefusal("disabled")
             if capture is None:
                 raise warm.WarmRefusal("no_capture")
+            # The capture belongs to the key that sent it. Hermes can give the key as a function whose value
+            # changes (a token that refreshes or rotates): resolve it one time, for this check and the request.
+            key = warm.api_key_text(attempt[1])
+            if capture.get("key_stamp") != key_stamp(key):
+                raise warm.WarmRefusal("credential_changed")
             instruction = handoff.build_instruction(focus_topic, memory)
-            body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction)
+            body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction,
+                                      warm.native_details_type(attempt[2]))
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
             reply = self._execute(body, instruction, len(capture["body"]["messages"]), attempt,
-                                  capture.get("prompt_tokens"))
+                                  capture.get("prompt_tokens"), key)
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
             if text is None:
@@ -422,7 +434,7 @@ class WarmCompactionEngine(ContextEngine):
         return text
 
     def _execute(self, body: dict[str, Any], instruction: str, captured: int, attempt: tuple,
-                 measured: int | None = None) -> dict[str, Any]:
+                 measured: int | None = None, key: str | None = None) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
         execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
@@ -434,7 +446,9 @@ class WarmCompactionEngine(ContextEngine):
             raise warm.WarmRefusal("middleware_unavailable") from error
         # Before any middleware sees the request: a route without its headers does not send it.
         route, api_key, provider, session_id = attempt[:4]
-        headers = warm.route_headers(api_key, route[1], provider)
+        # The key that the capture check used (_warm_summary): a key function is not read again.
+        key = warm.api_key_text(api_key) if key is None else key
+        headers = warm.route_headers(key, route[1], provider)
         tls = warm.route_tls(route[1])
         context = {"purpose": NAME, "api_request_id": None, "session_id": session_id,
                    "model": route[0], "base_url": route[1], "api_mode": route[2]}
@@ -482,7 +496,7 @@ class WarmCompactionEngine(ContextEngine):
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
             started.append(True)
-            result = warm.send(base, route[1], api_key, post=self._post, extra_headers=headers, ssl_context=tls)
+            result = warm.send(base, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls)
             # The send blocks on the network: a switch can occur before it returns.
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
@@ -568,7 +582,8 @@ class WarmCompactionEngine(ContextEngine):
             return None
         try:
             warm.split_history(capture, messages)
-            warm.check_source(body, messages[: len(capture["digests"])], self._wc_route[1])
+            warm.check_source(body, messages[: len(capture["digests"])], self._wc_route[1],
+                              warm.native_details_type(self._wc_provider))
         except Exception:
             return None
         return capture

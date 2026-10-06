@@ -64,12 +64,15 @@ class EngineTest(unittest.TestCase):
                             provider="custom", api_mode=ROUTE[2])
         return engine
 
-    def seed(self, rows, reply, session="s1", system=SYSTEM, extra=None):
-        """Run one main-model request through the capture store, in the Hermes order."""
+    def seed(self, rows, reply, session="s1", system=SYSTEM, extra=None, during=None):
+        """Run one main-model request through the capture store, in the Hermes order. during runs while the
+        request is open."""
         self.store.on_pre_api_request(api_request_id="r1", session_id=session, conversation_history=list(rows),
                                       model=ROUTE[0], base_url=ROUTE[1], api_mode=ROUTE[2])
         self.store.on_llm_execution(request={"model": ROUTE[0], "messages": [system, *wire(rows)], **(extra or {})},
                                     next_call=lambda: None, api_request_id="r1")
+        if during is not None:
+            during()
         self.store.on_post_api_request(api_request_id="r1", session_id=session,
                                        finish_reason="tool_calls" if reply.get("tool_calls") else "stop",
                                        assistant_message=reply_object(reply))
@@ -477,6 +480,70 @@ class EngineTest(unittest.TestCase):
         finally:
             layout.build = real
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
+
+    def callable_key_engine(self, keys):
+        # Hermes can give the key as a function (a token that refreshes or rotates).
+        engine = self.engine_class(store=self.store, llm=self.llm, post=self.post)
+        engine.on_session_start("s1", platform="cli")
+        engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key=lambda: keys[0],
+                            provider="custom", api_mode=ROUTE[2])
+        return engine
+
+    def test_a_callable_key_that_does_not_change_keeps_the_warm_path(self):
+        keys = ["tenant-a"]
+        engine = self.callable_key_engine(keys)
+        rows, reply = old_turns(), assistant("final")
+        self.seed(rows, reply)
+        self.assertNotIn("tenant-a", json.dumps(self.store.latest("s1"), default=str))
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertEqual(self.post.calls[0]["headers"]["Authorization"], "Bearer tenant-a")
+
+    def test_a_callable_key_that_changes_after_the_capture_stops_the_warm_request(self):
+        # The same function object with a new value: the old body must not go out with another credential.
+        keys = ["tenant-a"]
+        engine = self.callable_key_engine(keys)
+        rows, reply = old_turns(), assistant("final")
+        self.seed(rows, reply)
+        keys[0] = "tenant-b"
+        engine.compress([*rows, reply])
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "credential_changed"))
+        self.assertEqual(self.post.calls, [])
+
+    def test_a_key_change_during_the_request_keeps_no_capture(self):
+        keys = ["tenant-a"]
+        self.callable_key_engine(keys)
+        self.seed(old_turns(1), assistant("x"), during=lambda: keys.__setitem__(0, "tenant-b"))
+        self.assertIsNone(self.store.latest("s1"))
+
+    def test_a_capture_without_a_key_stamp_is_not_sent(self):
+        # A store without the stamp function of the session cannot show which key sent the capture.
+        rows, reply = old_turns(), assistant("final")
+        store = type(self.store)()
+        engine = self.engine_class(store=store, llm=self.llm, post=self.post)
+        engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        engine._wc_session_id = "s1"
+        wc_hermes_stub.CAPTURE_CHAIN.append(store.on_llm_execution)
+        self.store = store
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["reason"], "credential_changed")
+        self.assertEqual(self.post.calls, [])
+
+    def test_the_native_carrier_of_the_provider_profile_keeps_the_warm_path(self):
+        # The profile declares the carrier that Hermes replays: the captured body has it, and the estimate counts it.
+        from warm_compaction.rows import SendPolicy, sent_tokens
+        wc_hermes_stub.PROFILE_FIELDS["native_reasoning_details_type"] = "acme.native_assistant"
+        rows = old_turns()
+        rows[1] = {**rows[1], "reasoning_details": [{"type": "acme.native_assistant", "data": "n" * 4_000}]}
+        reply = assistant("final")
+        self.seed(rows, reply)
+        policy = self.engine._policy([*rows, reply])
+        self.assertEqual((policy.native_type, policy.details), ("acme.native_assistant", True))
+        self.assertGreater(sent_tokens(rows[1], policy), sent_tokens(rows[1], SendPolicy(echo=False)) + 900)
+        self.engine.compress([*rows, reply])
+        self.assertEqual(self.engine.warm_last["path"], "warm")
 
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next

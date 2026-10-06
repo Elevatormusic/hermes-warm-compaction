@@ -110,11 +110,14 @@ class SendPolicy(NamedTuple):
     thought signature, extra_content (a model that reads it), and reasoning_content (a route that needs it back,
     apply_reasoning_content_policy). The default counts all of them. cut_reasoning: a cut can take reasoning
     (layout.bound_tail) only when a capture of the route shows that the route sends it; else stored reasoning can
-    be of an earlier route, and a cut would give it to the fallback model."""
+    be of an earlier route, and a cut would give it to the fallback model. native_type: the private
+    <provider>.native_assistant carrier that the provider profile declares (native_reasoning_details_type); Hermes
+    replays it, and only it of the native carriers."""
     details: bool = True
     signatures: bool = True
     echo: bool = True
     cut_reasoning: bool = True
+    native_type: str | None = None
 
 
 def reasoning_policy(source: dict, wire: dict, needs_pad: bool) -> None:
@@ -156,13 +159,14 @@ def has_thought_signature(extra: Any) -> bool:
     return isinstance(candidate, str) and bool(candidate.strip())
 
 
-def replay_details(details: Any) -> list | None:
-    """Return reasoning_details without private native-assistant carriers (the profile that reads them is not
-    known here), or None when nothing is left. The items are not copied."""
+def replay_details(details: Any, native_type: str | None = None) -> list | None:
+    """Return reasoning_details without private native-assistant carriers, except the carrier of the provider
+    profile (native_type), or None when nothing is left. The items are not copied."""
     if not isinstance(details, list):
         return None
     kept = [item for item in details if not (
-        isinstance(item, dict) and isinstance(item.get("type"), str) and item["type"].endswith(".native_assistant"))]
+        isinstance(item, dict) and isinstance(item.get("type"), str) and item["type"].endswith(".native_assistant")
+        and item["type"] != native_type)]
     return kept or None
 
 
@@ -190,7 +194,7 @@ def sent_rows(messages: list, policy: SendPolicy = SendPolicy()) -> list:
             if calls:
                 sent["tool_calls"] = calls
             if policy.details and role == "assistant":
-                details = replay_details(row.get("reasoning_details"))
+                details = replay_details(row.get("reasoning_details"), policy.native_type)
                 if details is not None:
                     sent["reasoning_details"] = details
             reasoning(row, sent, policy.echo)

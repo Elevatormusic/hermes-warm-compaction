@@ -170,6 +170,23 @@ class BuildRequestTest(unittest.TestCase):
         self.messages = [*self.rows, assistant("", [("c1", "read", "{}")], reasoning="look"), tool("c1", "r1")]
         self.assertNotIn("reasoning_content", self.build(capture_for(self.rows, self.reply))["messages"][-3])
 
+    def test_the_native_carrier_of_the_provider_profile_is_replayed(self):
+        # Hermes 45871e10 replays the <provider>.native_assistant carrier that the provider profile declares
+        # (native_reasoning_details_type), also on a route that does not replay other reasoning_details.
+        from warm_compaction.warm import WarmRefusal, check_source, wire_row
+        from wc_fixtures import SYSTEM, wire
+        carrier = [{"type": "acme.native_assistant", "data": "n"}]
+        row = assistant("a1", reasoning_details=carrier)
+        self.assertNotIn("reasoning_details", wire_row(row, base_url=ROUTE[1]))
+        self.assertNotIn("reasoning_details", wire_row(row, base_url=ROUTE[1], native_type="other.native_assistant"))
+        self.assertEqual(wire_row(row, base_url=ROUTE[1], native_type="acme.native_assistant")["reasoning_details"],
+                         carrier)
+        rows = [user("u1"), row, user("u2")]
+        body = {"model": ROUTE[0], "messages": [SYSTEM, *wire(rows)]}
+        check_source(body, rows, ROUTE[1], native_type="acme.native_assistant")
+        with self.assertRaises(WarmRefusal):
+            check_source(body, rows, ROUTE[1])
+
     def test_appended_tool_calls_keep_the_gemini_thought_signature(self):
         signed = {"google": {"thought_signature": "sig-1"}}
         reply = assistant("", [("c1", "read", "{}")])
