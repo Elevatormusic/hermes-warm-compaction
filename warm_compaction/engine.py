@@ -141,6 +141,8 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_route: tuple = (None, None, None)
         self._wc_api_key: Any = ""
         self._wc_provider: str = ""
+        # True after the first update_model: an empty provider and key are an identity too.
+        self._wc_identity_set = False
 
     @property
     def name(self) -> str:
@@ -166,9 +168,10 @@ class WarmCompactionEngine(ContextEngine):
                              api_mode=api_mode)
         # A capture belongs to the provider and key that sent it: two configurations can share the model, the base
         # URL, and the API mode, and the old body must not go out with the new key and headers. The first call (no
-        # identity yet) is not a switch.
-        if (self._wc_provider or self._wc_api_key) and (provider, api_key) != (self._wc_provider, self._wc_api_key):
+        # identity yet) is not a switch; a change from an empty provider or key is.
+        if self._wc_identity_set and (provider, api_key) != (self._wc_provider, self._wc_api_key):
             self._store.forget(session_id=self._wc_session_id)
+        self._wc_identity_set = True
         self._wc_route = (model, base_url, api_mode)
         self._wc_api_key = api_key
         self._wc_provider = provider
@@ -279,7 +282,7 @@ class WarmCompactionEngine(ContextEngine):
             self._finish(record, started)
             return messages
         if summary is None:
-            summary = fallback.fixed_summary([*messages[:start], *removed], prefixes)
+            summary = fallback.fixed_summary([*messages[:start], *removed], prefixes, focus_topic, memory)
             record["path"] = "fixed"
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum. The room is after the
@@ -298,7 +301,7 @@ class WarmCompactionEngine(ContextEngine):
                     # The row is not copied and the fixed summary does not have it: its cut middle goes into the
                     # summary as a quote. The room keeps space for that quote.
                     prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
-                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
+                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory)
         prepend_tokens = sent_tokens(prepend, policy) if prepend is not None else 0
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         if record["path"] == "fixed":
@@ -310,7 +313,7 @@ class WarmCompactionEngine(ContextEngine):
                 layout.bound_tail(messages[start:], tail_tokens, final, policy)
                 if final != removed:
                     removed = final
-                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes)
+                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory)
                 lower = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
                 if lower >= tail_tokens or _round == FIXED_ROUNDS - 1:
                     break
@@ -339,12 +342,17 @@ class WarmCompactionEngine(ContextEngine):
         body = capture.get("body") if capture else None
         sent = [row for row in (body.get("messages") or []) if isinstance(row, dict) and row.get("role") == "assistant"
                 ] if isinstance(body, dict) else []
-        echo = (any("reasoning_content" in row for row in sent) if sent
-                else warm.needs_reasoning_echo({}, messages))
+        if sent:
+            echo = known = any("reasoning_content" in row for row in sent)
+        elif capture:
+            # A first request has no assistant row: the rows after it (its reply first) are of this route.
+            echo = known = warm.needs_reasoning_echo({}, messages[len(capture["digests"]):])
+        else:
+            echo, known = warm.needs_reasoning_echo({}, messages), False
         module = "agent.transports.chat_completions"
         return SendPolicy(
             # Without a capture, stored reasoning can be of an earlier route: count it, but do not cut it.
-            echo=echo, cut_reasoning=echo and bool(sent),
+            echo=echo, cut_reasoning=known,
             details=bool(hermes_value(module, "_route_replays_reasoning_details",
                                       warm._route_replays_reasoning_details)(self._wc_route[1])),
             signatures=bool(hermes_value(module, "_model_consumes_thought_signature",

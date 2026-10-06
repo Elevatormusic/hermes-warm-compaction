@@ -357,6 +357,40 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(self.post.calls), 1)
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "summary_too_large"))
 
+    def test_the_reply_of_a_first_request_sets_the_reasoning_rule(self):
+        # The first request of a session has no assistant row; its reply (stored after it) is of this route.
+        rows = [user("u1")]
+        self.seed(rows, assistant("final"))
+        policy = self.engine._policy([*rows, assistant("final", reasoning_content="r" * 4_000)])
+        self.assertTrue(policy.echo)
+        self.assertTrue(policy.cut_reasoning)
+
+    def test_a_switch_from_an_empty_identity_forgets_the_capture(self):
+        # A local route can start with no provider name and no key: a later key is a switch.
+        engine = self.engine_class(store=self.store, llm=self.llm, post=self.post)
+        engine.on_session_start("s1", platform="cli")
+        engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key="", provider="",
+                            api_mode=ROUTE[2])
+        rows = old_turns(1)
+        self.seed(rows, assistant("x"))
+        engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key="", provider="",
+                            api_mode=ROUTE[2])
+        self.assertIsNotNone(self.store.latest("s1"))
+        engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key="k2", provider="",
+                            api_mode=ROUTE[2])
+        self.assertIsNone(self.store.latest("s1"))
+
+    def test_the_fixed_summary_keeps_the_focus_and_the_memory_context(self):
+        # The last path has no model: the inputs given for this compaction must stay.
+        self.llm.error = RuntimeError("down")
+        engine = self.make(warm=False)
+        new = engine.compress([*old_turns(), assistant("done")], focus_topic="FOCUS-ON-PARSER",
+                              memory_context="MEMORY-FACT-42")
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
+        self.assertIn("FOCUS-ON-PARSER", summary)
+        self.assertIn("MEMORY-FACT-42", summary)
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.
