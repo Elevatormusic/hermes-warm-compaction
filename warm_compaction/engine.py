@@ -78,6 +78,16 @@ def sanitize_memory(memory_context: Any) -> str:
         return ""
 
 
+def request_overhead(capture: dict[str, Any] | None) -> int:
+    """Estimated tokens of the request parts that are not history rows: the system rows and the tool schemas of
+    the captured request. 0 without a captured request body."""
+    body = (capture or {}).get("body")
+    if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
+        return 0
+    count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
+    return estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
+
+
 def _int(value: Any) -> int:
     return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
 
@@ -167,7 +177,8 @@ class WarmCompactionEngine(ContextEngine):
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
-        summary = self._warm_summary(messages, focus_topic, memory, prefixes, record)
+        capture = self._store.latest(self._wc_session_id)
+        summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record)
         if summary is None and not self._cancelled():
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
@@ -188,17 +199,16 @@ class WarmCompactionEngine(ContextEngine):
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=self._copy_tokens(messages[start:], summary))
+            copy_tokens=self._copy_tokens(messages[start:], summary, request_overhead(capture)))
         self.compression_count += 1
         self._finish(record, started)
         return new
 
-    def _warm_summary(self, messages: list, focus_topic: str | None, memory: str, prefixes: tuple[str, ...],
-                      record: dict[str, Any]) -> str | None:
+    def _warm_summary(self, messages: list, capture: dict[str, Any] | None, focus_topic: str | None, memory: str,
+                      prefixes: tuple[str, ...], record: dict[str, Any]) -> str | None:
         try:
             if not self._settings["warm"]:
                 raise warm.WarmRefusal("disabled")
-            capture = self._store.latest(self._wc_session_id)
             if capture is None:
                 raise warm.WarmRefusal("no_capture")
             body = warm.build_request(capture, messages, self._wc_route, self.context_length,
@@ -265,14 +275,15 @@ class WarmCompactionEngine(ContextEngine):
         return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
                            int(self.threshold_tokens or 0))
 
-    def _copy_tokens(self, tail_rows: list, summary: str) -> int:
-        """Token allowance for the copied user messages: at most the tail size, and small enough that the tail
-        rows, the summary, the summary row headings, and the copies fit below the compaction threshold."""
+    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0) -> int:
+        """Token allowance for the copied user messages: at most the tail size, and small enough that the request
+        overhead (system rows and tool schemas), the tail rows, the summary, the summary row headings, and the
+        copies fit below the compaction threshold."""
         tail = self._tail_tokens()
         threshold = int(self.threshold_tokens or 0)
         if threshold <= 0:
             return tail
-        used = estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS
+        used = overhead + estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS
         return max(0, min(tail, threshold - used))
 
     def _cancelled(self) -> bool:

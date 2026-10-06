@@ -248,6 +248,18 @@ class EngineTest(unittest.TestCase):
         self.assertLess(self.engine._copy_tokens(tail, summary), 5_000)
         engine = self.make()  # A large window keeps the full allowance.
         self.assertEqual(engine._copy_tokens(tail, summary), engine._tail_tokens())
+        # The system prompt and the tool schemas count too.
+        self.assertEqual(self.engine._copy_tokens(tail, "short", 4_000), 10_000 - 4_000 - CARRIER_TOKENS
+                         - estimate_tokens(tail) - estimate_tokens("short"))
+
+    def test_request_overhead_comes_from_the_capture(self):
+        from warm_compaction.engine import request_overhead
+        from warm_compaction.rows import estimate_tokens
+        rows = old_turns(2)
+        self.seed(rows, assistant("final"))
+        capture = self.store.latest("s1")
+        self.assertEqual(request_overhead(capture), estimate_tokens({"messages": [SYSTEM], "tools": None}))
+        self.assertEqual(request_overhead(None), 0)
 
     def test_fixed_summary_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("down"))

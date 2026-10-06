@@ -119,6 +119,20 @@ class BuildRequestTest(unittest.TestCase):
         self.assertEqual((body["stream"], body["temperature"]), (False, 0.2))
         self.assertNotIn("stream_options", body)
 
+    def test_appended_assistant_rows_keep_reasoning_content_on_an_echo_route(self):
+        # A thinking-mode route (DeepSeek, Kimi) needs reasoning_content on every assistant row. The captured
+        # rows show that Hermes sends it on this route.
+        self.rows = [user("u1"), assistant("a1", reasoning_content=" "), user("u2")]
+        self.messages = [*self.rows, assistant("", [("c1", "read", "{}")], reasoning="look"), tool("c1", "r1")]
+        sent = self.build(capture_for(self.rows, self.reply))["messages"]
+        self.assertEqual(sent[-3]["reasoning_content"], " ")
+        self.messages[-2] = assistant("", [("c1", "read", "{}")], reasoning_content="look")
+        self.assertEqual(self.build(capture_for(self.rows, self.reply))["messages"][-3]["reasoning_content"], "look")
+        # A route without it keeps the field out (strict providers reject it).
+        self.rows = history()
+        self.messages = [*self.rows, assistant("", [("c1", "read", "{}")], reasoning="look"), tool("c1", "r1")]
+        self.assertNotIn("reasoning_content", self.build(capture_for(self.rows, self.reply))["messages"][-3])
+
     def test_sends_every_trailing_user_row(self):
         # The tail can keep only the newest of several user rows. The handoff must see the older ones too.
         self.messages = [*self.messages, user("u4 " + "x" * 5_000)]

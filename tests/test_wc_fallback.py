@@ -18,14 +18,17 @@ SUMMARY = "## Goal\nG\n## User instructions\n- none\n## Current state\n- [OPEN] 
 
 
 class FakeLlm:
-    def __init__(self, text=SUMMARY, error=None):
-        self.text, self.error, self.calls = text, error, []
+    def __init__(self, text=SUMMARY, error=None, output_tokens=None):
+        self.text, self.error, self.calls, self.output_tokens = text, error, [], output_tokens
 
     def complete(self, messages, **kwargs):
         self.calls.append((messages, kwargs))
         if self.error:
             raise self.error
-        return SimpleNamespace(text=self.text, usage=SimpleNamespace(input_tokens=321))
+        usage = SimpleNamespace(input_tokens=321)
+        if self.output_tokens is not None:
+            usage.output_tokens = self.output_tokens
+        return SimpleNamespace(text=self.text, usage=usage)
 
 
 class TranscriptTest(unittest.TestCase):
@@ -54,6 +57,17 @@ class TranscriptTest(unittest.TestCase):
         self.assertIn("[user]\n[ctx]\n\nhi", text)
         self.assertIn("[assistant]\nThe answer is 4.", text)
 
+    def test_the_end_of_a_long_tool_result_is_kept(self):
+        text = render_row(tool("c1", "start " + "y" * 3_000 + " exit status 1"))
+        self.assertTrue(text.startswith("[tool result c1]\nstart "))
+        self.assertTrue(text.endswith(" exit status 1"))
+        self.assertLessEqual(len(text.split("\n", 1)[1]), TOOL_CHARS)
+
+    def test_the_first_user_slot_shows_the_sent_api_content(self):
+        rows = [user("first", api_content="[ctx]\n\nfirst"), *[assistant("z" * 3_900) for _ in range(12)]]
+        text = transcript(rows, PREFIXES)
+        self.assertIn("[first user message]\n[ctx]\n\nfirst", text)
+
     def test_names_are_in_the_transcript_labels(self):
         text = transcript([user("ship it", name="alice"), user("wait", name="bob"), assistant("ok", name="lead")],
                           PREFIXES)
@@ -75,7 +89,8 @@ class TranscriptTest(unittest.TestCase):
         text = transcript(rows, PREFIXES)
         self.assertTrue(text.startswith("[earlier summary]\nold summary\n\n[first user message]\nfirst ask"))
         self.assertIn("(tool call c1 read: {\"p\":1})", text)
-        self.assertIn("[tool result c1 read]\n" + "y" * TOOL_CHARS + " [cut]", text)
+        self.assertIn("[tool result c1 read]\n" + "y" * 600, text)
+        self.assertIn(MIDDLE_MARK, text.split("[tool result c1 read]\n", 1)[1])
         self.assertTrue(text.endswith("[assistant]\ndone"))
 
     def test_size_is_bounded(self):
@@ -119,6 +134,14 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertTrue(messages[0]["content"].startswith(FALLBACK_INSTRUCTION))
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
+
+    def test_a_reply_that_reached_the_token_limit_is_refused(self):
+        # ctx.llm reports no finish reason. A reply at the max_tokens limit can be cut off.
+        long_summary = SUMMARY + "\n" + "- fact\n" * 1_000
+        for llm in (FakeLlm(output_tokens=MAX_TOKENS), FakeLlm(text=long_summary)):
+            with self.subTest(), self.assertLogs("warm_compaction.fallback", level="WARNING"):
+                self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (None, None))
+        self.assertEqual(llm_summary(FakeLlm(output_tokens=300), [user("hi")], PREFIXES), (SUMMARY, 321))
 
     def test_task_none_uses_the_main_model_route(self):
         llm = FakeLlm()

@@ -10,7 +10,8 @@ import urllib.request
 from typing import Any, Callable
 
 from .rows import (
-    api_content, attr, compact_json, estimate_tokens, plain_text, reply_text, row_digest, tool_calls_of,
+    api_content, attr, compact_json, estimate_tokens, hermes_value, plain_text, reply_text, row_digest,
+    tool_calls_of,
 )
 
 DEFAULT_RESERVE = 4096
@@ -147,9 +148,35 @@ def check_source(body: dict[str, Any], history_rows: list) -> None:
         raise WarmRefusal("source_transform_unsupported")
 
 
-def wire_row(row: Any) -> dict[str, Any]:
-    """Return the wire form of a stored row, as Hermes sends it: only the fields that the API reads, and the
-    api_content sidecar of a user or assistant row in place of its content."""
+def _reasoning_policy(source: dict, wire: dict, needs_pad: bool) -> None:
+    """The reasoning_content rule of Hermes 45871e10 (agent.message_sanitization.apply_reasoning_content_policy):
+    a thinking-mode route (DeepSeek, Kimi, MiMo) needs the field on every assistant row; other routes reject it."""
+    if source.get("role") != "assistant":
+        return
+    if not needs_pad:
+        wire.pop("reasoning_content", None)
+        return
+    existing, reasoning = source.get("reasoning_content"), source.get("reasoning")
+    if isinstance(existing, str):
+        wire["reasoning_content"] = existing or " "
+    elif isinstance(reasoning, str) and reasoning and not source.get("tool_calls"):
+        wire["reasoning_content"] = reasoning
+    else:
+        wire["reasoning_content"] = " "
+
+
+def needs_reasoning_echo(body: dict[str, Any], rows: list) -> bool:
+    """True when the route needs reasoning_content on assistant rows: Hermes sent it on a captured assistant row,
+    or a new assistant row has it from the provider."""
+    return any(isinstance(row, dict) and row.get("role") == "assistant" and "reasoning_content" in row
+               for row in body.get("messages") or ()) or any(
+        attr(row, "role") == "assistant" and isinstance(attr(row, "reasoning_content"), str) for row in rows)
+
+
+def wire_row(row: Any, reasoning_echo: bool = False) -> dict[str, Any]:
+    """Return the wire form of a stored row, as Hermes sends it: only the fields that the API reads, the
+    api_content sidecar of a user or assistant row in place of its content, and reasoning_content on an assistant
+    row when the route needs it."""
     wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(api_content(row))}
     for key in ("tool_call_id", "name"):
         value = attr(row, key)
@@ -165,6 +192,9 @@ def wire_row(row: Any) -> dict[str, Any]:
             }}
             for call_id, name, arguments in calls
         ]
+    if isinstance(row, dict):
+        policy = hermes_value("agent.message_sanitization", "apply_reasoning_content_policy", _reasoning_policy)
+        policy(row, wire, reasoning_echo)
     return wire
 
 
@@ -201,7 +231,8 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     check_source(body, messages[: len(capture["digests"])])
     request = dict(body)
     # Send the trailing user rows too: the tail can keep only the newest of them, and compaction removes the others.
-    request["messages"] = [*body["messages"], *(wire_row(row) for row in (*new_rows, *trailing)),
+    echo = needs_reasoning_echo(body, new_rows)
+    request["messages"] = [*body["messages"], *(wire_row(row, echo) for row in (*new_rows, *trailing)),
                            {"role": "user", "content": instruction}]
     request["stream"] = False
     request.pop("stream_options", None)

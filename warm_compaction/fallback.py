@@ -113,7 +113,8 @@ def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
         call_id = str(attr(row, "tool_call_id") or "")
         name = str(attr(row, "name") or (call_names or {}).get(call_id) or "")
         label = " ".join(part for part in ("tool result", call_id, name) if part)
-        return f"[{label}]\n" + _cut(text, TOOL_CHARS)
+        # The start and the end: the result, an exit status, or an error is often at the end.
+        return f"[{label}]\n" + _cut_middle(text, TOOL_CHARS)
     name = attr(row, "name")
     lines = [f"[{role} {name}]" if isinstance(name, str) and name else f"[{role}]"]
     if text:
@@ -138,7 +139,7 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
                                                    EARLIER_SUMMARY_TOKENS))
     first = next((row for row in messages if is_real_user(row, prefixes)), None)
     if first is not None:
-        head.append("[first user message]\n" + _bound(visible_text(first.get("content")).strip(), FIRST_USER_CHARS,
+        head.append("[first user message]\n" + _bound(visible_text(api_content(first)).strip(), FIRST_USER_CHARS,
                                                       FIRST_USER_TOKENS))
     budget = TRANSCRIPT_CHARS - sum(len(part) + 2 for part in head)
     tokens = TRANSCRIPT_TOKENS - sum(estimate_tokens(part) + 1 for part in head)
@@ -167,6 +168,16 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
     return "\n\n".join([*head, *recent])
 
 
+def _finish_reason(result: Any, text: str) -> str:
+    """Return "length" for a reply that can be cut off, else "stop". ctx.llm reports no finish reason. A reply
+    at the max_tokens limit can be cut off; the instruction asks for about 1,000 tokens. Without an output count,
+    a reply with an estimate above three quarters of the limit counts as cut off."""
+    output = getattr(getattr(result, "usage", None), "output_tokens", None)
+    if isinstance(output, int) and not isinstance(output, bool) and output > 0:
+        return "length" if output >= MAX_TOKENS else "stop"
+    return "length" if estimate_tokens(text) >= MAX_TOKENS * 3 // 4 else "stop"
+
+
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
                 memory_context: str = "", task: str | None = TASK,
                 timeout_s: float = TIMEOUT_S) -> tuple[str | None, int | None]:
@@ -185,8 +196,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         return None, None
     # The same checks as the warm reply: the five headings, the byte limit, and no summary markers. A reply
     # without them (cut off, or an answer to the conversation) must not replace the history.
-    text, reason = gate({"content": str(getattr(result, "text", "") or ""),
-                         "finish_reason": getattr(result, "finish_reason", None) or "stop"}, prefixes)
+    raw = str(getattr(result, "text", "") or "")
+    text, reason = gate({"content": raw, "finish_reason": _finish_reason(result, raw)}, prefixes)
     if text is None:
         logger.warning("warm_compaction: the fallback summary was refused (%s)", reason)
         return None, None
