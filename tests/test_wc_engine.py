@@ -545,6 +545,46 @@ class EngineTest(unittest.TestCase):
         self.engine.compress([*rows, reply])
         self.assertEqual(self.engine.warm_last["path"], "warm")
 
+    def test_a_fallback_summary_without_room_for_the_cut_quote_becomes_the_fixed_summary(self):
+        # The fallback summary takes almost all of its budget: no quote of the cut middle of the prepended request
+        # fits after it. The fixed summary then quotes that middle (its start: the marker is near it).
+        rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+        self.llm.text = (HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 16_150)
+                         + "\n" + END_LINE)
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        self.assertTrue(any("MID-REQ" in str(row.get("content")) for row in new if row.get("_compressed_summary")))
+
+    def test_no_fallback_request_starts_after_a_switch(self):
+        # A fallback task on the auto route follows the main route: after a switch, the old transcript must not
+        # go to the new provider.
+        from warm_compaction import layout
+        engine = self.make(warm=False)
+        real = layout.bound_tail
+
+        def bound_tail(*args, **kwargs):
+            engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key="k2",
+                                provider="other", api_mode=ROUTE[2])
+            return real(*args, **kwargs)
+        layout.bound_tail = bound_tail
+        try:
+            history = [*old_turns(), assistant("done")]
+            self.assertIs(engine.compress(history), history)
+        finally:
+            layout.bound_tail = real
+        self.assertEqual(self.llm.calls, [])
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
+
+    def test_an_unknown_overhead_takes_the_summary_from_half_of_the_room(self):
+        # The other half is for the system rows and tool schemas: the summary and the prepended row come out of
+        # the tail half.
+        engine = self.make(tail_tokens=500_000)
+        self.assertEqual(engine._tail_cap(0, None, 0) - engine._tail_cap(2_000, None, 0, 1_000), 3_000)
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.

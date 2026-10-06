@@ -641,6 +641,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         status = 500 if self.path.endswith("/fail") else 200
         data = json.dumps({"size": len(body), "auth": self.headers.get("Authorization")}).encode("utf-8")
+        if self.path.endswith("/large"):
+            data = b" " * (3 << 20)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -667,6 +669,16 @@ class UrllibPostTest(unittest.TestCase):
     def test_http_error_returns_the_status(self):
         status, _raw = urllib_post(self.base + "/fail", b"{}", {}, 5.0)
         self.assertEqual(status, 500)
+
+    def test_a_large_response_is_not_read_whole(self):
+        # A wrong endpoint or a gateway can send a large body: the read stops after the limit.
+        from warm_compaction.warm import MAX_RESPONSE_BYTES
+        status, raw = urllib_post(self.base + "/large", b"{}", {}, 5.0)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(raw), MAX_RESPONSE_BYTES + 1)
+        with self.assertRaises(WarmRefusal) as caught:
+            send({"model": "m", "messages": []}, self.base + "/v1", "k", post=lambda *args, **kwargs: (200, raw))
+        self.assertEqual(caught.exception.code, "response_too_large")
 
     def test_a_redirect_is_not_followed(self):
         # A followed redirect would send the Authorization header to the redirect target.

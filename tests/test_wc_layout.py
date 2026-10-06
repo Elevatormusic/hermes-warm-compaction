@@ -295,6 +295,29 @@ class BoundTailTest(unittest.TestCase):
         self.assertLess(len(bounded[1]["reasoning"]), 60_000)
         self.assertIn("SENT", str(removed))
 
+    def test_a_row_with_many_parts_is_cut_in_few_rounds(self):
+        # Each cut does not measure all rows again: a row with thousands of parts must not make the cut quadratic.
+        from warm_compaction import layout
+        from warm_compaction.rows import estimate_tokens, sent_tokens
+        row = {"role": "user", "content": [{"type": "text", "text": f"part {index} " + "p" * 400}
+                                           for index in range(3_000)]}
+        calls = []
+        real = layout.sent_tokens
+
+        def counted(*args, **kwargs):
+            calls.append(1)
+            return real(*args, **kwargs)
+        layout.sent_tokens = counted
+        try:
+            removed: list = []
+            kept = layout.bound_tail([row], 20_000, removed)
+        finally:
+            layout.sent_tokens = real
+        self.assertLess(len(calls), 50)
+        self.assertLessEqual(sent_tokens(kept[0]), 20_000 + 3_000 * 8)
+        self.assertLess(sent_tokens(kept[0]), estimate_tokens(row) // 4)
+        self.assertTrue(removed)
+
     def test_a_signed_gemini_tool_call_stays_whole(self):
         # Gemini needs a function call with a thought signature back as it was: its arguments are not cut on a
         # route that sends the signature. On another route the signature is not sent, and the cut is safe.

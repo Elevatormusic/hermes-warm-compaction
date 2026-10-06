@@ -426,11 +426,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# A reply is at most a few tens of kilobytes (the handoff gate allows 24 KB of text). A larger body is not read
+# whole: a wrong endpoint or a gateway must not fill the memory of the Hermes process.
+MAX_RESPONSE_BYTES = 1 << 20
+
+
 def urllib_post(url: str, data: bytes, headers: dict[str, str], timeout_s: float,
                 context: ssl.SSLContext | None = None) -> tuple[int, bytes]:
     """POST data with the standard library. Return (status, body). Raise TimeoutError on a time-out. A redirect
     is not followed: its status comes back, and the caller treats it as a provider error. context is the TLS
-    context of the route (route_tls)."""
+    context of the route (route_tls). The body is read to at most MAX_RESPONSE_BYTES + 1 bytes."""
     handlers: list = [urllib.request.ProxyHandler(urllib.request.getproxies_environment()), _NoRedirect()]
     if context is not None:
         handlers.append(urllib.request.HTTPSHandler(context=context))
@@ -438,12 +443,11 @@ def urllib_post(url: str, data: bytes, headers: dict[str, str], timeout_s: float
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with opener.open(request, timeout=timeout_s) as response:
-            return response.status, response.read()
+            return response.status, response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as error:
-        try:
-            return error.code, error.read()
-        finally:
-            error.close()
+        # The error body is not used.
+        error.close()
+        return error.code, b""
     except urllib.error.URLError as error:
         if isinstance(error.reason, TimeoutError):
             raise TimeoutError(str(error.reason)) from error
@@ -559,6 +563,8 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
     elapsed = time.monotonic() - started
     if not 200 <= int(status) < 300:
         raise WarmRefusal("provider_error")
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise WarmRefusal("response_too_large")
     try:
         payload = json.loads(raw.decode("utf-8"))
         choice = payload["choices"][0]

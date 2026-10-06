@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import heapq
 import re
 from typing import Any, Iterable
 
@@ -317,32 +318,45 @@ def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple
     return parts
 
 
-def _set_part(row: dict[str, Any], key: tuple, value: Any) -> dict[str, Any]:
-    """Return a copy of the row with one payload replaced. A changed content drops the api_content sidecar: the
-    new content is the sent text."""
+def _set_parts(row: dict[str, Any], changes: dict[tuple, Any]) -> dict[str, Any]:
+    """Return a copy of the row with payloads replaced (key: value, with the keys of _tail_parts), in one copy. A
+    changed content drops the api_content sidecar: the new content is the sent text."""
     new = dict(row)
-    if key[0] in ("content", "media"):
+    content_keys = [key for key in changes if key[0] in ("content", "media")]
+    if content_keys:
         content = api_content(row) if row.get("role") in ("user", "assistant") else row.get("content")
         new.pop("api_content", None)
-        if len(key) == 1:
-            new["content"] = value
+        if ("content",) in changes:
+            new["content"] = changes[("content",)]
         else:
             items = list(content)
-            item = items[key[1]]
-            if key[0] == "media" or isinstance(item, str):
-                items[key[1]] = value
-            else:
-                items[key[1]] = {**item, "text": value}
+            for key in content_keys:
+                item = items[key[1]]
+                if key[0] == "media" or isinstance(item, str):
+                    items[key[1]] = changes[key]
+                else:
+                    items[key[1]] = {**item, "text": changes[key]}
             new["content"] = items
-    elif key[0] == "arguments":
+    argument_keys = [key for key in changes if key[0] == "arguments"]
+    if argument_keys:
         calls = [dict(call) for call in row["tool_calls"]]
-        # A cut JSON text is not JSON: the start and the end go into a JSON object, so that the call stays valid.
-        calls[key[1]] = {**calls[key[1]], "function": {**calls[key[1]]["function"],
-                                                       "arguments": compact_json({"truncated_arguments": value})}}
+        for key in argument_keys:
+            # A cut JSON text is not JSON: the start and the end go into a JSON object, so that the call stays
+            # valid.
+            calls[key[1]] = {**calls[key[1]], "function": {
+                **calls[key[1]]["function"], "arguments": compact_json({"truncated_arguments": changes[key]})}}
         new["tool_calls"] = calls
-    else:
-        new[key[0]] = value
+    for key, value in changes.items():
+        if key[0] not in ("content", "media", "arguments"):
+            new[key[0]] = value
     return new
+
+
+def _cuttable(key: tuple, value: Any, floor: int, marked: bool) -> bool:
+    """True when a cut can make the payload smaller: a text above the floor, or a media part not yet marked."""
+    if key[0] == "media":
+        return not marked and estimate_tokens(value) > floor // 4
+    return isinstance(value, str) and len(value) > max(floor, len(DROPPED))
 
 
 def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: SendPolicy = SendPolicy()) -> list:
@@ -357,42 +371,58 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
 
     With a removed list, one row for each cut payload is added to it: the removed middle after CUT_NOTE, with the
     role (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""
+    base = list(rows)
     rows = list(rows)
+    parts = {(index, key): value for index, row in enumerate(base) for key, value in _tail_parts(row, policy)}
     originals: dict[tuple, Any] = {}
     current: dict[tuple, Any] = {}
     limits: dict[tuple, int] = {}
-    # First the cuts to start and end (at least MIN_COPY_CHARS), then, when they are not enough, the drops.
+    # First the cuts to start and end (at least MIN_COPY_CHARS), then, when they are not enough, the drops. Each
+    # round measures the rows one time, cuts the largest payloads (a heap) until the estimated excess is gone, and
+    # copies each changed row one time: a row with many parts does not make the cut quadratic.
     floor = MIN_COPY_CHARS
-    while sum(sent_tokens(row, policy) for row in rows) > tokens:
-        cuttable = []
-        for index, row in enumerate(rows):
-            for key, value in _tail_parts(row, policy):
-                value = current.get((index, key), value)
-                if (isinstance(value, str) and len(value) > max(floor, len(DROPPED))) or (
-                        key[0] == "media" and (index, key) not in current
-                        and estimate_tokens(value) > floor // 4):
-                    cuttable.append((estimate_tokens(value), index, key, value))
-        if not cuttable:
+    while True:
+        excess = sum(sent_tokens(row, policy) for row in rows) - tokens
+        if excess <= 0:
+            break
+        heap = []
+        for order, (place, value) in enumerate(parts.items()):
+            value = current.get(place, value)
+            if _cuttable(place[1], value, floor, place in current):
+                heap.append((-estimate_tokens(value), place[0], order, place[1]))
+        if not heap:
             if floor:
                 floor = 0
                 continue
             break
-        cost, index, key, value = max(cuttable, key=lambda item: (item[0], -item[1]))
-        originals.setdefault((index, key), value)
-        if key[0] == "media":
-            # The mark keeps a web URL or a file name (short), not a data URL.
-            new_value: Any = {"type": "text", "text": attachment_mark(value) + " (removed)"}
-        elif not floor:
-            limits[(index, key)] = 0
-            new_value = DROPPED
-        else:
-            target = cost - (sum(sent_tokens(row, policy) for row in rows) - tokens)
-            limit = max(MIN_COPY_CHARS, min(len(value) - 1, len(value) * max(target, 0) // max(cost, 1)))
-            # Cut the original text again: the kept start and end are then parts of the original text.
-            limits[(index, key)] = limit
-            new_value = cut_middle(originals[(index, key)], limit)
-        current[(index, key)] = new_value
-        rows[index] = _set_part(rows[index], key, new_value)
+        heapq.heapify(heap)
+        changed: set[int] = set()
+        while heap and excess > 0:
+            negative, index, _order, key = heapq.heappop(heap)
+            cost = -negative
+            value = current.get((index, key), parts[(index, key)])
+            originals.setdefault((index, key), value)
+            if key[0] == "media":
+                # The mark keeps a web URL or a file name (short), not a data URL.
+                new_value: Any = {"type": "text", "text": attachment_mark(value) + " (removed)"}
+            elif not floor:
+                limits[(index, key)] = 0
+                new_value = DROPPED
+            else:
+                target = cost - excess
+                limit = max(MIN_COPY_CHARS, min(len(value) - 1, len(value) * max(target, 0) // max(cost, 1)))
+                # Cut the original text again: the kept start and end are then parts of the original text.
+                limits[(index, key)] = limit
+                new_value = cut_middle(originals[(index, key)], limit)
+            current[(index, key)] = new_value
+            changed.add(index)
+            excess -= cost - estimate_tokens(new_value)
+        by_row: dict[int, dict[tuple, Any]] = {}
+        for (index, key), value in current.items():
+            if index in changed:
+                by_row.setdefault(index, {})[key] = value
+        for index, changes in by_row.items():
+            rows[index] = _set_parts(base[index], changes)
     if removed is not None:
         for index, key in sorted(originals, key=lambda item: (item[0], repr(item[1]))):
             original = originals[(index, key)]

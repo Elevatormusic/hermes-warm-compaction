@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import collections
 import logging
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX, extras, gate
 from .layout import CUT_NOTE, is_real_user, is_summary, quote
@@ -192,9 +192,10 @@ def _complete_reply(result: Any, raw: str) -> tuple[str, str]:
 
 
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
-                memory_context: str = "", task: str | None = TASK,
-                timeout_s: float = TIMEOUT_S) -> tuple[str | None, int | None]:
-    """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails."""
+                memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
+                ready: Callable[[], bool] | None = None) -> tuple[str | None, int | None]:
+    """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
+    ready is the last check before the request starts: when it is false, no request is sent."""
     if llm is None:
         return None, None
     prefixes = tuple(prefixes)
@@ -204,6 +205,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         {"role": "system", "content": FALLBACK_INSTRUCTION + extra},
         {"role": "user", "content": transcript(messages, prefixes, len(extra), estimate_tokens(extra))},
     ]
+    if ready is not None and not ready():
+        return None, None
     try:
         result = llm.complete(request, task=task, max_tokens=MAX_TOKENS, timeout=timeout_s, purpose=PURPOSE)
     except Exception as error:

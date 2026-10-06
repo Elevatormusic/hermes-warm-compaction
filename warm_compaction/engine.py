@@ -268,8 +268,12 @@ class WarmCompactionEngine(ContextEngine):
             layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed, policy)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
-            summary, _tokens = fallback.llm_summary(self._llm, [*messages[:start], *removed], prefixes,
-                                                    focus_topic=focus_topic, memory_context=memory, task=self._task)
+            # The plugin API has no request on a fixed route (an override needs a trust setting), and the auto
+            # task follows the main route. The last check runs just before the request starts: after a switch,
+            # the old transcript does not go to the new route.
+            summary, _tokens = fallback.llm_summary(
+                self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
+                task=self._task, ready=lambda: not self._cancelled() and self._attempt() == attempt)
             if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
                                         or not self._summary_fits(summary, overhead, reserve)):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
@@ -314,11 +318,19 @@ class WarmCompactionEngine(ContextEngine):
                     # for it.
                     left = max(0, min(fallback.CUT_QUOTE_CHARS // 4,
                                       self._fixed_budget(overhead, reserve) - estimate_tokens(summary) - 4))
-                    prepend = layout.fit_user_row(prepend, allowed - left, cut)
+                    fitted = layout.fit_user_row(prepend, allowed - left, cut)
                     block = fallback.cut_quote(cut, left)
-                    if block:
-                        summary = summary.rstrip() + "\n\n" + block
-                else:
+                    if block or not fallback.cut_quote(cut, fallback.CUT_QUOTE_CHARS // 4):
+                        prepend = fitted
+                        if block:
+                            summary = summary.rstrip() + "\n\n" + block
+                    else:
+                        # No quote fits after the summary: the cut middle would be lost. The fixed summary has
+                        # the room for it.
+                        logger.warning("warm_compaction: no room for the cut quote; fixed summary used")
+                        record["path"] = "fixed"
+                        cut = []
+                if record["path"] == "fixed":
                     # The row is not copied and the fixed summary does not have it: its cut middle goes into the
                     # summary as a quote. The room keeps space for that quote.
                     prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
@@ -566,9 +578,9 @@ class WarmCompactionEngine(ContextEngine):
         free = self._room([], "", overhead or 0, reserve)
         if free is None:
             return tail
-        free -= summary_tokens + prepend_tokens
         if overhead is None:
             free //= 2
+        free -= summary_tokens + prepend_tokens
         return max(0, min(tail, free))
 
     def _budget_capture(self, capture: dict[str, Any] | None, messages: list) -> dict[str, Any] | None:
