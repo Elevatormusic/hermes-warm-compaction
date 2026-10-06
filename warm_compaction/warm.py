@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
-from .rows import attr, compact_json, estimate_tokens, reply_text, row_digest, tool_calls_of
+from .rows import attr, compact_json, estimate_tokens, plain_text, reply_text, row_digest, tool_calls_of
 
 DEFAULT_RESERVE = 4096
 TIMEOUT_S = 120.0
@@ -78,13 +78,37 @@ def _shape(row: Any) -> tuple:
     return attr(row, "role"), attr(row, "tool_call_id") or None, calls
 
 
+def _words(content: Any) -> str:
+    return " ".join(plain_text(content).split())
+
+
+def _arguments(value: Any) -> Any:
+    """Return the JSON value of tool-call arguments, so that a change of spacing or key order is not a change."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return " ".join(value.split())
+    return value
+
+
+def _same_row(wire: Any, row: Any) -> bool:
+    """True when the sent row carries the stored row: the same shape, the stored text inside the sent text
+    (Hermes can add request-time context to a row), and the same tool-call arguments."""
+    if _shape(wire) != _shape(row) or _words(attr(row, "content")) not in _words(attr(wire, "content")):
+        return False
+    return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
+        _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]
+
+
 def check_source(body: dict[str, Any], history_rows: list) -> None:
-    """Refuse a request whose messages are not system rows followed by the stored rows."""
+    """Refuse a request whose messages are not system rows followed by the stored rows. A row that a hook or
+    a middleware rewrote would make the handoff summarize text that is not in the history it replaces."""
     sent = body["messages"]
     offset = len(sent) - len(history_rows)
     if offset < 0 or any(attr(row, "role") not in SYSTEM_ROLES for row in sent[:offset]):
         raise WarmRefusal("source_transform_unsupported")
-    if any(_shape(wire) != _shape(row) for wire, row in zip(sent[offset:], history_rows)):
+    if not all(_same_row(wire, row) for wire, row in zip(sent[offset:], history_rows)):
         raise WarmRefusal("source_transform_unsupported")
 
 

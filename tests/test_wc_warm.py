@@ -131,6 +131,28 @@ class BuildRequestTest(unittest.TestCase):
             self.build(capture)
         self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
+    def _tool_round(self):
+        rows = [user("u1"), assistant("", [("c0", "read", "{\"path\":\"a\"}")]), tool("c0", "r0"), user("u2")]
+        self.rows, self.messages = rows, [*rows, self.reply, tool("c1", "r1"), user("u3")]
+        return capture_for(self.rows, self.reply)
+
+    def test_refuses_a_rewritten_row_with_the_same_shape(self):
+        capture = self._tool_round()
+        capture["body"]["messages"][-1]["content"] = "A different request."
+        rewritten = self._tool_round()
+        rewritten["body"]["messages"][-3]["tool_calls"][0]["function"]["arguments"] = "{\"path\":\"other\"}"
+        for capture in (capture, rewritten):
+            with self.subTest(), self.assertRaises(WarmRefusal) as caught:
+                self.build(capture)
+            self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_accepts_request_time_context_and_reformatted_arguments(self):
+        capture = self._tool_round()
+        sent = capture["body"]["messages"]
+        sent[-1]["content"] += "\n\n[recalled context: the user wants short answers]"
+        sent[-3]["tool_calls"][0]["function"]["arguments"] = "{ \"path\": \"a\" }"
+        self.assertEqual(self.build(capture)["messages"][: len(sent)], sent)
+
     def test_refuses_when_the_window_is_too_small(self):
         with self.assertRaises(WarmRefusal) as caught:
             self.build(capture_for(self.rows, self.reply), context_length=4_096)
