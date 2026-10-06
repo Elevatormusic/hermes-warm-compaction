@@ -74,7 +74,8 @@ class CaptureStore:
             digests = [row_digest(row) for row in conversation_history]
         except Exception:
             return None
-        entry = {"session_id": str(session_id), "route": (model, base_url, api_mode), "digests": digests, "body": None}
+        entry = {"session_id": str(session_id), "route": (model, base_url, api_mode), "digests": digests, "body": None,
+                 "refusal": None}
         with self._lock:
             self._open[str(api_request_id)] = entry
             self._open.move_to_end(str(api_request_id))
@@ -96,12 +97,32 @@ class CaptureStore:
             entry = self._open.get(str(api_request_id or ""))
         if entry is None or entry["route"][2] != "chat_completions":
             return
+        refusal = None
         try:
             body = final_body(request)
         except UnsupportedRequest:
             body = None
+        if body is not None and self._runs_before_other_middleware():
+            # A later middleware can change the request after this capture saw it. The warm request would
+            # then send a body that the provider never received.
+            body, refusal = None, "middleware_after_capture"
         with self._lock:
             entry["body"] = body
+            entry["refusal"] = refusal
+
+    def _runs_before_other_middleware(self) -> bool:
+        """True when another llm_execution middleware runs after this capture. The chain order is in the
+        Hermes plugin manager; when it cannot be read, the capture is kept."""
+        try:
+            from hermes_cli.plugins import _delivery_manager
+            chain = list(_delivery_manager()._middleware.get("llm_execution", []))
+        except Exception:
+            return False
+        own = CaptureStore.on_llm_execution
+        for index, callback in enumerate(chain):
+            if getattr(callback, "__self__", None) is self and getattr(callback, "__func__", None) is own:
+                return index < len(chain) - 1
+        return False
 
     def on_post_api_request(self, api_request_id: Any = None, session_id: Any = None, finish_reason: Any = None,
                             assistant_message: Any = None, usage: Any = None, **_: Any) -> None:

@@ -78,6 +78,23 @@ class CaptureStoreTest(unittest.TestCase):
         self.assertEqual(self.store.latest("s1")["reply"]["tool_calls"],
                          [["c1", "read"], ["c1_d2", "ls"], ["c1_d3", "cat"]])
 
+    def test_no_body_when_an_execution_middleware_runs_after_the_capture(self):
+        # A later middleware can change the request after the capture saw it. The capture cannot see that change.
+        import wc_hermes_stub
+        wc_hermes_stub.install(self)
+
+        def other(request=None, next_call=None, **context):
+            return next_call()
+        for chain, kept in (([self.store.on_llm_execution, other], False), ([other, self.store.on_llm_execution], True)):
+            wc_hermes_stub.PLUGINS._delivery_manager = lambda chain=chain: SimpleNamespace(
+                _middleware={"llm_execution": chain})
+            self.addCleanup(lambda: wc_hermes_stub.PLUGINS.__dict__.pop("_delivery_manager", None))
+            with self.subTest(kept=kept):
+                self.run_request()
+                capture = self.store.latest("s1")
+                self.assertEqual(capture["body"] is not None, kept)
+                self.assertEqual(capture.get("refusal"), None if kept else "middleware_after_capture")
+
     def test_keeps_tool_call_ids_and_names(self):
         self.run_request(finish="tool_calls", message=reply_object("", [("c1", "read")]))
         self.assertEqual(self.store.latest("s1")["reply"]["tool_calls"], [["c1", "read"]])

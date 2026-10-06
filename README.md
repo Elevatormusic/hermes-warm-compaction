@@ -138,7 +138,7 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 ```
 
 - `path` is `warm`, `fallback`, or `fixed`.
-- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
+- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
 The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.

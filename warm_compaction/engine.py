@@ -256,7 +256,9 @@ class WarmCompactionEngine(ContextEngine):
         # The captured part went through the request middleware already. A middleware that changes it again (for
         # example, adds a system row) would apply twice and change the cached prefix. It can change the new rows.
         if ({k: v for k, v in changed.items() if k != "messages"} != {k: v for k, v in body.items() if k != "messages"}
-                or changed["messages"][:captured] != body["messages"][:captured]):
+                or changed["messages"][:captured] != body["messages"][:captured]
+                # The host instruction must stay the last row: without it, the reply is not a handoff.
+                or changed["messages"][-1:] != body["messages"][-1:]):
             raise warm.WarmRefusal("middleware_rewrite")
         body = changed
         # A request middleware can add text to the new rows. Check the size again before the request is sent.

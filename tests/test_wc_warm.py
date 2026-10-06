@@ -325,6 +325,12 @@ class BuildRequestTest(unittest.TestCase):
             self.build(capture)
         self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
+    def test_a_capture_without_a_body_gives_its_refusal(self):
+        capture = dict(capture_for(self.rows, self.reply), body=None, refusal="middleware_after_capture")
+        with self.assertRaises(WarmRefusal) as caught:
+            self.build(capture)
+        self.assertEqual(caught.exception.code, "middleware_after_capture")
+
     def test_refuses_when_the_window_is_too_small(self):
         with self.assertRaises(WarmRefusal) as caught:
             self.build(capture_for(self.rows, self.reply), context_length=4_096)

@@ -282,7 +282,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
         raise WarmRefusal("route_changed")
     body = capture.get("body")
     if body is None:
-        raise WarmRefusal("settings_unsupported")
+        raise WarmRefusal(capture.get("refusal") or "settings_unsupported")
     check_settings(body)
     new_rows, trailing = split_history(capture, messages)
     check_source(body, messages[: len(capture["digests"])])
