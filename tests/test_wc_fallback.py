@@ -155,6 +155,20 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
 
+    def test_the_memory_context_counts_against_the_transcript_budget(self):
+        # A memory provider can give a very large context. The fallback request must stay inside its budget.
+        from warm_compaction.fallback import EXTRAS_CHARS
+        llm = FakeLlm()
+        rows = [user("first"), *[assistant(f"row {index} " + "x" * 3_500) for index in range(12)]]
+        llm_summary(llm, rows, PREFIXES, memory_context="m" * 200_000 + " the end")
+        messages, _kwargs = llm.calls[0]
+        extra = messages[0]["content"][len(FALLBACK_INSTRUCTION):]
+        self.assertLessEqual(len(extra), EXTRAS_CHARS)
+        self.assertTrue(extra.rstrip().endswith("the end"))
+        self.assertLessEqual(len(extra) + len(messages[1]["content"]), TRANSCRIPT_CHARS)
+        self.assertLessEqual(estimate_tokens(extra) + estimate_tokens(messages[1]["content"]),
+                             TRANSCRIPT_TOKENS + 16)
+
     def test_a_reply_that_reached_the_token_limit_is_refused(self):
         # ctx.llm reports no finish reason. A reply at the max_tokens limit can be cut off.
         long_summary = SUMMARY + "\n" + "- fact\n" * 1_000

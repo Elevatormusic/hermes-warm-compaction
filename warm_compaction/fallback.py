@@ -33,6 +33,10 @@ TRANSCRIPT_TOKENS = TRANSCRIPT_CHARS // 4
 EARLIER_SUMMARY_TOKENS = EARLIER_SUMMARY_CHARS // 4
 FIRST_USER_TOKENS = FIRST_USER_CHARS // 4
 ROW_TOKENS = ROW_CHARS // 4
+# The focus topic and the memory context. They come from the host and can be large; they take their size from
+# the transcript budget, so the request stays the same size.
+EXTRAS_CHARS = 4_000
+EXTRAS_TOKENS = EXTRAS_CHARS // 4
 MARK_TOKENS = 8
 
 FALLBACK_INSTRUCTION = """\
@@ -115,11 +119,12 @@ def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
     return "\n".join(lines)
 
 
-def transcript(messages: list, prefixes: Iterable[str]) -> str:
+def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, reserve_tokens: int = 0) -> str:
     """Return a bounded transcript: the earlier summary, the first user message, then the newest rows.
 
     Each row entry keeps at most ROW_CHARS characters (its start and its end), so that one long row cannot
     push all earlier turns out. The oldest row that does not fit in the remaining budget is cut to fit.
+    reserve_chars and reserve_tokens are taken from the budget for other text in the same request.
     """
     prefixes = tuple(prefixes)
     head = []
@@ -133,8 +138,8 @@ def transcript(messages: list, prefixes: Iterable[str]) -> str:
         # The start and the end: a long request often has the question or the output rules at the end.
         head.append("[first user message]\n" + _bound(visible_text(api_content(first)).strip(), FIRST_USER_CHARS,
                                                       FIRST_USER_TOKENS, middle=True))
-    budget = TRANSCRIPT_CHARS - sum(len(part) + 2 for part in head)
-    tokens = TRANSCRIPT_TOKENS - sum(estimate_tokens(part) + 1 for part in head)
+    budget = TRANSCRIPT_CHARS - reserve_chars - sum(len(part) + 2 for part in head)
+    tokens = TRANSCRIPT_TOKENS - reserve_tokens - sum(estimate_tokens(part) + 1 for part in head)
     # A tool row takes the names of the nearest earlier tool calls. Providers can use the same call id again
     # in a later turn.
     turn_names: list[dict[str, str]] = []
@@ -177,9 +182,11 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     if llm is None:
         return None, None
     prefixes = tuple(prefixes)
+    # The start (the focus line) and the end of a large memory context.
+    extra = _bound(extras(focus_topic, memory_context), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
     request = [
-        {"role": "system", "content": FALLBACK_INSTRUCTION + extras(focus_topic, memory_context)},
-        {"role": "user", "content": transcript(messages, prefixes)},
+        {"role": "system", "content": FALLBACK_INSTRUCTION + extra},
+        {"role": "user", "content": transcript(messages, prefixes, len(extra), estimate_tokens(extra))},
     ]
     try:
         result = llm.complete(request, task=task, max_tokens=MAX_TOKENS, timeout=timeout_s, purpose=PURPOSE)

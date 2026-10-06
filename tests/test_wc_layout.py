@@ -83,8 +83,24 @@ class CopyTest(unittest.TestCase):
         # Six 4,000-character CJK messages are about 24,000 tokens. A 5,000-token budget keeps one.
         rows = [user("\u4f60" * 4_000) for _ in range(6)]
         self.assertEqual(len(copied_user_messages(rows, 24_000, PREFIXES)), 6)
-        self.assertEqual(len(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=5_000)), 1)
+        # The second copy is cut to the remaining 1,000 tokens or less.
+        copies = copied_user_messages(rows, 24_000, PREFIXES, max_tokens=5_000)
+        self.assertEqual(len(copies), 2)
+        self.assertLess(len(copies[0]), COPY_EACH)
+        # A remainder below MIN_COPY_CHARS characters gives no copy.
         self.assertEqual(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=100), [])
+
+    def test_a_message_larger_than_the_budget_is_cut_to_the_budget(self):
+        from warm_compaction.layout import MIN_COPY_CHARS, quote
+        from warm_compaction.rows import estimate_tokens
+        text = "start " + "x" * 2_000 + " the real question"
+        [copy] = copied_user_messages([user(text)], 1_000, PREFIXES)
+        self.assertEqual(len(copy), 1_000)
+        self.assertTrue(copy.startswith("start ") and copy.endswith(" the real question"))
+        [copy] = copied_user_messages([user(text)], 24_000, PREFIXES, max_tokens=150)
+        self.assertLessEqual(estimate_tokens(quote(copy)), 150)
+        self.assertTrue(copy.endswith(" the real question"))
+        self.assertEqual(copied_user_messages([user(text)], MIN_COPY_CHARS - 1, PREFIXES), [])
 
 
 class CopyFormTest(unittest.TestCase):
@@ -97,7 +113,10 @@ class CopyFormTest(unittest.TestCase):
         from warm_compaction.rows import estimate_tokens
         text = "a\n" * 1_000
         rows = [user(text)]
-        self.assertEqual(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=estimate_tokens(text) + 10), [])
+        # The quote marks make the full copy too large: the copy is cut to fit.
+        [copy] = copied_user_messages(rows, 24_000, PREFIXES, max_tokens=estimate_tokens(text) + 10)
+        self.assertLess(len(copy), len(text.strip()))
+        self.assertLessEqual(estimate_tokens(quote(copy)), estimate_tokens(text) + 10)
         quoted = estimate_tokens(quote(text.strip()))
         self.assertEqual(len(copied_user_messages(rows, 24_000, PREFIXES, max_tokens=quoted)), 1)
 

@@ -116,7 +116,7 @@ The warm request sends the whole earlier request again, plus the new rows and th
 
 ## Fallback model and keys
 
-The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` uses the main model route. The fallback request is at most about 11,000 tokens: a transcript of about 8,000 tokens, the instruction, and a 2,048-token reply. A fallback model needs a context window of at least 16,000 tokens. Hermes accepts main models with 64,000 tokens or more, so the default route has enough space.
+The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` uses the main model route. The fallback request is at most about 11,000 tokens: a transcript of about 8,000 tokens, the instruction, and a 2,048-token reply. The focus topic and the memory context are cut to about 1,000 tokens and take their size from the transcript. A fallback model needs a context window of at least 16,000 tokens. Hermes accepts main models with 64,000 tokens or more, so the default route has enough space.
 
 For a custom endpoint that needs a key, put the key name in the model settings:
 

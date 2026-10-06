@@ -39,6 +39,8 @@ class HandoffTest(unittest.TestCase):
             "heading_order": reply("## Next step\nx\n## Goal\ng\n## User instructions\n## Current state\n- s\n"
                                    "## Key facts\n"),
             "section_empty": reply("## Goal\n## User instructions\n## Current state\n## Key facts\n## Next step"),
+            "heading_repeated": reply("## Goal\n## Goal\n## User instructions\n## Current state\n## Current state\n"
+                                      "## Key facts\n## Next step\n## Next step"),
         }
         for expected, value in cases.items():
             with self.subTest(expected=expected):

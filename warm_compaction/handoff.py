@@ -87,6 +87,9 @@ def gate(reply: dict[str, Any], summary_prefixes: Iterable[str] = ()) -> tuple[s
     lines = [line.strip() for line in text.splitlines()]
     if any(heading not in lines for heading in HEADINGS):
         return None, "heading_missing"
+    # A repeated heading is not section text: "## Goal" twice must not count as a goal.
+    if any(lines.count(heading) > 1 for heading in HEADINGS):
+        return None, "heading_repeated"
     starts = [lines.index(heading) for heading in HEADINGS]
     if starts != sorted(starts):
         return None, "heading_order"

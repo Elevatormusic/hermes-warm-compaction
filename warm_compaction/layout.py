@@ -12,6 +12,7 @@ from .rows import api_content, attr, cut_middle, estimate_tokens, hermes_value, 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
 COPY_EACH = 4_000
+MIN_COPY_CHARS = 200
 NO_COPIES = "(none)"
 STEER_KIND = "steer"
 SYNTHETIC_FLAGS = ("_dropped_toolcall_nudge",)
@@ -143,9 +144,9 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
 def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[str],
                          max_tokens: int | None = None) -> list[str]:
     """Return the newest real user messages that fit in total_chars and in max_tokens (estimated), each cut
-    to COPY_EACH characters (its start and its end). Each copy is the text that Hermes sent (api_content when
-    the row has it). The token limit counts the quoted form and keeps dense text, such as CJK text, inside the
-    window."""
+    to COPY_EACH characters (its start and its end). The oldest copy that does not fit is cut to the remaining
+    budget. Each copy is the text that Hermes sent (api_content when the row has it). The token limit counts
+    the quoted form and keeps dense text, such as CJK text, inside the window."""
     prefixes = tuple(prefixes)
     chosen: list[str] = []
     used = tokens = 0
@@ -155,12 +156,28 @@ def copied_user_messages(messages: list, total_chars: int, prefixes: Iterable[st
         text = cut_middle(visible_text(api_content(row)).strip(), COPY_EACH)
         cost = estimate_tokens(quote(text))
         if used + len(text) > total_chars or (max_tokens is not None and tokens + cost > max_tokens):
+            part = _fit_copy(text, total_chars - used, None if max_tokens is None else max_tokens - tokens)
+            if part is not None:
+                chosen.append(part)
             break
         chosen.append(text)
         used += len(text)
         tokens += cost
     chosen.reverse()
     return chosen
+
+
+def _fit_copy(text: str, chars: int, tokens: int | None) -> str | None:
+    """Return the start and the end of the text in at most chars characters and, in the quoted form, at most
+    tokens estimated tokens. Return None when less than MIN_COPY_CHARS characters fit."""
+    limit = min(len(text), chars)
+    while limit >= MIN_COPY_CHARS:
+        part = cut_middle(text, limit)
+        cost = estimate_tokens(quote(part))
+        if tokens is None or cost <= tokens:
+            return part
+        limit = min(limit - 1, limit * tokens // cost)
+    return None
 
 
 def quote(text: str) -> str:

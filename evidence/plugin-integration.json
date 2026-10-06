@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T09:47:38Z",
+  "started_utc": "2026-10-06T10:05:44Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -11,9 +11,9 @@
     "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
     "warm_compaction/capture.py": "9f195ff31821b1dfc486373b074b799f4bc8750b07d10b53073374f760b2f2eb",
     "warm_compaction/engine.py": "dfa9d6fb060d4d7665f0467630086ecfd076742e097258415c47bb5084134888",
-    "warm_compaction/fallback.py": "b5ccd56550381fc8033351156cbf2dcf0a7e667f8f9bbf0d15bb2101f3abb97e",
-    "warm_compaction/handoff.py": "a88b580a909ea832b53d6e2be58fa213ce621bd486df7a43d0b835ac9ccb8563",
-    "warm_compaction/layout.py": "84673bd98710416599b3718071dcc24e0c230e4845cdbffb47fd743b2a21f423",
+    "warm_compaction/fallback.py": "fe6bfbd18359b84a9ebc0519b73a865fa5736a62f87e06f83535968b49317972",
+    "warm_compaction/handoff.py": "3ce85d76fce4afbefec0d9c2e91b100e09ac677a28e50ea749f4d25533d68c7e",
+    "warm_compaction/layout.py": "5e730211647eed0beec1e6819dfc008b0855a0866dc920bb0cf8d6d8ab2dfa92",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
     "warm_compaction/rows.py": "cc2a8a3d0561559f24fc40881453441d938ea9d7803e1df81a107a5e05e5f00a",
     "warm_compaction/warm.py": "b429103b13301e2eb82fb9c7bae422d28be5049114e27d71c5586762856b8c03"
@@ -75,11 +75,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.094,
+      "compress_seconds": 0.097,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.018,
+        "elapsed_s": 0.022,
         "prompt_tokens": 33883,
         "cached_tokens": 16941
       },
@@ -188,7 +188,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 54.245
+      "process_seconds": 57.137
     },
     {
       "scenario": "manual_fallback",
@@ -247,11 +247,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.217,
+      "compress_seconds": 0.228,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.094,
+        "elapsed_s": 0.093,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -360,7 +360,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.083
+      "process_seconds": 33.072
     },
     {
       "scenario": "manual_fixed",
@@ -418,11 +418,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.235,
+      "compress_seconds": 0.234,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.11,
+        "elapsed_s": 0.094,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -531,7 +531,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 29.805
+      "process_seconds": 29.807
     },
     {
       "scenario": "auto_tool_loop",
@@ -625,8 +625,8 @@
         "path": "warm",
         "reason": "accepted",
         "elapsed_s": 0.0,
-        "prompt_tokens": 18206,
-        "cached_tokens": 9103
+        "prompt_tokens": 18427,
+        "cached_tokens": 9213
       },
       "compression_count": 2,
       "fence_denied": {
@@ -734,7 +734,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 33.575
+      "process_seconds": 32.601
     },
     {
       "scenario": "rollback",
@@ -784,11 +784,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.257,
+      "compress_seconds": 0.155,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.0,
         "prompt_tokens": 33873,
         "cached_tokens": 16936
       },
@@ -929,7 +929,7 @@
           {
             "role": "assistant",
             "summary_flag": null,
-            "chars": 23524
+            "chars": 24406
           },
           {
             "role": "user",
@@ -970,10 +970,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 37.135
+      "process_seconds": 39.1
     }
   ],
-  "finished_utc": "2026-10-06T09:50:45Z",
+  "finished_utc": "2026-10-06T10:08:56Z",
   "passed": true,
   "run_folder": "outside repository"
 }
