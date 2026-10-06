@@ -7,6 +7,7 @@ from typing import Any, Iterable
 from .rows import reply_text
 
 HEADINGS = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+REQUIRED_SECTIONS = ("## Goal", "## Current state", "## Next step")
 MAX_REPLY_BYTES = 24_000
 LEGACY_PREFIX = "[CONTEXT SUMMARY]:"
 END_MARKER = "--- END OF CONTEXT SUMMARY"
@@ -83,7 +84,15 @@ def gate(reply: dict[str, Any], summary_prefixes: Iterable[str] = ()) -> tuple[s
         return None, "byte_bound"
     if any(marker and marker in text for marker in (LEGACY_PREFIX, END_MARKER, *summary_prefixes)):
         return None, "carrier_marker"
-    lines = {line.strip() for line in text.splitlines()}
+    lines = [line.strip() for line in text.splitlines()]
     if any(heading not in lines for heading in HEADINGS):
         return None, "heading_missing"
+    starts = [lines.index(heading) for heading in HEADINGS]
+    if starts != sorted(starts):
+        return None, "heading_order"
+    # The goal, the state, and the next step are necessary to continue the task. The user instructions and
+    # the key facts can be empty: there can be none.
+    for heading, start, end in zip(HEADINGS, starts, [*starts[1:], len(lines)]):
+        if heading in REQUIRED_SECTIONS and not any(lines[start + 1:end]):
+            return None, "section_empty"
     return text, None

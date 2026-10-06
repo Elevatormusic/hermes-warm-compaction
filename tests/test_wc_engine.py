@@ -314,6 +314,25 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(self.engine._copy_tokens(tail, "short", 4_000), 10_000 - 4_000 - CARRIER_TOKENS
                          - estimate_tokens(tail) - estimate_tokens("short"))
 
+    def test_copy_allowance_leaves_room_for_the_reply(self):
+        # threshold 0.95 of a 20K window: the prompt after compaction must leave the reply reserve free.
+        engine = self.make(threshold=0.95)
+        engine.update_model(model=ROUTE[0], context_length=20_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        from warm_compaction.engine import CARRIER_TOKENS
+        from warm_compaction.rows import estimate_tokens
+        tail = [user("t " + "x" * 8_000)]
+        used = estimate_tokens(tail) + estimate_tokens("short") + CARRIER_TOKENS
+        self.assertEqual(engine._copy_tokens(tail, "short", 0, 4_096),
+                         min(engine._tail_tokens(), 20_000 - 4_096 - used))
+
+    def test_request_reserve_comes_from_the_capture(self):
+        from warm_compaction.engine import request_reserve
+        from warm_compaction.warm import DEFAULT_RESERVE
+        self.assertEqual(request_reserve(None), DEFAULT_RESERVE)
+        self.assertEqual(request_reserve({"body": {"messages": [], "max_tokens": 1_000}}), 1_000)
+        self.assertEqual(request_reserve({"body": {"messages": [], "max_completion_tokens": 2_000}}), 2_000)
+
     def test_request_overhead_comes_from_the_capture(self):
         from warm_compaction.engine import request_overhead
         from warm_compaction.rows import estimate_tokens

@@ -86,6 +86,13 @@ def request_overhead(capture: dict[str, Any] | None) -> int:
     return estimate_tokens({"messages": body["messages"][:count], "tools": body.get("tools")})
 
 
+def request_reserve(capture: dict[str, Any] | None) -> int:
+    """The reply reserve of the captured request: max_tokens or max_completion_tokens, else the default."""
+    body = (capture or {}).get("body")
+    value = (body.get("max_tokens") or body.get("max_completion_tokens")) if isinstance(body, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else warm.DEFAULT_RESERVE
+
+
 def _int(value: Any) -> int:
     return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
 
@@ -197,7 +204,8 @@ class WarmCompactionEngine(ContextEngine):
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=self._copy_tokens(messages[start:], summary, request_overhead(capture)))
+            copy_tokens=self._copy_tokens(messages[start:], summary, request_overhead(capture),
+                                          request_reserve(capture)))
         self.compression_count += 1
         self._finish(record, started)
         return new
@@ -295,16 +303,18 @@ class WarmCompactionEngine(ContextEngine):
         return tail_budget(int(self._settings["tail_tokens"]), int(self.context_length or 0),
                            int(self.threshold_tokens or 0))
 
-    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0) -> int:
+    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0) -> int:
         """Token allowance for the copied user messages: at most the tail size, and small enough that the request
         overhead (system rows and tool schemas), the tail rows, the summary, the summary row headings, and the
-        copies fit below the compaction threshold."""
+        copies fit below the compaction threshold, and below the context window less the reply reserve."""
         tail = self._tail_tokens()
         threshold = int(self.threshold_tokens or 0)
         if threshold <= 0:
             return tail
+        window = int(self.context_length or 0)
+        limit = min(threshold, window - reserve) if window > 0 else threshold
         used = overhead + estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS
-        return max(0, min(tail, threshold - used))
+        return max(0, min(tail, limit - used))
 
     def _cancelled(self) -> bool:
         check = getattr(self, "_compression_cancelled_check", None)

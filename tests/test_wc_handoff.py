@@ -36,10 +36,24 @@ class HandoffTest(unittest.TestCase):
             "byte_bound": reply(HEADINGS_TEXT + "x" * MAX_REPLY_BYTES),
             "carrier_marker": reply("[CONTEXT SUMMARY]:\n" + HEADINGS_TEXT),
             "heading_missing": reply(HEADINGS_TEXT.replace("## Key facts", "Key facts")),
+            "heading_order": reply("## Next step\nx\n## Goal\ng\n## User instructions\n## Current state\n- s\n"
+                                   "## Key facts\n"),
+            "section_empty": reply("## Goal\n## User instructions\n## Current state\n## Key facts\n## Next step"),
         }
         for expected, value in cases.items():
             with self.subTest(expected=expected):
                 self.assertEqual(gate(value), (None, expected))
+
+    def test_gate_needs_text_in_goal_state_and_next_step(self):
+        sections = {"## Goal": "g", "## User instructions": "- u", "## Current state": "- [OPEN] s",
+                    "## Key facts": "- k", "## Next step": "n"}
+        for heading in ("## Goal", "## Current state", "## Next step"):
+            text = "\n".join(f"{name}\n{'' if name == heading else body}" for name, body in sections.items())
+            with self.subTest(heading=heading):
+                self.assertEqual(gate(reply(text)), (None, "section_empty"))
+        # Empty User instructions and Key facts are allowed: there can be none.
+        text = "## Goal\ng\n## User instructions\n## Current state\n- [OPEN] s\n## Key facts\n## Next step\nn"
+        self.assertEqual(gate(reply(text)), (text, None))
 
     def test_gate_refuses_a_hermes_summary_prefix(self):
         self.assertEqual(gate(reply("[HERMES] x\n" + HEADINGS_TEXT), ("[HERMES]",)), (None, "carrier_marker"))
