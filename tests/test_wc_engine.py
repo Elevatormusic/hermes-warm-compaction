@@ -444,6 +444,22 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("MID-REQ", prepended["content"])
         self.assertTrue(any("MID-REQ" in str(row.get("content")) for row in new if row.get("_compressed_summary")))
 
+    def test_the_quote_after_a_fallback_summary_stays_in_the_summary_budget(self):
+        # A fallback summary near the reserve: the quote of the cut request takes only what is left, so the tail
+        # cap does not go below the cap that the fallback transcript had.
+        from warm_compaction.engine import SUMMARY_RESERVE
+        from warm_compaction.rows import estimate_tokens
+        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 3_000) + "\n" + END_LINE)
+        rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
+                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        summary = next(row["content"] for row in new if row.get("_compressed_summary") and row["role"] == "assistant")
+        self.assertLessEqual(estimate_tokens(summary), SUMMARY_RESERVE + 100)
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.

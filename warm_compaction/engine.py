@@ -304,9 +304,13 @@ class WarmCompactionEngine(ContextEngine):
                     prepend = layout.fit_user_row(prepend, allowed)
                 elif record["path"] == "fallback":
                     # The fallback transcript had only the start and end of a long row: the middle that this cut
-                    # removes goes after the summary as a quote. The room keeps space for that quote.
-                    prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
-                    block = fallback.cut_quote(cut, fallback.CUT_QUOTE_CHARS // 4)
+                    # removes goes after the summary as a quote. The quote takes only what the summary budget has
+                    # left (the tail cap stays at least the cap of the fallback transcript); the room keeps space
+                    # for it.
+                    left = max(0, min(fallback.CUT_QUOTE_CHARS // 4,
+                                      self._fixed_budget(overhead, reserve) - estimate_tokens(summary) - 4))
+                    prepend = layout.fit_user_row(prepend, allowed - left, cut)
+                    block = fallback.cut_quote(cut, left)
                     if block:
                         summary = summary.rstrip() + "\n\n" + block
                 else:
