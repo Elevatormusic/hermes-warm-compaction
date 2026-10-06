@@ -223,7 +223,8 @@ def wire_row(row: Any, reasoning_echo: bool = False, model: Any = None, base_url
     wire: dict[str, Any] = {"role": attr(row, "role"), "content": copy.deepcopy(api_content(row))}
     for key in ("tool_call_id", "name"):
         value = attr(row, key)
-        if value is not None:
+        # The Hermes transport removes the name from tool rows; strict providers reject it there.
+        if value is not None and not (key == "name" and attr(row, "role") == "tool"):
             wire[key] = value
     calls = tool_calls_of(row)
     if calls:

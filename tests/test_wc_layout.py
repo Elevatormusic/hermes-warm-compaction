@@ -70,7 +70,14 @@ class TailTest(unittest.TestCase):
 class CopyTest(unittest.TestCase):
     def test_copies_the_newest_messages_in_order_and_cuts_each(self):
         rows = [user("a" * 10), user("b" * (COPY_EACH + 50)), assistant("x"), user("c" * 10)]
-        self.assertEqual(copied_user_messages(rows, COPY_EACH + 15, PREFIXES), ["b" * COPY_EACH, "c" * 10])
+        copies = copied_user_messages(rows, COPY_EACH + 15, PREFIXES)
+        self.assertEqual((len(copies[0]), copies[1]), (COPY_EACH, "c" * 10))
+
+    def test_a_long_copy_keeps_its_start_and_its_end(self):
+        text = "start " + "x" * 5_000 + " the real question"
+        [copy] = copied_user_messages([user(text)], 24_000, PREFIXES)
+        self.assertTrue(copy.startswith("start ") and copy.endswith(" the real question"))
+        self.assertLessEqual(len(copy), COPY_EACH)
 
     def test_copies_stay_inside_the_token_budget(self):
         # Six 4,000-character CJK messages are about 24,000 tokens. A 5,000-token budget keeps one.

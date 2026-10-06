@@ -8,7 +8,8 @@ from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX, extras, gate
 from .layout import is_real_user, is_summary
-from .rows import (
+from .rows import (  # noqa: F401 - MIDDLE_MARK is part of this module's names.
+    MIDDLE_MARK, cut_middle as _cut_middle,
     api_content, attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text,
 )
 
@@ -25,7 +26,6 @@ TOOL_CHARS = 1_000
 ARGUMENT_CHARS = 300
 CUT_MARK = " [cut]"
 ROW_CHARS = 4_000
-MIDDLE_MARK = " [cut] "
 MIN_PART_CHARS = 200
 # Token limits for dense text (CJK text, emoji): the character limits divided by 4. ASCII text meets the two
 # limits at about the same point; dense text meets the token limit first, so a small fallback model can read it.
@@ -70,17 +70,6 @@ The next action that the user asked for and its exact target. Describe it. Do no
 
 def _cut(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + CUT_MARK
-
-
-def _cut_middle(text: str, limit: int) -> str:
-    """Return at most limit characters: the start (two thirds) and the end of the text, with a mark between."""
-    if len(text) <= limit:
-        return text
-    keep = limit - len(MIDDLE_MARK)
-    if keep < 2:
-        return text[:max(limit, 0)]
-    head = keep * 2 // 3
-    return text[:head] + MIDDLE_MARK + text[len(text) - (keep - head):]
 
 
 def _bound(text: str, chars: int, tokens: int, middle: bool = False) -> str:

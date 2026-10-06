@@ -85,8 +85,10 @@ class WireRowTest(unittest.TestCase):
         row = assistant(None, [("c1", "read", {"path": "a b"})], reasoning="r", _db_persisted=True)
         self.assertEqual(wire_row(row), {"role": "assistant", "content": None, "tool_calls": [
             {"id": "c1", "type": "function", "function": {"name": "read", "arguments": "{\"path\":\"a b\"}"}}]})
+        # The Hermes transport removes the name from tool rows; strict providers reject it there.
         self.assertEqual(wire_row(tool("c1", "out", name="read")),
-                         {"role": "tool", "content": "out", "tool_call_id": "c1", "name": "read"})
+                         {"role": "tool", "content": "out", "tool_call_id": "c1"})
+        self.assertEqual(wire_row(user("hi", name="alice")), {"role": "user", "content": "hi", "name": "alice"})
 
     def test_sends_the_api_content_of_user_and_assistant_rows(self):
         self.assertEqual(wire_row(user("hi", api_content="ctx\n\nhi")), {"role": "user", "content": "ctx\n\nhi"})

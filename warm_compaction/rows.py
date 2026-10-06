@@ -96,6 +96,21 @@ def visible_text(content: Any) -> str:
     return "\n".join(lines)
 
 
+MIDDLE_MARK = " [cut] "
+
+
+def cut_middle(text: str, limit: int) -> str:
+    """Return at most limit characters: the start (two thirds) and the end of the text, with a mark between.
+    The end of a long text often has the result, the question, or the output rules."""
+    if len(text) <= limit:
+        return text
+    keep = limit - len(MIDDLE_MARK)
+    if keep < 2:
+        return text[:max(limit, 0)]
+    head = keep * 2 // 3
+    return text[:head] + MIDDLE_MARK + text[len(text) - (keep - head):]
+
+
 def strip_think(text: str) -> str:
     """Remove one leading <think>...</think> block and the white space around it."""
     return THINK_BLOCK.sub("", text, count=1)
