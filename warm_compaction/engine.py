@@ -210,6 +210,9 @@ class WarmCompactionEngine(ContextEngine):
     def on_session_reset(self) -> None:
         super().on_session_reset()
         self.warm_last = None
+        # The calibration of the old session: Hermes uses the real prompt count as a floor unless the latch is set.
+        self.last_real_prompt_tokens = 0
+        self.awaiting_real_usage_after_compression = False
 
     def get_status(self) -> dict[str, Any]:
         status = super().get_status()
@@ -415,7 +418,7 @@ class WarmCompactionEngine(ContextEngine):
             return None
         window = int(self.context_length or 0)
         limit = min(threshold, window - reserve) if window > 0 else threshold
-        return limit - (overhead + estimate_tokens(tail_rows) + estimate_tokens(summary) + CARRIER_TOKENS)
+        return limit - (overhead + estimate_tokens(sent_rows(tail_rows)) + estimate_tokens(summary) + CARRIER_TOKENS)
 
     def _tail_cap(self, summary_tokens: int, overhead: int | None, reserve: int, prepend_tokens: int = 0) -> int:
         """The tail budget, and at most the free room for the tail after the overhead, the summary, and the

@@ -704,8 +704,13 @@ class EngineTest(unittest.TestCase):
 
     def test_reset_clears_the_status(self):
         self.engine.compress([*old_turns(), assistant("done")])
+        self.engine.update_from_response({"prompt_tokens": 150_000, "completion_tokens": 10})
+        self.engine.awaiting_real_usage_after_compression = True
         self.engine.on_session_reset()
         self.assertEqual((self.engine.warm_last, self.engine.compression_count), (None, 0))
+        # Hermes uses the real prompt count of the old session as a floor unless the latch is set.
+        self.assertEqual((self.engine.last_real_prompt_tokens,
+                          self.engine.awaiting_real_usage_after_compression), (0, False))
         self.assertIn("warm_last", self.engine.get_status())
 
     def test_an_unknown_overhead_caps_the_tail(self):

@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
 from .rows import (api_content, attr, compact_json, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text,
-                   visible_text)
+                   sent_tokens, visible_text)
 
 HEADER_TEXT = "The summary of the earlier turns follows."
 COPY_HEADING = "## Copied user messages"
@@ -80,11 +80,18 @@ def nudge_texts() -> frozenset[str]:
 
 
 def is_summary(row: Any, prefixes: Iterable[str]) -> bool:
-    """Return True for a summary record: the Hermes summary flag or a known summary prefix."""
+    """Return True for a summary record: the Hermes summary flag, or (the Hermes session store drops the flag) the
+    whole carrier: a known summary prefix with the end marker, or the plugin header row. A user message that only
+    starts with a prefix is a real request."""
     if attr(row, "_compressed_summary"):
         return True
-    text = plain_text(attr(row, "content")).lstrip()
-    return any(prefix and text.startswith(prefix) for prefix in prefixes)
+    text = plain_text(attr(row, "content")).strip()
+    for prefix in prefixes:
+        if prefix and text.startswith(prefix):
+            rest = text[len(prefix):].strip()
+            if END_MARKER in rest or rest == HEADER_TEXT:
+                return True
+    return False
 
 
 def is_real_user(row: Any, prefixes: Iterable[str]) -> bool:
@@ -125,9 +132,10 @@ def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str]) -> tup
     if not spans:
         return 0, None
     start = spans[-1][0]
-    size = sum(estimate_tokens(row) for row in messages[start:])
+    # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
+    size = sum(sent_tokens(row) for row in messages[start:])
     for span_start, span_end in reversed(spans[:-1]):
-        cost = sum(estimate_tokens(row) for row in messages[span_start:span_end])
+        cost = sum(sent_tokens(row) for row in messages[span_start:span_end])
         if size + cost > tail_tokens:
             break
         size += cost
@@ -310,7 +318,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
     limits: dict[tuple, int] = {}
     # First the cuts to start and end (at least MIN_COPY_CHARS), then, when they are not enough, the drops.
     floor = MIN_COPY_CHARS
-    while sum(estimate_tokens(row) for row in rows) > tokens:
+    while sum(sent_tokens(row) for row in rows) > tokens:
         cuttable = []
         for index, row in enumerate(rows):
             for key, value in _tail_parts(row):
@@ -332,7 +340,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None) -> list:
             limits[(index, key)] = 0
             new_value = DROPPED
         else:
-            target = cost - (sum(estimate_tokens(row) for row in rows) - tokens)
+            target = cost - (sum(sent_tokens(row) for row in rows) - tokens)
             limit = max(MIN_COPY_CHARS, min(len(value) - 1, len(value) * max(target, 0) // max(cost, 1)))
             # Cut the original text again: the kept start and end are then parts of the original text.
             limits[(index, key)] = limit

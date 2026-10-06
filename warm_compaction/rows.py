@@ -113,6 +113,11 @@ def sent_rows(messages: list) -> list:
     return out
 
 
+def sent_tokens(row: Any) -> int:
+    """Estimated tokens of one row as Hermes sends it (sent_rows)."""
+    return estimate_tokens(sent_rows([row])[0])
+
+
 def cut_bounds(text: str, limit: int) -> tuple[int, int]:
     """Return (end of the kept start, start of the kept end) of cut_middle: text[first:second] is the removed
     part."""

@@ -21,7 +21,7 @@ class PredicateTest(unittest.TestCase):
         self.assertTrue(is_real_user(user("hi"), PREFIXES))
         self.assertTrue(is_real_user(user("x", display_kind="steer"), PREFIXES))
         for row in (user("x", _todo_snapshot_synthetic=True), user("x", _dropped_toolcall_nudge=True),
-                    user("x", display_kind="hidden"), user("  "), user("[HERMES PREFIX] old"),
+                    user("x", display_kind="hidden"), user("  "), user("[HERMES PREFIX]\n\n" + HEADER_TEXT),
                     user("x", _compressed_summary=True), user("[System: Your previous tool call failed"),
                     assistant("hi")):
             with self.subTest(row=row):
@@ -43,9 +43,18 @@ class PredicateTest(unittest.TestCase):
         self.assertTrue(is_real_user(user("Continue now."), PREFIXES))
 
     def test_summary_detection(self):
-        self.assertTrue(is_summary(assistant("[CONTEXT SUMMARY]: s"), PREFIXES))
+        # Without the flag (the Hermes session store drops it), only the whole carrier is a summary: a prefix and
+        # the end marker, or the plugin header row.
+        self.assertTrue(is_summary(assistant("[CONTEXT SUMMARY]: s\n\n--- END OF CONTEXT SUMMARY x"), PREFIXES))
+        self.assertTrue(is_summary(user("[HERMES PREFIX]\n\n" + HEADER_TEXT), PREFIXES))
         self.assertTrue(is_summary(user("plain", _compressed_summary=True), PREFIXES))
         self.assertFalse(is_summary(user("plain"), PREFIXES))
+
+    def test_a_user_message_that_starts_with_a_prefix_is_real(self):
+        # "Analyze this summary" pasted by the user is the active request, not an earlier summary.
+        row = user("[CONTEXT SUMMARY]: please check this text for errors.")
+        self.assertFalse(is_summary(row, PREFIXES))
+        self.assertTrue(is_real_user(row, PREFIXES))
 
 
 class TailTest(unittest.TestCase):
@@ -176,6 +185,14 @@ class BoundTailTest(unittest.TestCase):
         self.assertTrue(bounded[2]["content"].startswith("[ctx]") and bounded[2]["content"].endswith(" end"))
         self.assertNotIn("api_content", bounded[2])
         self.assertIs(bound_tail(rows[:1], 2_000)[0], rows[0])
+
+    def test_the_tail_is_sized_as_hermes_sends_it(self):
+        # Hermes sends api_content in place of content: a row with both fields costs its sent text only.
+        from warm_compaction.layout import bound_tail
+        text = "t" * 4_000
+        rows = [user("o" * 4_000), assistant("a"), user(text, api_content=text + " [ctx]"), assistant("b")]
+        self.assertEqual(tail_start(rows, 1_500, PREFIXES), (2, None))
+        self.assertIs(bound_tail(rows[2:], 1_500)[0], rows[2])
 
     def test_a_large_assistant_row_is_cut_and_keeps_its_tool_calls(self):
         from warm_compaction.layout import bound_tail
