@@ -1,5 +1,6 @@
 """Tests for the warm request."""
 
+import copy
 import json
 import threading
 import unittest
@@ -471,6 +472,116 @@ class BuildRequestTest(unittest.TestCase):
                 if accepted:
                     self.build(capture)
                     continue
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_accepts_only_full_trailing_whitespace_removal_from_strings(self):
+        # Hermes removes outer whitespace from complete strings, for all message roles. Leading whitespace
+        # stays protected by the source check. The captured prefix and the stored rows stay unchanged.
+        for index in (0, 1, 2):
+            for suffix in (" ", "  ", "\n\n", "\t", "\r\n", "\u00a0\u2003"):
+                for remove in (False, True):
+                    with self.subTest(index=index, suffix=suffix, remove=remove):
+                        self._tool_round()
+                        self.rows[index]["content"] = "synthetic text" + suffix
+                        capture = capture_for(self.rows, self.reply)
+                        sent = capture["body"]["messages"]
+                        if remove:
+                            sent[index + 1]["content"] = "synthetic text"
+                        before_capture, before_messages = copy.deepcopy(capture), copy.deepcopy(self.messages)
+                        body = self.build(capture)
+                        self.assertEqual(body["messages"][:len(sent)], before_capture["body"]["messages"])
+                        self.assertEqual(capture, before_capture)
+                        self.assertEqual(self.messages, before_messages)
+
+    def test_trailing_whitespace_removal_uses_the_effective_api_content(self):
+        cases = (
+            user("display text", api_content="sent text \n"),
+            assistant("display text", api_content="sent text \n"),
+            user([{"type": "text", "text": "display text"}], api_content="sent text \n"),
+            user("sent text \n", api_content=""),
+            assistant("sent text \n", api_content=""),
+            dict(tool("c0", "sent text \n"), api_content="ignored sidecar"),
+        )
+        for row in cases:
+            with self.subTest(row=row):
+                self.rows = [row]
+                self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+                capture = capture_for(self.rows, self.reply)
+                capture["body"]["messages"][1] = wire_row(row)
+                capture["body"]["messages"][1]["content"] = "sent text"
+                before_capture, before_messages = copy.deepcopy(capture), copy.deepcopy(self.messages)
+                body = self.build(capture)
+                self.assertEqual(body["messages"][:2], before_capture["body"]["messages"])
+                self.assertEqual(capture, before_capture)
+                self.assertEqual(self.messages, before_messages)
+                capture["body"]["messages"][1]["content"] = "display text"
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_refuses_other_string_whitespace_changes(self):
+        cases = (
+            ("text", "text "),
+            ("text ", "text  "),
+            ("text \n", "text "),
+            ("text \n", "text\n"),
+            ("text ", "text\t"),
+            ("    text \n", "text"),
+            ("text \n", " text"),
+            ("two  words \n", "two words"),
+            ("text\u200b", "text"),
+        )
+        for stored, sent in cases:
+            with self.subTest(stored=stored, sent=sent):
+                self.rows = [user(stored)]
+                self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+                capture = capture_for(self.rows, self.reply)
+                capture["body"]["messages"][1]["content"] = sent
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_refuses_whitespace_removal_from_text_parts(self):
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        text = {"type": "text", "text": "text \n"}
+        trimmed = {"type": "text", "text": "text"}
+        cases = (
+            ([text], [trimmed]),
+            (["text \n"], ["text"]),
+            ([text], "text"),
+            ("text \n", [trimmed]),
+            ([text, image], [trimmed, image]),
+            ([image, text], [image, trimmed]),
+            ([text, image, text], [text, image, trimmed]),
+        )
+        for stored, sent in cases:
+            with self.subTest(stored=stored, sent=sent):
+                self.rows = [user(stored)]
+                self.messages = [*self.rows, self.reply, tool("c1", "r1"), user("u3")]
+                capture = capture_for(self.rows, self.reply)
+                capture["body"]["messages"][1]["content"] = sent
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_trailing_whitespace_removal_does_not_bypass_other_source_checks(self):
+        changes = (
+            lambda row: row.update(role="user"),
+            lambda row: row.update(name="other"),
+            lambda row: row.update(reasoning_content="other"),
+            lambda row: row.update(recipient="other"),
+            lambda row: row["tool_calls"][0]["function"].update(arguments='{"path":"other"}'),
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                self._tool_round()
+                self.rows[1]["content"] = "call text \n"
+                capture = capture_for(self.rows, self.reply)
+                sent = capture["body"]["messages"][2]
+                sent["content"] = "call text"
+                change(sent)
                 with self.assertRaises(WarmRefusal) as caught:
                     self.build(capture)
                 self.assertEqual(caught.exception.code, "source_transform_unsupported")

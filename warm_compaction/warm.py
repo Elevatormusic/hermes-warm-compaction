@@ -131,18 +131,23 @@ def _arguments(value: Any) -> tuple[str, str]:
 def _same_row(wire: Any, row: Any) -> bool:
     """True when the sent row carries the stored row: the same shape; the same name (the Hermes transport
     removes the name from tool rows only); the same image, audio, and file parts in the same order; each stored
-    text run equal to the sent text run at the same place (Hermes stores the text that it sends, with its
-    request-time context, in api_content; other text is a rewrite, on the same line or on its own line); and the
-    same tool-call arguments. The stored text is the api_content sidecar when the row has one."""
+    text run equal to the sent text run at the same place, or a complete string with all trailing whitespace
+    removed; and the same tool-call arguments. The stored text is the api_content sidecar when the row has
+    one. Leading whitespace and whitespace in content lists must stay unchanged."""
     if _shape(wire) != _shape(row):
         return False
     name = attr(wire, "name")
     if name != attr(row, "name") and not (name is None and attr(row, "role") == "tool"):
         return False
-    sent_runs, sent_media = _parts(attr(wire, "content"))
-    stored_runs, stored_media = _parts(api_content(row))
-    if sent_media != stored_media or not all(
-            stored == sent for stored, sent in zip(stored_runs, sent_runs)):
+    sent_content, stored_content = attr(wire, "content"), api_content(row)
+    sent_runs, sent_media = _parts(sent_content)
+    stored_runs, stored_media = _parts(stored_content)
+    same_text = all(stored == sent for stored, sent in zip(stored_runs, sent_runs))
+    # Hermes e36a8180 strips complete strings during request assembly. Allow only the trailing removal;
+    # a change of leading whitespace can change code indentation. Do not normalize content lists.
+    trailing_removed = (isinstance(sent_content, str) and isinstance(stored_content, str)
+                        and sent_content == stored_content.rstrip())
+    if sent_media != stored_media or not (same_text or trailing_removed):
         return False
     return [_arguments(arguments) for _id, _name, arguments in tool_calls_of(wire)] == [
         _arguments(arguments) for _id, _name, arguments in tool_calls_of(row)]

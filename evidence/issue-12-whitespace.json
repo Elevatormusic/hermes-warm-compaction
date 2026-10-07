@@ -1,0 +1,317 @@
+{
+  "issue": "https://github.com/Elevatormusic/hermes-warm-compaction/issues/12",
+  "date": "2026-10-07",
+  "scope": "Trailing whitespace removal from complete text strings during source validation.",
+  "synthetic": true,
+  "privacy": "Metadata only. No conversation text, request bodies, credentials, or private paths.",
+  "base_plugin_commit": "f5dd19c1c1e25edbb15e1f1754dc6e99ddbef151",
+  "hermes": {
+    "commit": "e36a818033f5246e5fcfe9a6967bb85e885ba155",
+    "clean": true
+  },
+  "integration_python": "3.11.14",
+  "script_sha256": "c8eea9bddb3df78cf6f2b4dfec8f2a182e221548644c4e1455e4aae57c9b5c44",
+  "fixed_plugin_files_sha256": {
+    "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
+    "warm_compaction/capture.py": "a9f907ada5d83eba79628454630d9295664b8215a2f2409cfc26223bcb2ad40f",
+    "warm_compaction/engine.py": "d3f24174f807a2b63441b957f1eafd45e25f2faf30427591dab85010485216bd",
+    "warm_compaction/fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "warm_compaction/layout.py": "b49314c5236268247c337d9fae939135c97b47384300dcdfd00b0da0c040db93",
+    "warm_compaction/plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+    "warm_compaction/rows.py": "f2ca69a7361affc4fd84388ab9ac718a0e9affa609c87d75efd6e0c25fa860cf",
+    "warm_compaction/warm.py": "db4826e3ba7762c386f523354fe02833bdb4947c03ac80b67e058f9a67333640"
+  },
+  "baseline_with_final_regression_script": {
+    "scenario": "manual_whitespace",
+    "status": "failed",
+    "checks": 48,
+    "failed_checks": [
+      "turn2_path_warm",
+      "turn2_one_warm_request",
+      "turn2_handoff_in_summary",
+      "turn3_path_warm",
+      "turn3_one_warm_request",
+      "turn3_handoff_in_summary",
+      "no_fallback_request"
+    ],
+    "install_checks_passed": true,
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "request_counts": {
+      "main": 3,
+      "warm": 1,
+      "fallback": 2
+    },
+    "outcomes": [
+      [
+        "warm",
+        "accepted"
+      ],
+      [
+        "fallback",
+        "source_transform_unsupported"
+      ],
+      [
+        "fallback",
+        "source_transform_unsupported"
+      ]
+    ]
+  },
+  "fixed_scenarios": [
+    {
+      "scenario": "enable_manual_warm",
+      "status": "passed",
+      "checks": 24,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 2,
+        "warm": 1
+      }
+    },
+    {
+      "scenario": "manual_whitespace",
+      "status": "passed",
+      "checks": 60,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 3,
+        "warm": 3
+      },
+      "outcomes": [
+        [
+          "warm",
+          "accepted"
+        ],
+        [
+          "warm",
+          "accepted"
+        ],
+        [
+          "warm",
+          "accepted"
+        ]
+      ]
+    },
+    {
+      "scenario": "manual_fallback",
+      "status": "passed",
+      "checks": 18,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 2,
+        "warm": 1,
+        "fallback": 1
+      }
+    },
+    {
+      "scenario": "manual_fixed",
+      "status": "passed",
+      "checks": 17,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 2,
+        "warm": 1,
+        "fallback": 1
+      }
+    },
+    {
+      "scenario": "auto_tool_loop",
+      "status": "passed",
+      "checks": 27,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 4,
+        "warm": 2
+      }
+    },
+    {
+      "scenario": "auto_warm_failures",
+      "status": "passed",
+      "checks": 38,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 8,
+        "warm": 4,
+        "fallback": 3
+      },
+      "outcomes": [
+        [
+          "fallback",
+          "provider_error"
+        ],
+        [
+          "fallback",
+          "provider_error"
+        ],
+        [
+          "fallback",
+          "provider_error"
+        ],
+        [
+          "warm",
+          "accepted"
+        ]
+      ]
+    },
+    {
+      "scenario": "rollback",
+      "status": "passed",
+      "checks": 16,
+      "failed_checks": [],
+      "install_checks_passed": true,
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "request_counts": {
+        "main": 2,
+        "warm": 1
+      },
+      "rollback_status": "passed",
+      "rollback_failed_checks": []
+    }
+  ],
+  "fixed_whitespace_checks": {
+    "listed_in_engine_picker": true,
+    "engine_selected": true,
+    "turn1_reply": true,
+    "turn1_stored_question_exact": true,
+    "turn1_sent_question_stripped": true,
+    "turn1_path_warm": true,
+    "turn1_one_warm_request": true,
+    "turn1_prefix_exact": true,
+    "turn1_new_rows": true,
+    "turn1_instruction_last": true,
+    "turn1_not_streamed": true,
+    "turn1_settings_kept": true,
+    "turn1_reply_limit": true,
+    "turn1_removed_rows": true,
+    "turn1_summary_rows": true,
+    "turn1_handoff_in_summary": true,
+    "turn1_tail_question_exact": true,
+    "turn1_history_saved": true,
+    "turn1_saved_question_matches_host": true,
+    "turn1_engine_session_follows": true,
+    "turn2_reply": true,
+    "turn2_stored_question_exact": true,
+    "turn2_sent_question_stripped": true,
+    "turn2_path_warm": true,
+    "turn2_one_warm_request": true,
+    "turn2_prefix_exact": true,
+    "turn2_new_rows": true,
+    "turn2_instruction_last": true,
+    "turn2_not_streamed": true,
+    "turn2_settings_kept": true,
+    "turn2_reply_limit": true,
+    "turn2_removed_rows": true,
+    "turn2_summary_rows": true,
+    "turn2_handoff_in_summary": true,
+    "turn2_tail_question_exact": true,
+    "turn2_history_saved": true,
+    "turn2_saved_question_matches_host": true,
+    "turn2_engine_session_follows": true,
+    "turn3_reply": true,
+    "turn3_stored_question_exact": true,
+    "turn3_sent_question_stripped": true,
+    "turn3_path_warm": true,
+    "turn3_one_warm_request": true,
+    "turn3_prefix_exact": true,
+    "turn3_new_rows": true,
+    "turn3_instruction_last": true,
+    "turn3_not_streamed": true,
+    "turn3_settings_kept": true,
+    "turn3_reply_limit": true,
+    "turn3_removed_rows": true,
+    "turn3_summary_rows": true,
+    "turn3_handoff_in_summary": true,
+    "turn3_tail_question_exact": true,
+    "turn3_history_saved": true,
+    "turn3_saved_question_matches_host": true,
+    "turn3_engine_session_follows": true,
+    "three_compactions": true,
+    "three_main_requests": true,
+    "no_fallback_request": true,
+    "plugin_made_no_blocked_call": true
+  },
+  "retry": {
+    "scenario": "enable_manual_warm",
+    "initial_status": "failed",
+    "initial_error": "Windows DLL path length limit in the temporary Hermes dependency runtime.",
+    "initial_worker_exit_codes": [
+      0,
+      1
+    ],
+    "action": "Run only this scenario again with a shorter temporary work path.",
+    "result": "passed"
+  },
+  "unit_checks": {
+    "focused_command": "python -m unittest discover -s tests -p test_wc_warm.py",
+    "before_fix": {
+      "status": "failed_expected",
+      "tests": 61,
+      "error_cases": 24,
+      "error_code": "source_transform_unsupported"
+    },
+    "after_fix": {
+      "status": "passed",
+      "tests": 61
+    },
+    "full_command": "python -m unittest discover -s tests -p \"test_wc_*.py\"",
+    "full_results": [
+      {
+        "python": "3.14.5",
+        "status": "passed",
+        "tests": 291
+      },
+      {
+        "python": "3.13.1",
+        "status": "passed",
+        "tests": 291
+      }
+    ]
+  },
+  "lint": {
+    "version": "0.16.10",
+    "command": "ruff check .",
+    "status": "passed"
+  },
+  "limits": [
+    "Loopback fake server only; no real model or live provider route.",
+    "Live cache reuse, summary quality, and speed were not measured.",
+    "Leading and inner whitespace changes and content-list rewrites remain refused."
+  ]
+}
