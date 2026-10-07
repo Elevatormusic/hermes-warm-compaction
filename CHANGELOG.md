@@ -4,6 +4,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep safe request refusal codes in status and logs, instead of the generic `settings_unsupported`.
+- Keep the captured `x-opencode-session` header on warm requests, including the header that Hermes adds for OpenCode routes. Refuse unknown headers and header rewrites; send the session value only as an HTTP header.
+- Report `missing_end_marker` or `output_token_limit` when a fallback reply fails the completion check. Incomplete replies still use the fixed summary.
+
 ### Added
 
 - A WARNING for each saved compaction that Hermes confirms without the warm path, with its reason (Hermes copies it to `errors.log`).

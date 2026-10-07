@@ -485,10 +485,12 @@ class BuildRequestTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
     def test_a_capture_without_a_body_gives_its_refusal(self):
-        capture = dict(capture_for(self.rows, self.reply), body=None, refusal="middleware_after_capture")
-        with self.assertRaises(WarmRefusal) as caught:
-            self.build(capture)
-        self.assertEqual(caught.exception.code, "middleware_after_capture")
+        for code in ("middleware_after_capture", "middleware_order_unknown", "request_not_mapping",
+                     "request_options_unsupported", "request_not_json"):
+            capture = dict(capture_for(self.rows, self.reply), body=None, refusal=code)
+            with self.subTest(code=code), self.assertRaises(WarmRefusal) as caught:
+                self.build(capture)
+            self.assertEqual(caught.exception.code, code)
 
     def test_refuses_when_the_window_is_too_small(self):
         with self.assertRaises(WarmRefusal) as caught:

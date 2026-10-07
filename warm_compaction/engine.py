@@ -42,7 +42,9 @@ FAILURE_HINTS = {
     "timeout": "the warm request took longer than its time limit",
     "api_mode_unsupported": "this API mode has no warm path; only chat_completions has one",
     "settings_unsupported": "the main request uses a setting that the warm request cannot keep",
-    "request_options_unsupported": "the main request uses extra headers or query options",
+    "request_not_mapping": "the main request is not a mapping",
+    "request_options_unsupported": "the main request has unsupported extra headers, query options, or extra_body",
+    "request_not_json": "the main request has a value that cannot be sent as JSON",
     "credential_changed": "the API key changed after the last main request",
     "capacity": "the warm request does not fit in the context window",
     "summary_too_large": "the handoff did not fit in the free room of the context window",
@@ -485,7 +487,7 @@ class WarmCompactionEngine(ContextEngine):
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
             reply = self._execute(body, instruction, len(capture["body"]["messages"]), attempt,
-                                  capture.get("prompt_tokens"), key)
+                                  capture.get("prompt_tokens"), key, capture.get("request_headers"))
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
             if text is None:
@@ -500,7 +502,8 @@ class WarmCompactionEngine(ContextEngine):
         return text
 
     def _execute(self, body: dict[str, Any], instruction: str, captured: int, attempt: tuple,
-                 measured: int | None = None, key: str | None = None) -> dict[str, Any]:
+                 measured: int | None = None, key: str | None = None,
+                 request_headers: dict[str, str] | None = None) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
         execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
@@ -516,6 +519,13 @@ class WarmCompactionEngine(ContextEngine):
         key = warm.api_key_text(api_key) if key is None else key
         headers = warm.route_headers(key, route[1], provider)
         tls = warm.route_tls(route[1])
+        if request_headers:
+            # Per-request headers override client defaults without regard to case. Both middleware chains
+            # must see the option, and the rewrite checks below must protect the captured session value.
+            names = {name.lower() for name in request_headers}
+            headers = {name: value for name, value in headers.items() if name.lower() not in names}
+            headers.update(request_headers)
+            body = {**body, "extra_headers": dict(request_headers)}
         context = {"purpose": NAME, "api_request_id": None, "session_id": session_id,
                    "model": route[0], "base_url": route[1], "api_mode": route[2]}
         try:
@@ -562,14 +572,17 @@ class WarmCompactionEngine(ContextEngine):
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
             started.append(True)
-            result = warm.send(base, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls)
+            # extra_headers is an SDK option, not part of the JSON body.
+            wire_body = ({name: value for name, value in base.items() if name != "extra_headers"}
+                         if request_headers else base)
+            result = warm.send(wire_body, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls)
             # The send blocks on the network: a switch can occur before it returns.
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
             sent.append((result, dict(result)))
             return result
         try:
-            reply = run_llm_execution_middleware(body, terminal, original_request=base, **context)
+            reply = run_llm_execution_middleware(body, terminal, original_request=copy.deepcopy(base), **context)
         except warm.WarmRefusal:
             raise
         except Exception as error:

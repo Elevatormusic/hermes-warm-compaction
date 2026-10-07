@@ -179,17 +179,17 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
     return "\n\n".join([*head, *recent])
 
 
-def _complete_reply(result: Any, raw: str) -> tuple[str, str]:
-    """Return (finish reason, text without the end line). ctx.llm reports no finish reason, and an output count
+def _complete_reply(result: Any, raw: str) -> tuple[str | None, str]:
+    """Return (refusal code or None, text without the end line). ctx.llm reports no finish reason, and an output count
     below the limit does not show a complete reply: a content filter or a provider limit can stop it. Only a
-    reply that ends with END_LINE, below the max_tokens limit, counts as complete ("stop")."""
+    reply that ends with END_LINE, below the max_tokens limit, counts as complete."""
     output = getattr(getattr(result, "usage", None), "output_tokens", None)
+    if isinstance(output, int) and not isinstance(output, bool) and output >= MAX_TOKENS:
+        return "output_token_limit", raw
     lines = strip_think(raw).rstrip().splitlines()
     if not lines or lines[-1].strip() != END_LINE:
-        return "length", raw
-    if isinstance(output, int) and not isinstance(output, bool) and output >= MAX_TOKENS:
-        return "length", raw
-    return "stop", "\n".join(lines[:-1])
+        return "missing_end_marker", raw
+    return None, "\n".join(lines[:-1])
 
 
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
@@ -216,8 +216,10 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     # The same checks as the warm reply: the five headings, the byte limit, and no summary markers. A reply
     # without them (cut off, or an answer to the conversation) must not replace the history.
     raw = str(getattr(result, "text", "") or "")
-    finish, body = _complete_reply(result, raw)
-    text, reason = gate({"content": body, "finish_reason": finish}, prefixes)
+    reason, body = _complete_reply(result, raw)
+    text = None
+    if reason is None:
+        text, reason = gate({"content": body, "finish_reason": "stop"}, prefixes)
     if text is None:
         logger.warning("Warm compaction fallback summary refused (%s)", reason)
         return None, None
