@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/Elevatormusic/hermes-warm-compaction/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.
+  - name: Hermes Agent problem
+    url: https://github.com/NousResearch/hermes-agent/issues
+    about: A problem in Hermes Agent itself, not in this plugin.

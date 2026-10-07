@@ -8,7 +8,8 @@ import json
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .rows import attr, plain_text, row_digest, tool_calls_of
 

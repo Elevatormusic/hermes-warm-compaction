@@ -6,7 +6,8 @@ import copy
 import functools
 import heapq
 import re
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX
 from .rows import (api_content, attr, compact_json, cut_bounds, cut_middle, estimate_tokens, hermes_value, plain_text,
@@ -311,7 +312,8 @@ def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple
                 continue
             if isinstance(function, dict) and function.get("arguments") is not None:
                 arguments = function["arguments"]
-                parts.append((("arguments", index), arguments if isinstance(arguments, str) else compact_json(arguments)))
+                text = arguments if isinstance(arguments, str) else compact_json(arguments)
+                parts.append((("arguments", index), text))
         key = sent_reasoning_key(row, policy) if policy.cut_reasoning else None
         if key is not None:
             parts.append(((key,), row[key]))
@@ -364,10 +366,10 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
     be larger than the tail budget (a large user message, assistant reply, tool call, or tool result). Then the
     largest sent payloads (_tail_parts) are cut to their start and end, until the rows fit or no payload has more
     than MIN_COPY_CHARS characters. A tool call keeps its id and name, and its arguments stay a JSON object. A
-    media part (an image, for example) is replaced by its attachment mark. Other rows and fields stay as they are; signed
-    reasoning_details stay, because a cut breaks the signature. When the minimum cuts are not enough (a small cap,
-    or many small payloads), the payloads are dropped (DROPPED), largest first. Only the row structure (roles, tool
-    call ids and names) can then stay above the cap.
+    media part (an image, for example) is replaced by its attachment mark. Other rows and fields stay as they are;
+    signed reasoning_details stay, because a cut breaks the signature. When the minimum cuts are not enough (a small
+    cap, or many small payloads), the payloads are dropped (DROPPED), largest first. Only the row structure (roles,
+    tool call ids and names) can then stay above the cap.
 
     With a removed list, one row for each cut payload is added to it: the removed middle after CUT_NOTE, with the
     role (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""

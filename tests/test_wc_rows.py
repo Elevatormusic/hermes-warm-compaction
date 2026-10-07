@@ -11,7 +11,8 @@ from warm_compaction.rows import (
 
 class RowsTest(unittest.TestCase):
     def test_visible_text_marks_each_non_text_part(self):
-        content = [{"type": "text", "text": "see"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        content = [{"type": "text", "text": "see"},
+                   {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
                    {"type": "image_url", "image_url": {"url": "https://example.invalid/a.png"}},
                    {"type": "input_audio", "input_audio": {"data": "AAAA", "format": "wav"}},
                    {"type": "file", "file": {"filename": "report.pdf", "file_data": "AAAA"}}]
@@ -26,7 +27,8 @@ class RowsTest(unittest.TestCase):
 
     def test_tool_calls_of_reads_rows_and_reply_objects(self):
         row = {"tool_calls": [{"id": "c1", "function": {"name": "read", "arguments": "{\"p\":1}"}}]}
-        reply = SimpleNamespace(tool_calls=[SimpleNamespace(id="c2", function=SimpleNamespace(name="ls", arguments="{}"))])
+        call = SimpleNamespace(id="c2", function=SimpleNamespace(name="ls", arguments="{}"))
+        reply = SimpleNamespace(tool_calls=[call])
         self.assertEqual(tool_calls_of(row), [("c1", "read", "{\"p\":1}")])
         self.assertEqual(tool_calls_of(reply), [("c2", "ls", "{}")])
         self.assertEqual(tool_calls_of({"role": "user"}), [])

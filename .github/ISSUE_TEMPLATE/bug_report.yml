@@ -1,0 +1,45 @@
+name: Bug report
+description: The plugin does something wrong or fails.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste private conversations, API keys, or full request bodies. For a security problem, use the Security tab instead (see SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: warm_compaction log lines
+      description: The `warm_compaction:` lines from `logs/agent.log`. They have the path, the reason, and the time, and no conversation text.
+      render: text
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version or commit
+    validations:
+      required: true
+  - type: input
+    id: hermes
+    attributes:
+      label: Hermes Agent commit or version
+    validations:
+      required: true
+  - type: input
+    id: route
+    attributes:
+      label: API mode and server
+      description: For example `chat_completions` on vLLM 0.x, llama.cpp, LM Studio, or a hosted API.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a synthetic conversation if you can.

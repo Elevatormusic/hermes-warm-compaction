@@ -10,7 +10,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .rows import (
     api_content, attr, compact_json, estimate_tokens, has_thought_signature, hermes_value, plain_text,

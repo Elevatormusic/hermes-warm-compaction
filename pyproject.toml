@@ -1,0 +1,18 @@
+# Tool settings only. The plugin installs with `hermes plugins install` and has no package build.
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = [
+    # SendPolicy() and similar defaults are immutable NamedTuples: a shared default is safe.
+    "B008",
+    # zip() of rows and their wire forms: an explicit strict= adds no check that the code needs.
+    "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# SVG markup in f-strings: a wrapped line changes the SVG text.
+"assets/make_charts.py" = ["E501"]

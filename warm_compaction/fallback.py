@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import collections
 import logging
-from typing import Any, Callable, Iterable
+from typing import Any
+from collections.abc import Callable, Iterable
 
 from .handoff import END_MARKER, LEGACY_PREFIX, extras, gate
 from .layout import CUT_NOTE, is_real_user, is_summary, quote

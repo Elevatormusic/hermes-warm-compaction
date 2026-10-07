@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/Elevatormusic/hermes-warm-compaction/actions/workflows/tests.yml"><img src="https://github.com/Elevatormusic/hermes-warm-compaction/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/Elevatormusic/hermes-warm-compaction/actions/workflows/lint.yml"><img src="https://github.com/Elevatormusic/hermes-warm-compaction/actions/workflows/lint.yml/badge.svg" alt="Lint"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-FF6B3D" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB" alt="Python 3.10 or later">
   <a href="https://github.com/NousResearch/hermes-agent"><img src="https://img.shields.io/badge/Hermes%20Agent-45871e10%2B-5E6878" alt="Hermes Agent 45871e10 or later"></a>
@@ -233,6 +234,10 @@ Run the integration check on a clean Hermes checkout with the Python of the Herm
 ```
 
 The integration check installs the plugin with the Hermes install command in a temporary Hermes home. It runs real Hermes conversation and compaction code against a loopback fake server, and it sends no request to a real model. An audit-hook fence blocks other network access, child processes, and writes outside the scenario folder. The report has metadata only.
+
+## Contributing
+
+Bug reports, server results, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License and credit
 
