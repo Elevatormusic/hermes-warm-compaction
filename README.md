@@ -37,17 +37,28 @@ It works on unpatched Hermes Agent. It uses documented plugin APIs only: no host
 
 ## Quick start
 
-```bash
-hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
-```
+Run these commands in a terminal (PowerShell, Terminal, or any shell) where the `hermes` command works: the same place where you start Hermes. Do not type them in a Hermes chat.
 
-```yaml
-# config.yaml
-context:
-  engine: warm_compaction
-```
+1. Install and enable the plugin:
 
-Start a new Hermes session. Each compaction writes one `warm_compaction:` line to `logs/agent.log`.
+   ```bash
+   hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
+   ```
+
+2. Select the engine:
+
+   ```bash
+   hermes config set context.engine warm_compaction
+   ```
+
+   This writes the setting to your Hermes `config.yaml` (`hermes config path` shows where it is). You can also edit the file yourself (`hermes config edit`):
+
+   ```yaml
+   context:
+     engine: warm_compaction
+   ```
+
+3. Start a new Hermes session. Each compaction writes one `warm_compaction:` line to `logs/agent.log` in the Hermes home folder.
 
 ## How it works
 
