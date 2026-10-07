@@ -9,6 +9,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - A WARNING for each compaction that does not use the warm path, with its reason (Hermes copies it to `errors.log`).
 - After 3 compactions in a row without the warm path, one notice with a hint for each distinct reason, in the logs and in the status of the next automatic compaction. Later failures update the pending notice and its fixed-summary count until Hermes shows it.
 
+### Security
+
+- Use PBKDF2-HMAC-SHA-256 with a random salt for each plugin load to check API key changes. Captures keep only the digest in memory.
+
 ## [0.2.0] - 2026-10-06
 
 First public release.
@@ -22,4 +26,5 @@ First public release.
 - Settings: `threshold`, `tail_tokens`, `user_copy_chars`, `warm`.
 - Integration check against real Hermes code and a loopback fake server, and live results on DGX and LM Studio.
 
+[Unreleased]: https://github.com/Elevatormusic/hermes-warm-compaction/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Elevatormusic/hermes-warm-compaction/releases/tag/v0.2.0
