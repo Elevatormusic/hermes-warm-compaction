@@ -4,6 +4,7 @@ import json
 import threading
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import wc_hermes_stub
 from warm_compaction.fallback import END_LINE
@@ -864,21 +865,34 @@ class EngineTest(unittest.TestCase):
         self.commit(engine)
         self.assertEqual(engine._warm_failures, 1)
 
-    def test_a_late_worker_cannot_change_the_current_candidate_or_counter(self):
+    def test_a_late_worker_cannot_change_the_current_result_or_counter(self):
+        for wait_at in ("fallback", "build"):
+            for committed in (False, True):
+                with self.subTest(wait_at=wait_at, committed=committed):
+                    self.check_late_worker_publication(wait_at, committed)
+
+    def check_late_worker_publication(self, wait_at, committed):
+        from warm_compaction import layout
+
         entered, release = threading.Event(), threading.Event()
         results, errors = [], []
         engine = self.make()
         history = [*old_turns(), assistant("done")]
-        complete = self.llm.complete
+        complete, build = self.llm.complete, layout.build
 
-        def delayed_complete(*args, **kwargs):
-            if threading.current_thread().name == "old-compaction":
+        def wait_for_replacement(phase):
+            if phase == wait_at and threading.current_thread().name == "old-compaction":
                 entered.set()
                 if not release.wait(5):
                     raise TimeoutError("test worker was not released")
+
+        def delayed_complete(*args, **kwargs):
+            wait_for_replacement("fallback")
             return complete(*args, **kwargs)
 
-        self.llm.complete = delayed_complete
+        def delayed_build(*args, **kwargs):
+            wait_for_replacement("build")
+            return build(*args, **kwargs)
 
         def old_attempt():
             try:
@@ -886,23 +900,40 @@ class EngineTest(unittest.TestCase):
             except BaseException as error:
                 errors.append(error)
 
-        worker = threading.Thread(target=old_attempt, name="old-compaction", daemon=True)
-        worker.start()
-        try:
-            self.assertTrue(entered.wait(5), "old worker did not enter the fallback")
-            engine.compress(history)
+        with (patch.object(self.llm, "complete", side_effect=delayed_complete),
+              patch.object(layout, "build", side_effect=delayed_build),
+              self.assertLogs("warm_compaction.engine", level="INFO") as logs):
+            worker = threading.Thread(target=old_attempt, name="old-compaction", daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(5), "old worker did not reach the wait point")
+                engine.compress(history)
+                if committed:
+                    self.commit(engine)
+                current = dict(engine.warm_last)
+                current_status = engine.get_status()
+                current_pending = engine._pending_warm_result
+                metadata = [line for line in logs.output if "warm_compaction: path=" in line]
+                self.assertEqual(len(metadata), 1)
+            finally:
+                release.set()
+                worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0] is history, "old worker returned a candidate")
             self.assertEqual(engine.compression_count, 1)
-        finally:
-            release.set()
-            worker.join(5)
-        self.assertFalse(worker.is_alive())
-        self.assertEqual(errors, [])
-        self.assertEqual(len(results), 1)
-        self.assertTrue(results[0] is history, "old worker returned a candidate")
-        self.assertEqual(engine.compression_count, 1)
-        self.assertEqual(engine._warm_failures, 0)
-        self.commit(engine)
-        self.assertEqual(engine._warm_failures, 1)
+            self.assertEqual(engine._pending_warm_result, current_pending)
+            self.assertEqual(engine._warm_failures, int(committed))
+            with self.subTest(publication="warm_last"):
+                self.assertEqual(engine.warm_last, current)
+            with self.subTest(publication="status"):
+                self.assertEqual(engine.get_status(), current_status)
+            with self.subTest(publication="metadata_log"):
+                self.assertEqual([line for line in logs.output if "warm_compaction: path=" in line],
+                                 metadata)
+            self.commit(engine)
+            self.assertEqual(engine._warm_failures, 1)
 
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next

@@ -1,6 +1,6 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-07T03:43:35Z",
+  "started_utc": "2026-10-07T03:59:22Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
@@ -10,7 +10,7 @@
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
     "warm_compaction/capture.py": "b7ba65676334da63dacc5cebdd2399f46f85e35545be22fccae9443cebcf7ce0",
-    "warm_compaction/engine.py": "56c44d835f5149a9d39ee8235f5cbc8fc778e0b3e0791198103af5edae5c6646",
+    "warm_compaction/engine.py": "33910bde19aa7b9a63778a82a9a1a4ddf863dc4c46835fd9561fbcc216ea7cbb",
     "warm_compaction/fallback.py": "dc2b7fbfdee292601e52549d23d9b7224d40da1d8c06f553f3d0b8e10a23534d",
     "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
     "warm_compaction/layout.py": "b49314c5236268247c337d9fae939135c97b47384300dcdfd00b0da0c040db93",
@@ -79,11 +79,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.143,
+      "compress_seconds": 0.142,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.042,
+        "elapsed_s": 0.041,
         "prompt_tokens": 33855,
         "cached_tokens": 16927
       },
@@ -192,7 +192,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 73.363
+      "process_seconds": 70.006
     },
     {
       "scenario": "manual_fallback",
@@ -254,11 +254,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.301,
+      "compress_seconds": 0.298,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.14,
+        "elapsed_s": 0.156,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -266,7 +266,7 @@
       "final_session_id": "wc-manual_fallback",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 6,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -367,7 +367,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 40.173
+      "process_seconds": 41.015
     },
     {
       "scenario": "manual_fixed",
@@ -428,7 +428,7 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.302,
+      "compress_seconds": 0.299,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
@@ -541,7 +541,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 41.571
+      "process_seconds": 39.251
     },
     {
       "scenario": "auto_tool_loop",
@@ -629,14 +629,14 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.032,
+        "elapsed_s": 0.031,
         "prompt_tokens": 34449,
         "cached_tokens": 17224
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
+        "elapsed_s": 0.031,
         "prompt_tokens": 18744,
         "cached_tokens": 9372
       },
@@ -744,7 +744,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 43.307
+      "process_seconds": 42.949
     },
     {
       "scenario": "auto_warm_failures",
@@ -1036,7 +1036,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 45.512
+      "process_seconds": 44.747
     },
     {
       "scenario": "rollback",
@@ -1089,11 +1089,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.194,
+      "compress_seconds": 0.144,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.015,
+        "elapsed_s": 0.016,
         "prompt_tokens": 33845,
         "cached_tokens": 16922
       },
@@ -1272,10 +1272,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 52.328
+      "process_seconds": 48.135
     }
   ],
-  "finished_utc": "2026-10-07T03:48:32Z",
+  "finished_utc": "2026-10-07T04:04:08Z",
   "passed": true,
   "run_folder": "outside repository"
 }

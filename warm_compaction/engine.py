@@ -161,7 +161,7 @@ class WarmCompactionEngine(ContextEngine):
         self.compression_count = 0
         self.warm_last: dict[str, Any] | None = None
         self._wc_session_id = ""
-        self._wc_result_lock = threading.Lock()
+        self._wc_result_lock = threading.RLock()
         self._wc_attempt_serial = 0
         self._pending_warm_result: tuple[str, int, dict[str, Any]] | None = None
         self._wc_route: tuple = (None, None, None)
@@ -273,9 +273,10 @@ class WarmCompactionEngine(ContextEngine):
         self.awaiting_real_usage_after_compression = False
 
     def get_status(self) -> dict[str, Any]:
-        status = super().get_status()
-        status["warm_last"] = dict(self.warm_last) if self.warm_last else None
-        return status
+        with self._wc_result_lock:
+            status = super().get_status()
+            status["warm_last"] = dict(self.warm_last) if self.warm_last else None
+            return status
 
     def compress(self, messages: list, current_tokens: int | None = None, focus_topic: str | None = None,
                  force: bool = False, memory_context: str = "") -> list:
@@ -334,13 +335,13 @@ class WarmCompactionEngine(ContextEngine):
                 record["path"] = "fallback"
         if self._cancelled():
             record.update(path="cancelled", reason=record["reason"] or "cancelled")
-            self._finish(record, started)
+            self._finish(record, started, attempt[-1])
             return messages
         if self._attempt() != attempt:
             # A model or session switch during the attempt (while a request was on the network, for example): the
             # summary is of the old route or session. Hermes keeps the history.
             record.update(path="cancelled", reason="route_changed")
-            self._finish(record, started)
+            self._finish(record, started, attempt[-1])
             return messages
         # The fixed summary takes at most the reserve, and at most the room.
         fixed_budget = self._fixed_budget(overhead, reserve)
@@ -417,10 +418,10 @@ class WarmCompactionEngine(ContextEngine):
         with self._wc_result_lock:
             if self._cancelled() or self._attempt() != attempt:
                 record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
-                self._finish(record, started)
+                self._finish(record, started, attempt[-1])
                 return messages
             self.compression_count += 1
-            self._finish(record, started)
+            self._finish(record, started, attempt[-1])
             # The host can still reject this candidate. Only its successful boundary updates the failure streak.
             self._pending_warm_result = (attempt[3], self.compression_count, dict(record))
         return new
@@ -670,12 +671,17 @@ class WarmCompactionEngine(ContextEngine):
         except Exception:
             return False
 
-    def _finish(self, record: dict[str, Any], started: float) -> None:
-        record["elapsed_s"] = round(self._clock() - started, 3)
-        self.warm_last = record
-        logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
-                    record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
-                    record["cached_tokens"])
+    def _finish(self, record: dict[str, Any], started: float, attempt_serial: int) -> None:
+        """Publish metadata only while this local attempt owns the engine."""
+        # The final candidate already holds this reentrant lock. All other exits use the same publication guard.
+        with self._wc_result_lock:
+            if attempt_serial != self._wc_attempt_serial:
+                return
+            record["elapsed_s"] = round(self._clock() - started, 3)
+            self.warm_last = record
+            logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
+                        record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
+                        record["cached_tokens"])
 
     def _clear_warm_failures(self) -> None:
         self._warm_failures, self._warm_fixed = 0, 0
