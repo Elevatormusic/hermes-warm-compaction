@@ -33,7 +33,8 @@ class FakeLlm:
 
 class TranscriptTest(unittest.TestCase):
     def test_attachments_are_marked_in_the_transcript(self):
-        text = transcript([user([{"type": "text", "text": "see"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]), assistant("ok")], PREFIXES)
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        text = transcript([user([{"type": "text", "text": "see"}, image]), assistant("ok")], PREFIXES)
         self.assertIn("[first user message]\nsee\n[image attachment]", text)
         self.assertIn("[user]\nsee\n[image attachment]", text)
 

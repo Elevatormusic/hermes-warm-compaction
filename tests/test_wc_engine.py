@@ -618,7 +618,8 @@ class EngineTest(unittest.TestCase):
         self.engine.compress([*rows, reply])
         self.assertEqual(self.engine.warm_last["path"], "warm")
         headers = self.post.calls[0]["headers"]
-        self.assertEqual((headers["X-Title"], headers["User-Agent"], headers["X-Gateway-Key"], headers["Authorization"]),
+        names = ("X-Title", "User-Agent", "X-Gateway-Key", "Authorization")
+        self.assertEqual(tuple(headers[name] for name in names),
                          ("Hermes Agent", "allowed-agent", "synthetic-header-secret", "Bearer k"))
         self.assertNotIn("synthetic-header-secret", json.dumps(self.engine.warm_last))
         # Without a host factory, the provider profile gives the headers.
@@ -838,7 +839,7 @@ class EngineTest(unittest.TestCase):
                                        assistant_message=reply_object(rows[-1]))
         engine.update_model(model="another-model", context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        new = engine.compress(rows, current_tokens=estimate_tokens(rows) + 1_000)
+        engine.compress(rows, current_tokens=estimate_tokens(rows) + 1_000)
         self.assertEqual(engine.warm_last["reason"], "route_changed")
         self.assertIsNone(engine._budget_capture(self.store.latest("s1"), rows))
 
@@ -1122,7 +1123,8 @@ class EngineTest(unittest.TestCase):
     def test_a_fallback_summary_above_the_reserve_goes_to_the_fixed_summary(self):
         # A dense summary (CJK) can pass the byte gate and still be above the token reserve: the tail would then
         # cut more than the fallback transcript had.
-        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 2_500) + "\n" + END_LINE)
+        dense = HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 2_500)
+        self.llm = FakeLlm(text=dense + "\n" + END_LINE)
         engine = self.make(warm=False)
         engine.compress([*old_turns(), assistant("done")])
         self.assertEqual(engine.warm_last["path"], "fixed")

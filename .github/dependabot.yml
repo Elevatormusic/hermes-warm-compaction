@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # The plugin has no Python dependency. Only the CI actions get updates.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

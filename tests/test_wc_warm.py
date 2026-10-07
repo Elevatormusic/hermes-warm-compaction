@@ -7,8 +7,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from warm_compaction.rows import estimate_tokens
 from warm_compaction.warm import (
-    HANDOFF_MAX_TOKENS, ends_with_instruction, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, fits, send, split_history, urllib_post,
-    wire_row,
+    HANDOFF_MAX_TOKENS, HANDOFF_MIN_TOKENS, SAFETY, WarmRefusal, build_request, check_settings, ends_with_instruction,
+    fits, send, split_history, urllib_post, wire_row,
 )
 from wc_fixtures import ROUTE, assistant, capture_for, tool, user
 
@@ -75,7 +75,8 @@ class ApiContentHistoryTest(unittest.TestCase):
 
     def test_the_digest_covers_the_api_content(self):
         from warm_compaction.rows import row_digest
-        self.assertNotEqual(row_digest(user("hi", api_content="[a]\n\nhi")), row_digest(user("hi", api_content="[b]\n\nhi")))
+        self.assertNotEqual(row_digest(user("hi", api_content="[a]\n\nhi")),
+                            row_digest(user("hi", api_content="[b]\n\nhi")))
         self.assertNotEqual(row_digest(user("hi", api_content="[a]\n\nhi")), row_digest(user("hi")))
         self.assertEqual(row_digest(dict(tool("c1", "r"), api_content="x")), row_digest(tool("c1", "r")))
 
@@ -296,9 +297,9 @@ class BuildRequestTest(unittest.TestCase):
         capture["body"]["messages"][-1]["content"] = "A different request."
         rewritten = self._tool_round()
         rewritten["body"]["messages"][-3]["tool_calls"][0]["function"]["arguments"] = "{\"path\":\"other\"}"
-        for capture in (capture, rewritten):
+        for changed in (capture, rewritten):
             with self.subTest(), self.assertRaises(WarmRefusal) as caught:
-                self.build(capture)
+                self.build(changed)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
     def test_refuses_a_changed_tool_call_type(self):
@@ -400,7 +401,8 @@ class BuildRequestTest(unittest.TestCase):
         details = [{"type": "reasoning.encrypted", "data": "abc"}, {"type": "x.native_assistant", "data": "n"}]
         reply = assistant("", [("c1", "read", "{}")], reasoning_details=details)
         self.messages = [*self.rows, reply, tool("c1", "r1")]
-        for base_url, expected in (("https://openrouter.ai/api/v1", [details[0]]), ("https://api.example.com/v1", None)):
+        for base_url, expected in (("https://openrouter.ai/api/v1", [details[0]]),
+                                   ("https://api.example.com/v1", None)):
             route = (ROUTE[0], base_url, ROUTE[2])
             sent = build_request(capture_for(self.rows, self.reply, route=route), self.messages, route, 100_000,
                                  INSTRUCTION)["messages"][-3]
@@ -504,7 +506,8 @@ class BuildRequestTest(unittest.TestCase):
             self.build(capture, context_length=window)
         self.assertEqual(caught.exception.code, "capacity")
         capture["prompt_tokens"] = 1
-        self.assertLess(1 + estimate_tokens({"messages": body["messages"][sent:]}) * SAFETY + HANDOFF_MAX_TOKENS, window)
+        added = estimate_tokens({"messages": body["messages"][sent:]})
+        self.assertLess(1 + added * SAFETY + HANDOFF_MAX_TOKENS, window)
         self.assertEqual(self.build(capture, context_length=window)["messages"], body["messages"])
 
 

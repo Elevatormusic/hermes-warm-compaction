@@ -5,7 +5,8 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from agent.context_engine import ContextEngine
 
@@ -105,8 +106,8 @@ def request_overhead(capture: dict[str, Any] | None, messages: list | None = Non
 
 def request_reserve(capture: dict[str, Any] | None, context_length: int = 0) -> int:
     """The reply reserve of the captured request (warm.reply_reserve). Without a captured body or a positive
-    captured limit, the reply limit of the next request is unknown (Hermes does not give it to a context engine): a quarter of the window, at most
-    UNKNOWN_RESERVE_MAX, and at least the default."""
+    captured limit, the reply limit of the next request is unknown (Hermes does not give it to a context engine):
+    a quarter of the window, at most UNKNOWN_RESERVE_MAX, and at least the default."""
     body = (capture or {}).get("body")
     if isinstance(body, dict) and isinstance(body.get("messages"), list) and any(
             type(body.get(key)) is int and body[key] > 0 for key in warm.LIMIT_KEYS):
@@ -148,7 +149,7 @@ class WarmCompactionEngine(ContextEngine):
     def name(self) -> str:
         return NAME
 
-    def clone_for_agent(self) -> "WarmCompactionEngine":
+    def clone_for_agent(self) -> WarmCompactionEngine:
         """Return a new engine for one agent. The clone shares the capture store and the model access."""
         clone = WarmCompactionEngine(store=self._store, llm=self._llm, settings=self._settings, task=self._task,
                                      post=self._post, clock=self._clock)

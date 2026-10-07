@@ -1,0 +1,21 @@
+name: Feature request
+description: Propose a change or a new capability.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What do you want to do that the plugin does not do now?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How could the plugin do it? The plugin uses documented Hermes plugin APIs only.
+  - type: textarea
+    id: context
+    attributes:
+      label: Server and setup
+      description: The server, model, and API mode where you need it, if it matters.

@@ -14,7 +14,8 @@ def request(**extra):
 
 
 def reply_object(content="done", calls=()):
-    tool_calls = [SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments="{}")) for call_id, name in calls]
+    tool_calls = [SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments="{}"))
+                  for call_id, name in calls]
     return SimpleNamespace(content=content, tool_calls=tool_calls or None)
 
 
@@ -85,7 +86,8 @@ class CaptureStoreTest(unittest.TestCase):
         # A later middleware can change the request after the capture saw it. The capture cannot see that change.
         def other(request=None, next_call=None, **context):
             return next_call()
-        for chain, kept in (([self.store.on_llm_execution, other], False), ([other, self.store.on_llm_execution], True)):
+        own = self.store.on_llm_execution
+        for chain, kept in (([own, other], False), ([other, own], True)):
             wc_hermes_stub.CAPTURE_CHAIN[:] = chain
             with self.subTest(kept=kept):
                 self.run_request()
