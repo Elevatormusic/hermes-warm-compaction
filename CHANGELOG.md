@@ -4,6 +4,11 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+
+- A WARNING for each saved compaction that Hermes confirms without the warm path, with its reason (Hermes copies it to `errors.log`).
+- After 3 confirmed compactions in a row without the warm path, one notice with a hint for each distinct reason, in the logs and at the next automatic compaction when engine status is enabled. The notice has no routine progress text. Later confirmed failures update the pending notice and its fixed-summary count until Hermes shows it.
+
 ### Security
 
 - Use PBKDF2-HMAC-SHA-256 with a random salt for each plugin load to check API key changes. Captures keep only the digest in memory.

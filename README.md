@@ -95,6 +95,14 @@ From the server documentation and issue trackers; tested here only on DGX and LM
 
 ## Install
 
+Ask your agent:
+
+```text
+Install this plugin and set it up: https://github.com/Elevatormusic/hermes-warm-compaction
+```
+
+To install it yourself, run this command in a terminal on the computer where Hermes runs, then [select the engine](#select-the-engine):
+
 ```bash
 hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
 ```
@@ -155,7 +163,7 @@ The warm request uses the key that Hermes gives to the engine. The fallback requ
 
 ## Check the result
 
-Hermes writes one line for each compaction to `logs/agent.log` in the Hermes home folder:
+Hermes writes compaction metadata to `logs/agent.log` in the Hermes home folder:
 
 ```text
 warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021 cached_tokens=107968
@@ -165,7 +173,27 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 - `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `route_changed`, `settings_unsupported`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `tls_unknown`, `tls_unverified`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
-The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.
+The engine status (`get_status()`) has the same values in `warm_last`. After a new attempt starts, an older worker cannot replace this status or write a final metadata line. The log never contains message text, request bodies, or keys.
+
+Manual `/compress` can report `No changes from compression` when all messages fit in the recent-history tail. Then the plugin has no older history to summarize. The request estimate also includes system instructions and tool definitions, which the plugin does not compress. Use `/context` to see the token counts for each part. This unchanged result does not count as a warm-path failure.
+
+### When the warm path keeps failing
+
+When the warm summary cannot be used, the plugin tries the fallback summary. If that summary cannot be used, it uses the fixed summary. The plugin reports these results:
+
+- Each saved compaction that Hermes confirms without the warm path writes a WARNING with its reason, for example `Warm compaction skipped (provider_error); used the fallback summary`. Hermes copies warnings to `logs/errors.log`.
+- After 3 confirmed compactions in a row without the warm path, the plugin writes one WARNING with a hint for each distinct reason. When automatic engine status is enabled, Hermes shows the notice at the next automatic compaction. The notice has no routine progress text, so a gateway filter for that text does not discard it. Later confirmed failures update the pending notice until Hermes shows it. For example:
+
+  ```text
+  ⚠ Warm compaction unavailable: the last 3 compactions did not use the warm summary (provider_error: the server refused the warm request (a provider error, or a gateway that needs a cookie)). Compaction continues with the fallback summary. Details: the warm_compaction lines in logs/agent.log.
+  ```
+
+- When the fallback summary could not be used, the notice says how many times, and that those compactions used the fixed summary (no model, less detail).
+- A warm summary can fail the handoff checks even when the server reports cached tokens. The notice describes the summary result. It does not prove a cache miss, a speed change, or that all details were kept.
+- A confirmed warm compaction or a session reset ends the streak, and the notice can show again after the next 3 failures. A cancelled or rejected attempt does not count or clear the streak, and `warm: false` is not a failure.
+- When the engine's automatic status is disabled, warnings stay in the logs. The engine keeps a pending notice until status is enabled or a confirmed warm compaction or session reset clears it.
+- The streak belongs to one engine instance. It is not saved across a restart or shared with separate gateway manual-command engines. A host that sends no successful compaction notification has attempt metadata only.
+- Manual `/compress` has no status line from the engine: after manual compactions only, the notice is in the logs.
 
 ## Results
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 import time
 from typing import Any
 from collections.abc import Callable
@@ -32,6 +33,26 @@ FIXED_ROUNDS = 10
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
+# After this many compactions in a row without the warm path, the user gets one notice.
+WARM_FAILURE_STREAK = 3
+# What a user can do about the common reasons. Other reasons point to the README Limits.
+FAILURE_HINTS = {
+    "no_capture": "no main-model request completed in this Hermes process before the compaction",
+    "provider_error": "the server refused the warm request (a provider error, or a gateway that needs a cookie)",
+    "timeout": "the warm request took longer than its time limit",
+    "api_mode_unsupported": "this API mode has no warm path; only chat_completions has one",
+    "settings_unsupported": "the main request uses a setting that the warm request cannot keep",
+    "request_options_unsupported": "the main request uses extra headers or query options",
+    "credential_changed": "the API key changed after the last main request",
+    "capacity": "the warm request does not fit in the context window",
+    "summary_too_large": "the handoff did not fit in the free room of the context window",
+    "gate": "the warm reply failed the handoff checks",
+    "headers_unknown": "the route headers could not be read",
+    "tls_unknown": "the TLS settings of the route could not be read",
+    "middleware_after_capture": "another plugin middleware runs after the capture and can change the request",
+    "middleware_order_unknown": "the order of the plugin middleware could not be read",
+    "source_transform_unsupported": "a hook or middleware changed the stored rows in the request",
+}
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
 
@@ -61,7 +82,7 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
         if _valid(key, value):
             settings[key] = float(value) if key == "threshold" else value
         else:
-            logger.warning("warm_compaction: the setting %s is not valid; the default %r applies", key, default)
+            logger.warning("Invalid warm_compaction setting %s; using the default %r", key, default)
     return settings
 
 
@@ -137,13 +158,19 @@ class WarmCompactionEngine(ContextEngine):
         self._clock = clock
         self.threshold_percent = float(self._settings["threshold"])
         self.last_real_prompt_tokens = 0
+        self.compression_count = 0
         self.warm_last: dict[str, Any] | None = None
         self._wc_session_id = ""
+        self._wc_result_lock = threading.RLock()
+        self._wc_attempt_serial = 0
+        self._pending_warm_result: tuple[str, int, dict[str, Any]] | None = None
         self._wc_route: tuple = (None, None, None)
         self._wc_api_key: Any = ""
         self._wc_provider: str = ""
         # True after the first update_model: an empty provider and key are an identity too.
         self._wc_identity_set = False
+        # Compactions in a row without the warm path, their reasons, and the notice for the next status.
+        self._clear_warm_failures()
 
     @property
     def name(self) -> str:
@@ -159,9 +186,21 @@ class WarmCompactionEngine(ContextEngine):
         return clone
 
     def on_session_start(self, session_id: str, **kwargs: Any) -> None:
-        if kwargs.get("boundary_reason") == "compression" and kwargs.get("old_session_id"):
-            self._store.forget(session_id=kwargs["old_session_id"])
-        self._wc_session_id = str(session_id or "")
+        with self._wc_result_lock:
+            pending, self._pending_warm_result = self._pending_warm_result, None
+            self._wc_attempt_serial += 1
+            if kwargs.get("boundary_reason") == "compression":
+                old_session = str(kwargs.get("old_session_id") or "")
+                # Hermes also calls this hook when it adopts another process's child. That call gives session_db.
+                if (pending is not None and "session_db" not in kwargs
+                        and pending[0] == old_session == self._wc_session_id
+                        and pending[1] == self.compression_count):
+                    self._note_warm_result(pending[2])
+                if old_session:
+                    self._store.forget(session_id=old_session)
+            elif str(session_id or "") != self._wc_session_id:
+                self._clear_warm_failures()
+            self._wc_session_id = str(session_id or "")
         # The hooks do not get the key: the store asks the engine for the stamp of the key now.
         self._store.set_stamp(self._wc_session_id, self._key_stamp)
 
@@ -222,16 +261,22 @@ class WarmCompactionEngine(ContextEngine):
         return start > 0
 
     def on_session_reset(self) -> None:
-        super().on_session_reset()
-        self.warm_last = None
+        with self._wc_result_lock:
+            super().on_session_reset()
+            self._wc_attempt_serial += 1
+            self._pending_warm_result = None
+            self.warm_last = None
+            # The failure streak and its notice are of the old session.
+            self._clear_warm_failures()
         # The calibration of the old session: Hermes uses the real prompt count as a floor unless the latch is set.
         self.last_real_prompt_tokens = 0
         self.awaiting_real_usage_after_compression = False
 
     def get_status(self) -> dict[str, Any]:
-        status = super().get_status()
-        status["warm_last"] = dict(self.warm_last) if self.warm_last else None
-        return status
+        with self._wc_result_lock:
+            status = super().get_status()
+            status["warm_last"] = dict(self.warm_last) if self.warm_last else None
+            return status
 
     def compress(self, messages: list, current_tokens: int | None = None, focus_topic: str | None = None,
                  force: bool = False, memory_context: str = "") -> list:
@@ -240,7 +285,10 @@ class WarmCompactionEngine(ContextEngine):
         # The route, key, and session of this attempt, before anything reads them. Hermes can switch them while
         # the attempt still runs (it runs on a pooled thread and can outlive a host timeout); the warm request goes
         # only to this route, and the result is used only when they did not change.
-        attempt = self._attempt()
+        with self._wc_result_lock:
+            self._wc_attempt_serial += 1
+            self._pending_warm_result = None
+            attempt = self._attempt()
         prefixes = self._prefixes()
         policy = self._policy(messages)
         capture = self._store.latest(attempt[3])
@@ -260,7 +308,7 @@ class WarmCompactionEngine(ContextEngine):
         if summary is not None and not self._summary_fits(summary, overhead, reserve):
             # A dense handoff can pass the byte gate and still not fit below the threshold: the next request would
             # compact again at once. The fallback summary has a smaller limit.
-            logger.warning("warm_compaction: the warm summary does not fit in the room; fallback used")
+            logger.warning("Warm compaction summary does not fit in the free context; using the fallback summary")
             record.update(path=None, reason="summary_too_large")
             summary = None
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
@@ -280,19 +328,20 @@ class WarmCompactionEngine(ContextEngine):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
                 # transcript had. Or above the room (a large system prompt and a low threshold): the next request
                 # would compact again at once. The fixed summary quotes what the final tail cuts, in the room.
-                logger.warning("warm_compaction: the fallback summary is above the reserve; fixed summary used")
+                logger.warning("Warm compaction fallback summary is above its token reserve or the free context; "
+                               "using the fixed summary")
                 summary = None
             if summary is not None:
                 record["path"] = "fallback"
         if self._cancelled():
             record.update(path="cancelled", reason=record["reason"] or "cancelled")
-            self._finish(record, started)
+            self._finish(record, started, attempt[-1])
             return messages
         if self._attempt() != attempt:
             # A model or session switch during the attempt (while a request was on the network, for example): the
             # summary is of the old route or session. Hermes keeps the history.
             record.update(path="cancelled", reason="route_changed")
-            self._finish(record, started)
+            self._finish(record, started, attempt[-1])
             return messages
         # The fixed summary takes at most the reserve, and at most the room.
         fixed_budget = self._fixed_budget(overhead, reserve)
@@ -328,7 +377,8 @@ class WarmCompactionEngine(ContextEngine):
                     else:
                         # No quote fits after the summary: the cut middle would be lost. The fixed summary has
                         # the room for it.
-                        logger.warning("warm_compaction: no room for the cut quote; fixed summary used")
+                        logger.warning("No room for the cut quote after the fallback summary; using the fixed "
+                                       "summary")
                         record["path"] = "fixed"
                         cut = []
                 if record["path"] == "fixed":
@@ -364,13 +414,16 @@ class WarmCompactionEngine(ContextEngine):
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
             copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy)
-        # Again before the result is used: a switch or a cancel while the new history was built also stops it.
-        if self._cancelled() or self._attempt() != attempt:
-            record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
-            self._finish(record, started)
-            return messages
-        self.compression_count += 1
-        self._finish(record, started)
+        # A stale worker must not change the counter or replace a newer candidate. No model call holds this lock.
+        with self._wc_result_lock:
+            if self._cancelled() or self._attempt() != attempt:
+                record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
+                self._finish(record, started, attempt[-1])
+                return messages
+            self.compression_count += 1
+            self._finish(record, started, attempt[-1])
+            # The host can still reject this candidate. Only its successful boundary updates the failure streak.
+            self._pending_warm_result = (attempt[3], self.compression_count, dict(record))
         return new
 
     def _policy(self, messages: list) -> SendPolicy:
@@ -409,10 +462,10 @@ class WarmCompactionEngine(ContextEngine):
                               request_reserve(budget, int(self.context_length or 0)))
 
     def _attempt(self) -> tuple:
-        """(route, api key, provider, session id, window, threshold) now. The result of an attempt is sized for
-        the window and threshold: a change of them also stops it."""
+        """Route, key, provider, session, window, threshold, and local attempt id now.
+        A change stops the attempt before it can publish a candidate."""
         return (tuple(self._wc_route), self._wc_api_key, self._wc_provider, self._wc_session_id,
-                int(self.context_length or 0), int(self.threshold_tokens or 0))
+                int(self.context_length or 0), int(self.threshold_tokens or 0), self._wc_attempt_serial)
 
     def _warm_summary(self, messages: list, capture: dict[str, Any] | None, focus_topic: str | None, memory: str,
                       prefixes: tuple[str, ...], record: dict[str, Any], attempt: tuple) -> str | None:
@@ -618,9 +671,70 @@ class WarmCompactionEngine(ContextEngine):
         except Exception:
             return False
 
-    def _finish(self, record: dict[str, Any], started: float) -> None:
-        record["elapsed_s"] = round(self._clock() - started, 3)
-        self.warm_last = record
-        logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
-                    record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
-                    record["cached_tokens"])
+    def _finish(self, record: dict[str, Any], started: float, attempt_serial: int) -> None:
+        """Publish metadata only while this local attempt owns the engine."""
+        # The final candidate already holds this reentrant lock. All other exits use the same publication guard.
+        with self._wc_result_lock:
+            if attempt_serial != self._wc_attempt_serial:
+                return
+            record["elapsed_s"] = round(self._clock() - started, 3)
+            self.warm_last = record
+            logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
+                        record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
+                        record["cached_tokens"])
+
+    def _clear_warm_failures(self) -> None:
+        self._warm_failures, self._warm_fixed = 0, 0
+        self._warm_failure_reasons: list[str] = []
+        self._warm_notice: str | None = None
+
+    def _note_warm_result(self, record: dict[str, Any]) -> None:
+        """Count the compactions in a row without the warm path. Each one is a WARNING (errors.log has it too).
+        After WARM_FAILURE_STREAK of them, one WARNING names the reasons and their hints. The next automatic
+        compaction status shows the notice. Until then, later failures update it. A warm compaction ends the
+        streak. A cancelled attempt and the warm setting off do not count."""
+        path, reason = record["path"], str(record["reason"])
+        if path == "warm":
+            if self._warm_failures >= WARM_FAILURE_STREAK:
+                logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
+            self._clear_warm_failures()
+            return
+        if path not in ("fallback", "fixed") or reason == "disabled":
+            return
+        logger.warning("Warm compaction skipped (%s); used the %s summary", reason, path)
+        self._warm_failures += 1
+        self._warm_fixed += path == "fixed"
+        self._warm_failure_reasons.append(reason)
+        if self._warm_failures >= WARM_FAILURE_STREAK and (
+                self._warm_failures == WARM_FAILURE_STREAK or self._warm_notice is not None):
+            reasons = ", ".join(dict.fromkeys(self._warm_failure_reasons))
+            hints = "; ".join(
+                f"{item}: {FAILURE_HINTS.get(item.split(':', 1)[0], 'see the Limits section of the plugin README')}"
+                for item in dict.fromkeys(self._warm_failure_reasons))
+            # The fixed summary has no model request: when the fallback also failed, the notice says so.
+            if self._warm_fixed:
+                continues = (f"Compaction continues, but the fallback summary could not be used {self._warm_fixed} of "
+                             f"{self._warm_failures} times, so those used the fixed summary (no model, less detail)")
+                log_continues = f"compaction continues, {self._warm_fixed} of them with the fixed summary"
+            else:
+                continues = "Compaction continues with the fallback summary"
+                log_continues = "compaction continues with the fallback summary"
+            # The Hermes warning style on screen: the sign, the subject, what continues, and where to look.
+            self._warm_notice = (
+                f"\u26a0 Warm compaction unavailable: the last {self._warm_failures} compactions did not use the "
+                f"warm summary ({hints}). {continues}. "
+                "Details: the warm_compaction lines in logs/agent.log.")
+            if self._warm_failures == WARM_FAILURE_STREAK:
+                logger.warning("Warm compaction failed %d times in a row (%s): %s; %s", self._warm_failures, reasons,
+                               hints, log_continues)
+
+    def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
+                                                **context: Any) -> str | None:
+        """Return one pending warning when Hermes permits an automatic compaction status."""
+        message = super().get_automatic_compaction_status_message(phase=phase, default_message=default_message,
+                                                                  **context)
+        if message is None:
+            return None
+        with self._wc_result_lock:
+            notice, self._warm_notice = self._warm_notice, None
+        return notice if notice is not None else message

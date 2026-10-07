@@ -1,22 +1,22 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-06T18:52:13Z",
+  "started_utc": "2026-10-07T03:59:22Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
   },
   "python": "3.11.14",
-  "script_sha256": "08a2bedce89ede3a05576013351c1397e00bef0d50a24e28c9b6c0168d86c8ae",
+  "script_sha256": "a6fa3470f1184720284dbdec1a5e513cb0b42b93dc4a52d4c0a56d0c2d1973ca",
   "plugin_files_sha256": {
-    "warm_compaction/__init__.py": "11e038f05813627b2d1d8b82b3b775ecfe41015746c8e90ed6d452cfdaec65a6",
-    "warm_compaction/capture.py": "971abfe0751437701c030be8c23a1c33b5380e06db87cb696bc951ea080007cc",
-    "warm_compaction/engine.py": "198ea6567059c8e2700c142e3b5f27705aab9a4472b8cbb6d6e0686279b96e5f",
-    "warm_compaction/fallback.py": "3561af9eda01601574bc000155e5fb1e56d38c9a52c46c9bc756cb8686fce2f2",
-    "warm_compaction/handoff.py": "9afea62ec2f8ef46cbeefd70b1071bb6c7111fa6fd1cd073e1fb2c7eae30f3c2",
-    "warm_compaction/layout.py": "41787f75a1044bade37f01f5f1e9f5329726b15145b9c9b2bdd51c14bda45080",
+    "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
+    "warm_compaction/capture.py": "b7ba65676334da63dacc5cebdd2399f46f85e35545be22fccae9443cebcf7ce0",
+    "warm_compaction/engine.py": "33910bde19aa7b9a63778a82a9a1a4ddf863dc4c46835fd9561fbcc216ea7cbb",
+    "warm_compaction/fallback.py": "dc2b7fbfdee292601e52549d23d9b7224d40da1d8c06f553f3d0b8e10a23534d",
+    "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "warm_compaction/layout.py": "b49314c5236268247c337d9fae939135c97b47384300dcdfd00b0da0c040db93",
     "warm_compaction/plugin.yaml": "d67560fd4625ec80d9e26f3e6d712763e77474f68d469c7e48f09fd3506ccc71",
     "warm_compaction/rows.py": "f2ca69a7361affc4fd84388ab9ac718a0e9affa609c87d75efd6e0c25fa860cf",
-    "warm_compaction/warm.py": "febc739af4757392f63b2c8daa343b2daf32aeab6864b5f33d63d5cb7e8ceb3a"
+    "warm_compaction/warm.py": "95bc01d954d30e37de7a74a2f0ad7e643b50048c7cb37ea9443748160f020fed"
   },
   "privacy": "metadata only: names, counts, codes, booleans, and times; no message text",
   "scenarios": [
@@ -29,6 +29,9 @@
         "engine_selected": true,
         "seed_turn": true,
         "capture_keeps_reported_prompt_tokens": true,
+        "failure_streak_waits_for_manual_commit": true,
+        "failure_streak_after_manual_commit": true,
+        "manual_commit_notification_one_time": true,
         "path_and_reason": true,
         "removed_rows": true,
         "summary_rows": true,
@@ -76,19 +79,19 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.101,
+      "compress_seconds": 0.142,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.024,
-        "prompt_tokens": 33892,
-        "cached_tokens": 16946
+        "elapsed_s": 0.041,
+        "prompt_tokens": 33855,
+        "cached_tokens": 16927
       },
       "session_rotated": false,
       "final_session_id": "wc-enable_manual_warm",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -189,7 +192,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 53.442
+      "process_seconds": 70.006
     },
     {
       "scenario": "manual_fallback",
@@ -200,6 +203,9 @@
         "engine_selected": true,
         "seed_turn": true,
         "capture_keeps_reported_prompt_tokens": true,
+        "failure_streak_waits_for_manual_commit": true,
+        "failure_streak_after_manual_commit": true,
+        "manual_commit_notification_one_time": true,
         "path_and_reason": true,
         "removed_rows": true,
         "summary_rows": true,
@@ -248,11 +254,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.238,
+      "compress_seconds": 0.298,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.109,
+        "elapsed_s": 0.156,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -260,7 +266,7 @@
       "final_session_id": "wc-manual_fallback",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -361,7 +367,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 33.695
+      "process_seconds": 41.015
     },
     {
       "scenario": "manual_fixed",
@@ -372,6 +378,9 @@
         "engine_selected": true,
         "seed_turn": true,
         "capture_keeps_reported_prompt_tokens": true,
+        "failure_streak_waits_for_manual_commit": true,
+        "failure_streak_after_manual_commit": true,
+        "manual_commit_notification_one_time": true,
         "path_and_reason": true,
         "removed_rows": true,
         "summary_rows": true,
@@ -419,11 +428,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.28,
+      "compress_seconds": 0.299,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.141,
+        "elapsed_s": 0.156,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -431,7 +440,7 @@
       "final_session_id": "wc-manual_fixed",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -532,7 +541,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 31.52
+      "process_seconds": 39.251
     },
     {
       "scenario": "auto_tool_loop",
@@ -620,21 +629,21 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.015,
-        "prompt_tokens": 35209,
-        "cached_tokens": 17604
+        "elapsed_s": 0.031,
+        "prompt_tokens": 34449,
+        "cached_tokens": 17224
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
-        "prompt_tokens": 19504,
-        "cached_tokens": 9752
+        "elapsed_s": 0.031,
+        "prompt_tokens": 18744,
+        "cached_tokens": 9372
       },
       "compression_count": 2,
       "fence_denied": {
-        "network_host_blocked": 1,
-        "child_process_blocked": 7
+        "child_process_blocked": 5,
+        "network_host_blocked": 1
       },
       "fence_blocked_programs": [
         "git",
@@ -646,8 +655,7 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
-        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:bounded_git_probe",
-        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:noninteractive_repo_git_env",
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -736,7 +744,299 @@
         "install",
         "run"
       ],
-      "process_seconds": 34.084
+      "process_seconds": 42.949
+    },
+    {
+      "scenario": "auto_warm_failures",
+      "python": "3.11.14",
+      "status": "passed",
+      "checks": {
+        "listed_in_engine_picker": true,
+        "engine_selected": true,
+        "gateway_routine_progress_disabled": true,
+        "turn1_final": true,
+        "turn2_final": true,
+        "turn3_final": true,
+        "disabled_host_status_is_silent": true,
+        "disabled_host_status_keeps_notice": true,
+        "turn4_final": true,
+        "three_fallbacks_then_warm": true,
+        "one_notice": true,
+        "one_notice_survives_gateway_filter": true,
+        "gateway_keeps_the_notice_text": true,
+        "notice_has_no_routine_progress": true,
+        "notice_before_the_fourth_compaction": true,
+        "notice_names_the_reason": true,
+        "notice_describes_the_summary_result": true,
+        "notice_has_no_cache_or_retained_detail_claim": true,
+        "each_refusal_in_agent_log": true,
+        "each_refusal_in_errors_log": true,
+        "notice_in_errors_log": true,
+        "fresh_engine_counter_in_host_snapshot": true,
+        "boundary_probe_has_real_fallback_candidate": true,
+        "first_attempt_advances_compression_count": true,
+        "staged_failure_does_not_count": true,
+        "discarded_host_boundary_is_silent": true,
+        "discarded_failure_does_not_count": true,
+        "discarded_host_boundary_cannot_be_replayed": true,
+        "host_rollback_restores_compression_count": true,
+        "restored_candidate_cannot_count_at_stale_boundary": true,
+        "later_failure_waits_for_commit": true,
+        "later_committed_failure_counts_once": true,
+        "committed_host_boundary_cannot_be_replayed": true,
+        "replayed_host_boundary_does_not_count": true,
+        "rollback_keeps_prior_committed_streak": true,
+        "rollback_after_commit_restores_count": true,
+        "retry_after_rollback_counts_once": true,
+        "plugin_made_no_blocked_call": true
+      },
+      "requests": [
+        {
+          "seq": 0,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 62
+        },
+        {
+          "seq": 1,
+          "kind": "warm",
+          "status": 500,
+          "stream": false,
+          "message_count": 65
+        },
+        {
+          "seq": 2,
+          "kind": "fallback",
+          "status": 200,
+          "stream": true,
+          "message_count": 2
+        },
+        {
+          "seq": 3,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 24
+        },
+        {
+          "seq": 4,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 26
+        },
+        {
+          "seq": 5,
+          "kind": "warm",
+          "status": 500,
+          "stream": false,
+          "message_count": 29
+        },
+        {
+          "seq": 6,
+          "kind": "fallback",
+          "status": 200,
+          "stream": true,
+          "message_count": 2
+        },
+        {
+          "seq": 7,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 28
+        },
+        {
+          "seq": 8,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 30
+        },
+        {
+          "seq": 9,
+          "kind": "warm",
+          "status": 500,
+          "stream": false,
+          "message_count": 33
+        },
+        {
+          "seq": 10,
+          "kind": "fallback",
+          "status": 200,
+          "stream": true,
+          "message_count": 2
+        },
+        {
+          "seq": 11,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 32
+        },
+        {
+          "seq": 12,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 34
+        },
+        {
+          "seq": 13,
+          "kind": "warm",
+          "status": 200,
+          "stream": false,
+          "message_count": 37
+        },
+        {
+          "seq": 14,
+          "kind": "main",
+          "status": 200,
+          "stream": true,
+          "message_count": 36
+        }
+      ],
+      "error": null,
+      "engine": {
+        "name": "warm_compaction",
+        "threshold_tokens": 80000,
+        "context_length": 200000
+      },
+      "outcomes": [
+        [
+          "fallback",
+          "provider_error"
+        ],
+        [
+          "fallback",
+          "provider_error"
+        ],
+        [
+          "fallback",
+          "provider_error"
+        ],
+        [
+          "warm",
+          "accepted"
+        ]
+      ],
+      "notices": [
+        "⚠ Warm compaction unavailable: the last 3 compactions did not use the warm summary (provider_error: the server refused the warm request (a provider error, or a gateway that needs a cookie)). Compaction continues with the fallback summary. Details: the warm_compaction lines in logs/agent.log."
+      ],
+      "status_count": 13,
+      "gateway_notices": [
+        "⚠ Warm compaction unavailable: the last 3 compactions did not use the warm summary (provider_error: the server refused the warm request (a provider error, or a gateway that needs a cookie)). Compaction continues with the fallback summary. Details: the warm_compaction lines in logs/agent.log."
+      ],
+      "log_counts": {
+        "agent_refusals": 3,
+        "errors_refusals": 3,
+        "errors_notice": 1
+      },
+      "fence_denied": {
+        "child_process_blocked": 5,
+        "network_host_blocked": 1
+      },
+      "fence_blocked_programs": [
+        "git",
+        "pip",
+        "python",
+        "python3"
+      ],
+      "fence_blocked_hosts": [
+        "hermes-assets.nousresearch.com"
+      ],
+      "fence_blocked_callers": [
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+        "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+        "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+      ],
+      "fence_socketpairs": 0,
+      "install": {
+        "python": "3.11.14",
+        "enable_path": "plugins.enabled in config",
+        "enabled_keys": [
+          "warm_compaction",
+          "wc_test_tools"
+        ],
+        "validate": [
+          [
+            "manifest",
+            true
+          ],
+          [
+            "manifest fields",
+            true
+          ],
+          [
+            "requires_hermes",
+            true
+          ],
+          [
+            "config schema",
+            true
+          ],
+          [
+            "requires_env",
+            true
+          ],
+          [
+            "loadable",
+            true
+          ],
+          [
+            "python dependencies",
+            true
+          ],
+          [
+            "capability probe",
+            true
+          ],
+          [
+            "declared tools",
+            true
+          ],
+          [
+            "declared hooks",
+            true
+          ],
+          [
+            "declared middleware",
+            true
+          ],
+          [
+            "built-in tool collisions",
+            true
+          ],
+          [
+            "security scan",
+            true
+          ],
+          [
+            "no core override",
+            true
+          ]
+        ],
+        "checks": {
+          "enabled_in_config": true,
+          "installed": true,
+          "validate_ok": true,
+          "security_scan_passed": true,
+          "no_core_override_passed": true
+        },
+        "error": null
+      },
+      "run_interpreter": "launch_python",
+      "exit": [
+        0,
+        0
+      ],
+      "phases": [
+        "install",
+        "run"
+      ],
+      "process_seconds": 44.747
     },
     {
       "scenario": "rollback",
@@ -747,6 +1047,9 @@
         "engine_selected": true,
         "seed_turn": true,
         "capture_keeps_reported_prompt_tokens": true,
+        "failure_streak_waits_for_manual_commit": true,
+        "failure_streak_after_manual_commit": true,
+        "manual_commit_notification_one_time": true,
         "path_and_reason": true,
         "removed_rows": true,
         "summary_rows": true,
@@ -786,13 +1089,13 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.149,
+      "compress_seconds": 0.144,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
         "elapsed_s": 0.016,
-        "prompt_tokens": 33882,
-        "cached_tokens": 16941
+        "prompt_tokens": 33845,
+        "cached_tokens": 16922
       },
       "session_rotated": false,
       "final_session_id": "wc-rollback",
@@ -949,7 +1252,7 @@
           "stored": 30
         },
         "fence_denied": {
-          "child_process_blocked": 5
+          "child_process_blocked": 6
         },
         "fence_blocked_programs": [
           "git",
@@ -969,10 +1272,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 38.551
+      "process_seconds": 48.135
     }
   ],
-  "finished_utc": "2026-10-06T18:55:25Z",
+  "finished_utc": "2026-10-07T04:04:08Z",
   "passed": true,
   "run_folder": "outside repository"
 }

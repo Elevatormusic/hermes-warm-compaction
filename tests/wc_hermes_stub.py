@@ -62,6 +62,12 @@ class StubContextEngine(abc.ABC):
     def clone_for_agent(self):
         return copy.deepcopy(self)
 
+    # Hermes 45871e10 (agent.context_engine): the automatic compaction status that the host shows, or None.
+    emit_automatic_compaction_status = True
+
+    def get_automatic_compaction_status_message(self, *, phase, default_message, **context):
+        return default_message if self.emit_automatic_compaction_status else None
+
     def update_model(self, model, context_length, base_url="", api_key="", provider="", api_mode=""):
         self.context_length = context_length
         from agent.context_compressor import resolve_model_threshold

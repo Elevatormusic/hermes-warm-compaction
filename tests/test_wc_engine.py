@@ -1,8 +1,10 @@
 """Tests for the warm_compaction context engine with stand-in Hermes modules."""
 
 import json
+import threading
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import wc_hermes_stub
 from warm_compaction.fallback import END_LINE
@@ -76,6 +78,17 @@ class EngineTest(unittest.TestCase):
         self.store.on_post_api_request(api_request_id="r1", session_id=session,
                                        finish_reason="tool_calls" if reply.get("tool_calls") else "stop",
                                        assistant_message=reply_object(reply))
+
+    def commit(self, engine, new_session=None, **context):
+        source = engine._wc_session_id
+        engine.on_session_start(new_session or source, boundary_reason="compression", old_session_id=source,
+                                **context)
+
+    def compress_committed(self, engine, history):
+        result = engine.compress(history)
+        if result is not history:
+            self.commit(engine)
+        return result
 
     def test_threshold_comes_from_the_setting(self):
         self.assertEqual(self.engine.threshold_tokens, 100_000)
@@ -584,6 +597,343 @@ class EngineTest(unittest.TestCase):
         # the tail half.
         engine = self.make(tail_tokens=500_000)
         self.assertEqual(engine._tail_cap(0, None, 0) - engine._tail_cap(2_000, None, 0, 1_000), 3_000)
+
+    def test_three_compactions_without_the_warm_path_tell_the_user_one_time(self):
+        # No capture: each compaction uses the fallback. Each refusal is a WARNING; the third one adds one notice
+        # to the next automatic compaction status that Hermes shows.
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.compress_committed(engine, history)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "no_capture"))
+        self.assertEqual(sum("Warm compaction skipped (no_capture); used the fallback summary" in line
+                             for line in logs.output), 3)
+        self.assertEqual(sum("Warm compaction failed 3 times in a row (no_capture)" in line for line in logs.output), 1)
+        # Hermes log style: no module prefix in the text (the log format shows the logger name), no emoji.
+        self.assertFalse(any(line.split(":", 2)[2].startswith(("warm_compaction:", "\u26a0")) for line in logs.output))
+        message = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        # Hermes warning style on screen: the warning sign, a subject, what continues, and where to look.
+        notice = message
+        self.assertNotIn("Compacting", message)
+        self.assertTrue(notice.startswith("\u26a0 Warm compaction unavailable: the last 3 compactions did not "
+                                          "use the warm summary (no_capture:"))
+        self.assertIn("no main-model request completed", notice)
+        self.assertIn("Compaction continues with the fallback summary.", notice)
+        self.assertNotIn("slower", notice)
+        self.assertNotIn("no messages were dropped", notice)
+        self.assertIn("logs/agent.log", notice)
+        # One time only.
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_a_pending_notice_includes_a_later_fixed_summary(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.compress_committed(engine, history)
+            self.llm.error = RuntimeError("down")
+            self.compress_committed(engine, history)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("the last 4 compactions", notice)
+        self.assertIn("the fallback summary could not be used 1 of 4 times", notice)
+        self.assertIn("fixed summary (no model, less detail)", notice)
+        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 4)
+        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+
+    def test_a_pending_notice_keeps_each_reason_with_its_hint(self):
+        engine = self.make()
+        rows, reply = old_turns(), assistant("final")
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(2):
+                self.compress_committed(engine, [*rows, reply])
+            self.seed(rows, reply)
+            engine._post = fake_post(content="no headings")
+            self.compress_committed(engine, [*rows, reply])
+
+            def refused(*args, **kwargs):
+                raise RuntimeError("synthetic server refusal")
+
+            engine._post = refused
+            self.seed(rows, reply)
+            self.compress_committed(engine, [*rows, reply])
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        causes = (
+            "no_capture: no main-model request completed",
+            "gate:heading_missing: the warm reply failed the handoff checks",
+            "provider_error: the server refused the warm request",
+        )
+        for cause in causes:
+            self.assertEqual(notice.count(cause), 1)
+        self.assertLess(notice.index(causes[0]), notice.index(causes[1]))
+        self.assertLess(notice.index(causes[1]), notice.index(causes[2]))
+        self.assertIn("the last 4 compactions", notice)
+        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+
+    def test_later_failures_do_not_repeat_a_consumed_notice(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.compress_committed(engine, history)
+            self.assertIn("Warm compaction unavailable", engine.get_automatic_compaction_status_message(
+                phase="compress", default_message="Compacting"))
+            self.llm.error = RuntimeError("down")
+            for _ in range(2):
+                self.compress_committed(engine, history)
+                self.assertEqual(engine.get_automatic_compaction_status_message(
+                    phase="compress", default_message="Compacting"), "Compacting")
+        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 5)
+        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+
+    def test_a_rejected_warm_reply_with_cached_tokens_does_not_claim_a_cache_miss(self):
+        self.post = fake_post(content="no headings", cached=900)
+        engine = self.make()
+        rows, reply = old_turns(), assistant("final")
+        self.seed(rows, reply)
+        for _ in range(3):
+            self.seed(rows, reply)
+            self.compress_committed(engine, [*rows, reply])
+            self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"],
+                              engine.warm_last["cached_tokens"]), ("fallback", "gate:heading_missing", 900))
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("did not use the warm summary", notice)
+        self.assertNotIn("could not reuse", notice)
+        self.assertNotIn("prompt cache", notice)
+        self.assertIn("gate:heading_missing: the warm reply failed the handoff checks", notice)
+
+    def test_a_warm_compaction_ends_the_failure_streak(self):
+        engine = self.make()
+        rows, reply = old_turns(), assistant("final")
+        for _ in range(3):
+            self.compress_committed(engine, [*rows, reply])
+        self.seed(rows, reply)
+        self.compress_committed(engine, [*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons), (0, 0, []))
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+        self.store.forget(session_id="s1")
+        for _ in range(2):
+            self.compress_committed(engine, [*rows, reply])
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_a_cancelled_attempt_does_not_end_the_failure_streak(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        self.compress_committed(engine, history)
+        engine._compression_cancelled_check = lambda: True
+        self.compress_committed(engine, history)
+        self.assertEqual(engine.warm_last["path"], "cancelled")
+        engine._compression_cancelled_check = lambda: False
+        for _ in range(2):
+            self.compress_committed(engine, history)
+        self.assertIn("Warm compaction unavailable",
+                      engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting"))
+
+    def test_the_warm_setting_off_is_not_a_failure(self):
+        engine = self.make(warm=False)
+        history = [*old_turns(), assistant("done")]
+        with self.assertNoLogs("warm_compaction.engine", level="WARNING"):
+            for _ in range(4):
+                self.compress_committed(engine, history)
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_a_disabled_formatter_keeps_the_pending_notice(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        for _ in range(3):
+            self.compress_committed(engine, history)
+        pending = engine._warm_notice
+        engine.emit_automatic_compaction_status = False
+        self.assertIsNone(engine.get_automatic_compaction_status_message(
+            phase="compress", default_message="Compacting"))
+        self.assertEqual(engine._warm_notice, pending)
+        engine.emit_automatic_compaction_status = True
+        self.assertEqual(engine.get_automatic_compaction_status_message(
+            phase="compress", default_message="Compacting"), pending)
+        self.assertEqual(engine.get_automatic_compaction_status_message(
+            phase="compress", default_message="Compacting"), "Compacting")
+
+    def test_the_notice_tells_when_the_fallback_also_failed(self):
+        # The fixed summary has no model request: the notice must not say that the fallback summary works.
+        self.llm = FakeLlm(error=RuntimeError("down"))
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.compress_committed(engine, history)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertNotIn("continues with the slower fallback summary", notice)
+        self.assertIn("the fallback summary could not be used 3 of 3 times", notice)
+        self.assertIn("fixed summary", notice)
+        self.assertNotIn("no messages were dropped", notice)
+        self.assertEqual(sum("3 of them with the fixed summary" in line for line in logs.output), 1)
+
+    def test_a_session_reset_clears_the_failure_streak(self):
+        # A notice or a streak of the old session does not show in the new session.
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        for _ in range(3):
+            self.compress_committed(engine, history)
+        engine.on_session_reset()
+        self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons), (0, 0, []))
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+        for _ in range(2):
+            self.compress_committed(engine, history)
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_a_result_is_not_counted_before_the_commit_boundary(self):
+        engine = self.make()
+        engine.compress([*old_turns(), assistant("done")])
+        self.assertEqual((engine._warm_failures, engine._warm_fixed), (0, 0))
+        self.assertIsNone(engine._warm_notice)
+        self.commit(engine)
+        self.assertEqual(engine._warm_failures, 1)
+
+    def test_a_rejected_warm_success_keeps_the_prior_streak(self):
+        engine = self.make()
+        rows, reply = old_turns(), assistant("done")
+        for _ in range(3):
+            self.compress_committed(engine, [*rows, reply])
+        pending = engine._warm_notice
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertEqual(engine._warm_failures, 3)
+        self.assertEqual(engine._warm_notice, pending)
+        # A pre-commit cancellation restores the public counter in Hermes.
+        engine.compression_count -= 1
+        self.commit(engine)
+        self.assertEqual(engine._warm_failures, 3)
+        self.assertEqual(engine._warm_notice, pending)
+
+    def test_in_place_and_rotation_boundaries_consume_one_result(self):
+        for target in ("s1", "s2"):
+            with self.subTest(target=target):
+                engine = self.make()
+                engine.compress([*old_turns(), assistant("done")])
+                engine.on_session_start(target, boundary_reason="compression", old_session_id="s1")
+                self.assertEqual(engine._warm_failures, 1)
+                engine.on_session_start(target, boundary_reason="compression", old_session_id="s1")
+                self.assertEqual(engine._warm_failures, 1)
+
+    def test_reset_new_session_and_noop_drop_an_uncommitted_result(self):
+        for action in ("reset", "session", "noop"):
+            with self.subTest(action=action):
+                engine = self.make()
+                engine.compress([*old_turns(), assistant("done")])
+                if action == "reset":
+                    engine.on_session_reset()
+                elif action == "session":
+                    engine.on_session_start("s2")
+                else:
+                    short = [user("short")]
+                    self.assertIs(engine.compress(short), short)
+                engine.on_session_start("s1", boundary_reason="compression", old_session_id="s1")
+                self.assertEqual(engine._warm_failures, 0)
+
+    def test_adoption_wrong_session_and_wrong_count_drop_the_result(self):
+        for refusal in ("adoption", "session", "count"):
+            with self.subTest(refusal=refusal):
+                engine = self.make()
+                engine.compress([*old_turns(), assistant("done")])
+                count = engine.compression_count
+                context = {"session_db": object()} if refusal == "adoption" else {}
+                old = "other" if refusal == "session" else "s1"
+                if refusal == "count":
+                    engine.compression_count -= 1
+                engine.on_session_start("s1", boundary_reason="compression", old_session_id=old, **context)
+                self.assertEqual(engine._warm_failures, 0)
+                engine.compression_count = count
+                self.commit(engine)
+                self.assertEqual(engine._warm_failures, 0)
+
+    def test_a_new_attempt_replaces_a_discarded_result(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        engine.compress(history)
+        engine.compress(history)
+        self.assertEqual(engine._warm_failures, 0)
+        self.commit(engine)
+        self.assertEqual(engine._warm_failures, 1)
+
+    def test_a_late_worker_cannot_change_the_current_result_or_counter(self):
+        for wait_at in ("fallback", "build"):
+            for committed in (False, True):
+                with self.subTest(wait_at=wait_at, committed=committed):
+                    self.check_late_worker_publication(wait_at, committed)
+
+    def check_late_worker_publication(self, wait_at, committed):
+        from warm_compaction import layout
+
+        entered, release = threading.Event(), threading.Event()
+        results, errors = [], []
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        complete, build = self.llm.complete, layout.build
+
+        def wait_for_replacement(phase):
+            if phase == wait_at and threading.current_thread().name == "old-compaction":
+                entered.set()
+                if not release.wait(5):
+                    raise TimeoutError("test worker was not released")
+
+        def delayed_complete(*args, **kwargs):
+            wait_for_replacement("fallback")
+            return complete(*args, **kwargs)
+
+        def delayed_build(*args, **kwargs):
+            wait_for_replacement("build")
+            return build(*args, **kwargs)
+
+        def old_attempt():
+            try:
+                results.append(engine.compress(history))
+            except BaseException as error:
+                errors.append(error)
+
+        with (patch.object(self.llm, "complete", side_effect=delayed_complete),
+              patch.object(layout, "build", side_effect=delayed_build),
+              self.assertLogs("warm_compaction.engine", level="INFO") as logs):
+            worker = threading.Thread(target=old_attempt, name="old-compaction", daemon=True)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(5), "old worker did not reach the wait point")
+                engine.compress(history)
+                if committed:
+                    self.commit(engine)
+                current = dict(engine.warm_last)
+                current_status = engine.get_status()
+                current_pending = engine._pending_warm_result
+                metadata = [line for line in logs.output if "warm_compaction: path=" in line]
+                self.assertEqual(len(metadata), 1)
+            finally:
+                release.set()
+                worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0] is history, "old worker returned a candidate")
+            self.assertEqual(engine.compression_count, 1)
+            self.assertEqual(engine._pending_warm_result, current_pending)
+            self.assertEqual(engine._warm_failures, int(committed))
+            with self.subTest(publication="warm_last"):
+                self.assertEqual(engine.warm_last, current)
+            with self.subTest(publication="status"):
+                self.assertEqual(engine.get_status(), current_status)
+            with self.subTest(publication="metadata_log"):
+                self.assertEqual([line for line in logs.output if "warm_compaction: path=" in line],
+                                 metadata)
+            self.commit(engine)
+            self.assertEqual(engine._warm_failures, 1)
 
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
