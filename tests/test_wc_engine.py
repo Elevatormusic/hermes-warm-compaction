@@ -603,23 +603,103 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(message.startswith("Compacting\n"))
         # Hermes warning style on screen: the warning sign, a subject, what continues, and where to look.
         notice = message.split("\n", 1)[1]
-        self.assertTrue(notice.startswith("\u26a0 Warm compaction unavailable: the last 3 compactions could not "
-                                          "reuse the prompt cache (no_capture)."))
+        self.assertTrue(notice.startswith("\u26a0 Warm compaction unavailable: the last 3 compactions did not "
+                                          "use the warm summary (no_capture:"))
         self.assertIn("no main-model request completed", notice)
-        self.assertIn("no messages were dropped", notice)
+        self.assertIn("Compaction continues with the fallback summary.", notice)
+        self.assertNotIn("slower", notice)
+        self.assertNotIn("no messages were dropped", notice)
         self.assertIn("logs/agent.log", notice)
         # One time only.
         self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
                                                                         default_message="Compacting"), "Compacting")
 
+    def test_a_pending_notice_includes_a_later_fixed_summary(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                engine.compress(history)
+            self.llm.error = RuntimeError("down")
+            engine.compress(history)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("the last 4 compactions", notice)
+        self.assertIn("the fallback summary could not be used 1 of 4 times", notice)
+        self.assertIn("fixed summary (no model, less detail)", notice)
+        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 4)
+        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+
+    def test_a_pending_notice_keeps_each_reason_with_its_hint(self):
+        engine = self.make()
+        rows, reply = old_turns(), assistant("final")
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(2):
+                engine.compress([*rows, reply])
+            self.seed(rows, reply)
+            engine._post = fake_post(content="no headings")
+            engine.compress([*rows, reply])
+
+            def refused(*args, **kwargs):
+                raise RuntimeError("synthetic server refusal")
+
+            engine._post = refused
+            engine.compress([*rows, reply])
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        causes = (
+            "no_capture: no main-model request completed",
+            "gate:heading_missing: the warm reply failed the handoff checks",
+            "provider_error: the server refused the warm request",
+        )
+        for cause in causes:
+            self.assertEqual(notice.count(cause), 1)
+        self.assertLess(notice.index(causes[0]), notice.index(causes[1]))
+        self.assertLess(notice.index(causes[1]), notice.index(causes[2]))
+        self.assertIn("the last 4 compactions", notice)
+        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+
+    def test_later_failures_do_not_repeat_a_consumed_notice(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                engine.compress(history)
+            self.assertIn("Warm compaction unavailable", engine.get_automatic_compaction_status_message(
+                phase="compress", default_message="Compacting"))
+            self.llm.error = RuntimeError("down")
+            for _ in range(2):
+                engine.compress(history)
+                self.assertEqual(engine.get_automatic_compaction_status_message(
+                    phase="compress", default_message="Compacting"), "Compacting")
+        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 5)
+        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+
+    def test_a_rejected_warm_reply_with_cached_tokens_does_not_claim_a_cache_miss(self):
+        self.post = fake_post(content="no headings", cached=900)
+        engine = self.make()
+        rows, reply = old_turns(), assistant("final")
+        self.seed(rows, reply)
+        for _ in range(3):
+            engine.compress([*rows, reply])
+            self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"],
+                              engine.warm_last["cached_tokens"]), ("fallback", "gate:heading_missing", 900))
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("did not use the warm summary", notice)
+        self.assertNotIn("could not reuse", notice)
+        self.assertNotIn("prompt cache", notice)
+        self.assertIn("gate:heading_missing: the warm reply failed the handoff checks", notice)
+
     def test_a_warm_compaction_ends_the_failure_streak(self):
         engine = self.make()
         rows, reply = old_turns(), assistant("final")
-        for _ in range(2):
+        for _ in range(3):
             engine.compress([*rows, reply])
         self.seed(rows, reply)
         engine.compress([*rows, reply])
         self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons), (0, 0, []))
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
         self.store.forget(session_id="s1")
         for _ in range(2):
             engine.compress([*rows, reply])
@@ -669,9 +749,9 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(engine.warm_last["path"], "fixed")
         notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
         self.assertNotIn("continues with the slower fallback summary", notice)
-        self.assertIn("the fallback summary also failed 3 of 3 times", notice)
+        self.assertIn("the fallback summary could not be used 3 of 3 times", notice)
         self.assertIn("fixed summary", notice)
-        self.assertIn("no messages were dropped", notice)
+        self.assertNotIn("no messages were dropped", notice)
         self.assertEqual(sum("3 of them with the fixed summary" in line for line in logs.output), 1)
 
     def test_a_session_reset_clears_the_failure_streak(self):
@@ -681,6 +761,7 @@ class EngineTest(unittest.TestCase):
         for _ in range(3):
             engine.compress(history)
         engine.on_session_reset()
+        self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons), (0, 0, []))
         self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
                                                                         default_message="Compacting"), "Compacting")
         for _ in range(2):

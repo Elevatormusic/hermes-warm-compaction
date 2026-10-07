@@ -807,7 +807,11 @@ def run_auto_failures(agent, engine, history, server, result, checks, statuses, 
     checks["three_fallbacks_then_warm"] = outcomes == [["fallback", "provider_error"]] * 3 + [["warm", "accepted"]]
     checks["one_notice"] = len(notices) == 1
     checks["notice_before_the_fourth_compaction"] = notice_turn == 4
-    checks["notice_names_the_reason"] = bool(notices) and "(provider_error)" in notices[0]
+    checks["notice_names_the_reason"] = bool(notices) and (
+        "provider_error: the server refused the warm request" in notices[0])
+    checks["notice_describes_the_summary_result"] = bool(notices) and "did not use the warm summary" in notices[0]
+    checks["notice_has_no_cache_or_retained_detail_claim"] = bool(notices) and not any(
+        claim in notices[0] for claim in ("could not reuse", "prompt cache", "slower", "no messages were dropped"))
     logs = home / "logs"
     def read_log(name):
         path = logs / name

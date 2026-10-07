@@ -169,16 +169,17 @@ The engine status (`get_status()`) has the same values in `warm_last`. The log n
 
 ### When the warm path keeps failing
 
-The plugin never stops a compaction: when the warm request cannot run, the fallback summary does the work. So that this does not go unseen:
+When the warm summary cannot be used, the plugin tries the fallback summary. If that summary cannot be used, it uses the fixed summary. The plugin reports these results:
 
 - Each compaction without the warm path also writes a WARNING with its reason, for example `Warm compaction skipped (provider_error); used the fallback summary`. Hermes copies warnings to `logs/errors.log`.
-- After 3 compactions in a row without the warm path, the plugin writes one WARNING that names the reasons and the likely cause. Hermes shows a notice in its warning style with the status of the next automatic compaction, also when the compaction status is turned off. For example:
+- After 3 compactions in a row without the warm path, the plugin writes one WARNING with a hint for each distinct reason. Hermes shows one notice with the status of the next automatic compaction, also when the compaction status is turned off. Later failures update the pending notice until Hermes shows it. For example:
 
   ```text
-  ⚠ Warm compaction unavailable: the last 3 compactions could not reuse the prompt cache (provider_error). Likely cause: the server refused the warm request (a provider error, or a gateway that needs a cookie). Compaction continues with the slower fallback summary — no messages were dropped. Details: the warm_compaction lines in logs/agent.log.
+  ⚠ Warm compaction unavailable: the last 3 compactions did not use the warm summary (provider_error: the server refused the warm request (a provider error, or a gateway that needs a cookie)). Compaction continues with the fallback summary. Details: the warm_compaction lines in logs/agent.log.
   ```
 
-- When the fallback summary also failed, the notice says how many times, and that those compactions used the fixed summary (no model, less detail).
+- When the fallback summary could not be used, the notice says how many times, and that those compactions used the fixed summary (no model, less detail).
+- A warm summary can fail the handoff checks even when the server reports cached tokens. The notice describes the summary result. It does not prove a cache miss, a speed change, or that all details were kept.
 - A warm compaction or a session reset ends the streak, and the notice can show again after the next 3 failures. A cancelled attempt does not count, and `warm: false` is not a failure.
 - Manual `/compress` has no status line from the engine: after manual compactions only, the notice is in the logs.
 

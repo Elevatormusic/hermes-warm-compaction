@@ -1,16 +1,16 @@
 {
   "check": "standalone warm_compaction plugin on unpatched Hermes Agent",
-  "started_utc": "2026-10-07T02:42:31Z",
+  "started_utc": "2026-10-07T03:03:46Z",
   "hermes": {
     "commit": "45871e100feceb89769536c88e5e6e265226a409",
     "clean": true
   },
   "python": "3.11.14",
-  "script_sha256": "6131d94a86e7fcbe74f3a3c3bbf19ec1bdc861a36a80d06a98f046e55b8047db",
+  "script_sha256": "33947de293d0167c457f2c8b967c57e4c5064a262357de4129376519b6e2f77d",
   "plugin_files_sha256": {
     "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
     "warm_compaction/capture.py": "3158562b9b4d4ab50c0ec7a6524bbc1b1c364b137c6d8d27c5801220959021c8",
-    "warm_compaction/engine.py": "2b4e788658531a77ef02684f7969645e03bc06856ffbcee036a6206ac6c52d21",
+    "warm_compaction/engine.py": "74eb8790e7e77f0213eb7bd28256cbd6d602d30f9edc02b5737391b825b1a9f0",
     "warm_compaction/fallback.py": "dc2b7fbfdee292601e52549d23d9b7224d40da1d8c06f553f3d0b8e10a23534d",
     "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
     "warm_compaction/layout.py": "b49314c5236268247c337d9fae939135c97b47384300dcdfd00b0da0c040db93",
@@ -76,19 +76,19 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.135,
+      "compress_seconds": 0.132,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.036,
-        "prompt_tokens": 33892,
-        "cached_tokens": 16946
+        "elapsed_s": 0.038,
+        "prompt_tokens": 33855,
+        "cached_tokens": 16927
       },
       "session_rotated": false,
       "final_session_id": "wc-enable_manual_warm",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -189,7 +189,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 61.93
+      "process_seconds": 61.204
     },
     {
       "scenario": "manual_fallback",
@@ -248,11 +248,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.273,
+      "compress_seconds": 0.296,
       "warm_last": {
         "path": "fallback",
         "reason": "provider_error",
-        "elapsed_s": 0.125,
+        "elapsed_s": 0.156,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -260,7 +260,7 @@
       "final_session_id": "wc-manual_fallback",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 6,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -361,7 +361,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 35.685
+      "process_seconds": 47.329
     },
     {
       "scenario": "manual_fixed",
@@ -419,11 +419,11 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.296,
+      "compress_seconds": 0.257,
       "warm_last": {
         "path": "fixed",
         "reason": "provider_error",
-        "elapsed_s": 0.156,
+        "elapsed_s": 0.11,
         "prompt_tokens": null,
         "cached_tokens": null
       },
@@ -431,7 +431,7 @@
       "final_session_id": "wc-manual_fixed",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -532,7 +532,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 32.033
+      "process_seconds": 40.416
     },
     {
       "scenario": "auto_tool_loop",
@@ -620,21 +620,21 @@
       "warm_last_1": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.015,
-        "prompt_tokens": 35209,
-        "cached_tokens": 17604
+        "elapsed_s": 0.016,
+        "prompt_tokens": 34449,
+        "cached_tokens": 17224
       },
       "warm_last_2": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.0,
-        "prompt_tokens": 19504,
-        "cached_tokens": 9752
+        "elapsed_s": 0.016,
+        "prompt_tokens": 18744,
+        "cached_tokens": 9372
       },
       "compression_count": 2,
       "fence_denied": {
-        "network_host_blocked": 1,
-        "child_process_blocked": 7
+        "child_process_blocked": 5,
+        "network_host_blocked": 1
       },
       "fence_blocked_programs": [
         "git",
@@ -646,8 +646,7 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
-        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:bounded_git_probe",
-        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:noninteractive_repo_git_env",
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -736,7 +735,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 35.213
+      "process_seconds": 41.996
     },
     {
       "scenario": "auto_warm_failures",
@@ -753,6 +752,8 @@
         "one_notice": true,
         "notice_before_the_fourth_compaction": true,
         "notice_names_the_reason": true,
+        "notice_describes_the_summary_result": true,
+        "notice_has_no_cache_or_retained_detail_claim": true,
         "each_refusal_in_agent_log": true,
         "each_refusal_in_errors_log": true,
         "notice_in_errors_log": true,
@@ -890,7 +891,7 @@
         ]
       ],
       "notices": [
-        "🗜️ Compacting context — summarizing earlier conversation so I can continue...\n⚠ Warm compaction unavailable: the last 3 compactions could not reuse the prompt cache (provider_error). Likely cause: the server refused the warm request (a provider error, or a gateway that needs a cookie). Compaction continues with the slower fallback summary — no messages were dropped. Details: the warm_compaction lines in logs/agent.log."
+        "🗜️ Compacting context — summarizing earlier conversation so I can continue...\n⚠ Warm compaction unavailable: the last 3 compactions did not use the warm summary (provider_error: the server refused the warm request (a provider error, or a gateway that needs a cookie)). Compaction continues with the fallback summary. Details: the warm_compaction lines in logs/agent.log."
       ],
       "status_count": 13,
       "log_counts": {
@@ -899,8 +900,8 @@
         "errors_notice": 1
       },
       "fence_denied": {
-        "network_host_blocked": 1,
-        "child_process_blocked": 7
+        "child_process_blocked": 5,
+        "network_host_blocked": 1
       },
       "fence_blocked_programs": [
         "git",
@@ -912,8 +913,7 @@
         "hermes-assets.nousresearch.com"
       ],
       "fence_blocked_callers": [
-        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:bounded_git_probe",
-        "child_process_blocked from hermes_cli/local_runtime/processes.py:spawn_server < hermes_cli/_subprocess_compat.py:bounded_probe_run < hermes_cli/_subprocess_compat.py:noninteractive_repo_git_env",
+        "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
         "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
         "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
@@ -1002,7 +1002,7 @@
         "install",
         "run"
       ],
-      "process_seconds": 37.846
+      "process_seconds": 39.63
     },
     {
       "scenario": "rollback",
@@ -1052,19 +1052,19 @@
         "threshold_tokens": 100000,
         "context_length": 200000
       },
-      "compress_seconds": 0.168,
+      "compress_seconds": 0.208,
       "warm_last": {
         "path": "warm",
         "reason": "accepted",
-        "elapsed_s": 0.016,
-        "prompt_tokens": 33882,
-        "cached_tokens": 16941
+        "elapsed_s": 0.031,
+        "prompt_tokens": 33845,
+        "cached_tokens": 16922
       },
       "session_rotated": false,
       "final_session_id": "wc-rollback",
       "continuation_keeps_custom_system_text": false,
       "fence_denied": {
-        "child_process_blocked": 4,
+        "child_process_blocked": 5,
         "network_host_blocked": 1
       },
       "fence_blocked_programs": [
@@ -1215,8 +1215,7 @@
           "stored": 30
         },
         "fence_denied": {
-          "child_process_blocked": 5,
-          "network_host_blocked": 1
+          "child_process_blocked": 5
         },
         "fence_blocked_programs": [
           "git",
@@ -1224,9 +1223,7 @@
           "python",
           "python3"
         ],
-        "fence_blocked_hosts": [
-          "hermes-assets.nousresearch.com"
-        ]
+        "fence_blocked_hosts": []
       },
       "exit": [
         0,
@@ -1238,10 +1235,10 @@
         "run",
         "rollback"
       ],
-      "process_seconds": 40.403
+      "process_seconds": 54.676
     }
   ],
-  "finished_utc": "2026-10-07T02:46:34Z",
+  "finished_utc": "2026-10-07T03:08:31Z",
   "passed": true,
   "run_folder": "outside repository"
 }

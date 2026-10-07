@@ -7,7 +7,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Added
 
 - A WARNING for each compaction that does not use the warm path, with its reason (Hermes copies it to `errors.log`).
-- After 3 compactions in a row without the warm path, one notice with the reasons and the likely cause, in the logs and in the status of the next automatic compaction.
+- After 3 compactions in a row without the warm path, one notice with a hint for each distinct reason, in the logs and in the status of the next automatic compaction. Later failures update the pending notice and its fixed-summary count until Hermes shows it.
 
 ## [0.2.0] - 2026-10-06
 
