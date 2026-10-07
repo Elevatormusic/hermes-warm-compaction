@@ -498,7 +498,8 @@ def run_phase(spec, session_dir):
     try:
         # A Hermes process selects its dependency set at start, before any third-party import.
         import hermes_bootstrap  # noqa: F401
-        merge_config(home / "config.yaml", {"model": {"base_url": server.base_url}})
+        merge_config(home / "config.yaml", {"model": {"base_url": server.base_url},
+                                          "compression": {"progress_notices": False}})
         import platform
         # Fill the platform cache before the fence: some Windows Pythons start "cmd /c ver" one time.
         platform.uname()
@@ -723,8 +724,13 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     checks["capture_keeps_reported_prompt_tokens"] = capture.get("prompt_tokens") == len(
         json.dumps(seed_request["body"]["messages"])) // 4
     begin = time.perf_counter()
+    failures_before = engine._warm_failures
     removed, _usage = compress(session, "")
+    checks["failure_streak_waits_for_manual_commit"] = engine._warm_failures == failures_before
     finalize(agent, committed=True)
+    expected_failures = failures_before + (scenario in ("manual_fallback", "manual_fixed"))
+    checks["failure_streak_after_manual_commit"] = engine._warm_failures == expected_failures
+    checks["manual_commit_notification_one_time"] = finalize(agent, committed=True) is False
     result["compress_seconds"] = round(time.perf_counter() - begin, 3)
     warm_last = dict(engine.warm_last or {})
     result["warm_last"] = warm_last
@@ -787,6 +793,10 @@ def run_auto(agent, engine, history, server, result, checks):
 def run_auto_failures(agent, engine, history, server, result, checks, statuses, home):
     """Repeated warm refusals: each one is a WARNING in agent.log and errors.log, and after the third one the
     next automatic compaction status shows one notice to the user. A warm compaction ends the streak."""
+    from agent.context_engine import automatic_compaction_status_message
+    from gateway.run import _gateway_compression_progress_notices_enabled, _prepare_gateway_status_message
+
+    checks["gateway_routine_progress_disabled"] = not _gateway_compression_progress_notices_enabled()
     questions = (TOOL_QUESTION, TOOL_AGAIN_QUESTION)
     outcomes, notice_turn = [], None
     messages = history
@@ -797,6 +807,17 @@ def run_auto_failures(agent, engine, history, server, result, checks, statuses, 
         checks[f"turn{turn + 1}_final"] = reply.get("final_response") == f"Done {turn + 1}."
         last = dict(engine.warm_last or {})
         outcomes.append([last.get("path"), last.get("reason")])
+        if turn == 2:
+            # The host guard runs before the engine formatter. It must keep the notice for a later status.
+            pending = engine._warm_notice
+            engine.emit_automatic_compaction_status = False
+            try:
+                hidden = automatic_compaction_status_message(
+                    engine, phase="compress", default_message="Compacting context")
+                checks["disabled_host_status_is_silent"] = hidden is None
+                checks["disabled_host_status_keeps_notice"] = bool(pending) and engine._warm_notice == pending
+            finally:
+                engine.emit_automatic_compaction_status = True
         if any(NOTICE_MARK in message for _kind, message in statuses[before:]):
             notice_turn = turn + 1
     result["outcomes"] = outcomes
@@ -806,6 +827,12 @@ def run_auto_failures(agent, engine, history, server, result, checks, statuses, 
     result["status_count"] = len(statuses)
     checks["three_fallbacks_then_warm"] = outcomes == [["fallback", "provider_error"]] * 3 + [["warm", "accepted"]]
     checks["one_notice"] = len(notices) == 1
+    delivered = [_prepare_gateway_status_message("telegram", kind, message)
+                 for kind, message in statuses if NOTICE_MARK in message]
+    result["gateway_notices"] = [message for message in delivered if message]
+    checks["one_notice_survives_gateway_filter"] = len(result["gateway_notices"]) == 1
+    checks["gateway_keeps_the_notice_text"] = bool(notices) and result["gateway_notices"] == notices
+    checks["notice_has_no_routine_progress"] = bool(notices) and notices[0].startswith("\u26a0 Warm compaction")
     checks["notice_before_the_fourth_compaction"] = notice_turn == 4
     checks["notice_names_the_reason"] = bool(notices) and (
         "provider_error: the server refused the warm request" in notices[0])
@@ -823,6 +850,71 @@ def run_auto_failures(agent, engine, history, server, result, checks, statuses, 
     checks["each_refusal_in_agent_log"] = agent_log.count(refusal) == 3
     checks["each_refusal_in_errors_log"] = errors_log.count(refusal) == 3
     checks["notice_in_errors_log"] = errors_log.count("Warm compaction failed 3 times in a row") == 1
+    check_host_commit_boundaries(engine, checks)
+
+
+def check_host_commit_boundaries(engine, checks):
+    """Run staged, discarded, and committed synthetic summaries through the real host boundary helpers."""
+    from types import SimpleNamespace
+    from agent.conversation_compression import (
+        _queue_context_engine_compression_notification, _restore_compressor_attempt_state,
+        _snapshot_compressor_attempt_state, finalize_context_engine_compression_notification)
+
+    llm = SimpleNamespace(complete=lambda *_args, **_kwargs: SimpleNamespace(
+        text=FALLBACK_SUMMARY, usage=SimpleNamespace(input_tokens=50)))
+    probe = type(engine)(llm=llm)
+    probe.on_session_start("wc-boundary-0", platform="cli")
+    probe.update_model(model=MODEL, context_length=CONTEXT_LENGTH, base_url=PLACEHOLDER_URL,
+                       api_key="no-key-required", provider="custom", api_mode="chat_completions")
+    host = SimpleNamespace(context_compressor=probe, platform="cli")
+    history = synthetic_history()
+
+    def queue(next_session):
+        _queue_context_engine_compression_notification(
+            host, new_session_id=next_session, old_session_id=probe._wc_session_id)
+
+    snapshot = _snapshot_compressor_attempt_state(probe)
+    checks["fresh_engine_counter_in_host_snapshot"] = snapshot.get("compression_count") == 0
+    staged = probe.compress(history)
+    checks["boundary_probe_has_real_fallback_candidate"] = (
+        staged is not history and probe.warm_last["path"] == "fallback")
+    checks["first_attempt_advances_compression_count"] = probe.compression_count == 1
+    checks["staged_failure_does_not_count"] = probe._warm_failures == 0
+    queue("wc-boundary-discarded")
+    checks["discarded_host_boundary_is_silent"] = not finalize_context_engine_compression_notification(
+        host, committed=False)
+    checks["discarded_failure_does_not_count"] = probe._warm_failures == 0
+    checks["discarded_host_boundary_cannot_be_replayed"] = not finalize_context_engine_compression_notification(
+        host, committed=True)
+    _restore_compressor_attempt_state(probe, snapshot, durable_cooldown_authoritative=False)
+    checks["host_rollback_restores_compression_count"] = probe.compression_count == snapshot["compression_count"]
+    queue("wc-boundary-stale")
+    finalize_context_engine_compression_notification(host, committed=True)
+    checks["restored_candidate_cannot_count_at_stale_boundary"] = probe._warm_failures == 0
+
+    probe.compress(history)
+    checks["later_failure_waits_for_commit"] = probe._warm_failures == 0
+    queue("wc-boundary-committed")
+    finalize_context_engine_compression_notification(host, committed=True)
+    checks["later_committed_failure_counts_once"] = probe._warm_failures == 1
+    checks["committed_host_boundary_cannot_be_replayed"] = not finalize_context_engine_compression_notification(
+        host, committed=True)
+    checks["replayed_host_boundary_does_not_count"] = probe._warm_failures == 1
+
+    # A rollback after an earlier commit must keep that committed streak and reject the new candidate.
+    snapshot = _snapshot_compressor_attempt_state(probe)
+    probe.compress(history)
+    queue("wc-boundary-rollback-after-commit")
+    finalize_context_engine_compression_notification(host, committed=False)
+    _restore_compressor_attempt_state(probe, snapshot, durable_cooldown_authoritative=False)
+    queue("wc-boundary-stale-after-commit")
+    finalize_context_engine_compression_notification(host, committed=True)
+    checks["rollback_keeps_prior_committed_streak"] = probe._warm_failures == 1
+    checks["rollback_after_commit_restores_count"] = probe.compression_count == snapshot["compression_count"]
+    probe.compress(history)
+    queue("wc-boundary-retry")
+    finalize_context_engine_compression_notification(host, committed=True)
+    checks["retry_after_rollback_counts_once"] = probe._warm_failures == 2
 
 
 # ---------------------------------------------------------------------------------------------------------

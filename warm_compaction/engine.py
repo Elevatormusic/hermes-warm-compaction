@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 import time
 from typing import Any
 from collections.abc import Callable
@@ -157,8 +158,12 @@ class WarmCompactionEngine(ContextEngine):
         self._clock = clock
         self.threshold_percent = float(self._settings["threshold"])
         self.last_real_prompt_tokens = 0
+        self.compression_count = 0
         self.warm_last: dict[str, Any] | None = None
         self._wc_session_id = ""
+        self._wc_result_lock = threading.Lock()
+        self._wc_attempt_serial = 0
+        self._pending_warm_result: tuple[str, int, dict[str, Any]] | None = None
         self._wc_route: tuple = (None, None, None)
         self._wc_api_key: Any = ""
         self._wc_provider: str = ""
@@ -181,9 +186,21 @@ class WarmCompactionEngine(ContextEngine):
         return clone
 
     def on_session_start(self, session_id: str, **kwargs: Any) -> None:
-        if kwargs.get("boundary_reason") == "compression" and kwargs.get("old_session_id"):
-            self._store.forget(session_id=kwargs["old_session_id"])
-        self._wc_session_id = str(session_id or "")
+        with self._wc_result_lock:
+            pending, self._pending_warm_result = self._pending_warm_result, None
+            self._wc_attempt_serial += 1
+            if kwargs.get("boundary_reason") == "compression":
+                old_session = str(kwargs.get("old_session_id") or "")
+                # Hermes also calls this hook when it adopts another process's child. That call gives session_db.
+                if (pending is not None and "session_db" not in kwargs
+                        and pending[0] == old_session == self._wc_session_id
+                        and pending[1] == self.compression_count):
+                    self._note_warm_result(pending[2])
+                if old_session:
+                    self._store.forget(session_id=old_session)
+            elif str(session_id or "") != self._wc_session_id:
+                self._clear_warm_failures()
+            self._wc_session_id = str(session_id or "")
         # The hooks do not get the key: the store asks the engine for the stamp of the key now.
         self._store.set_stamp(self._wc_session_id, self._key_stamp)
 
@@ -244,10 +261,13 @@ class WarmCompactionEngine(ContextEngine):
         return start > 0
 
     def on_session_reset(self) -> None:
-        super().on_session_reset()
-        self.warm_last = None
-        # The failure streak and its notice are of the old session.
-        self._clear_warm_failures()
+        with self._wc_result_lock:
+            super().on_session_reset()
+            self._wc_attempt_serial += 1
+            self._pending_warm_result = None
+            self.warm_last = None
+            # The failure streak and its notice are of the old session.
+            self._clear_warm_failures()
         # The calibration of the old session: Hermes uses the real prompt count as a floor unless the latch is set.
         self.last_real_prompt_tokens = 0
         self.awaiting_real_usage_after_compression = False
@@ -264,7 +284,10 @@ class WarmCompactionEngine(ContextEngine):
         # The route, key, and session of this attempt, before anything reads them. Hermes can switch them while
         # the attempt still runs (it runs on a pooled thread and can outlive a host timeout); the warm request goes
         # only to this route, and the result is used only when they did not change.
-        attempt = self._attempt()
+        with self._wc_result_lock:
+            self._wc_attempt_serial += 1
+            self._pending_warm_result = None
+            attempt = self._attempt()
         prefixes = self._prefixes()
         policy = self._policy(messages)
         capture = self._store.latest(attempt[3])
@@ -390,13 +413,16 @@ class WarmCompactionEngine(ContextEngine):
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
             copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy)
-        # Again before the result is used: a switch or a cancel while the new history was built also stops it.
-        if self._cancelled() or self._attempt() != attempt:
-            record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
+        # A stale worker must not change the counter or replace a newer candidate. No model call holds this lock.
+        with self._wc_result_lock:
+            if self._cancelled() or self._attempt() != attempt:
+                record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
+                self._finish(record, started)
+                return messages
+            self.compression_count += 1
             self._finish(record, started)
-            return messages
-        self.compression_count += 1
-        self._finish(record, started)
+            # The host can still reject this candidate. Only its successful boundary updates the failure streak.
+            self._pending_warm_result = (attempt[3], self.compression_count, dict(record))
         return new
 
     def _policy(self, messages: list) -> SendPolicy:
@@ -435,10 +461,10 @@ class WarmCompactionEngine(ContextEngine):
                               request_reserve(budget, int(self.context_length or 0)))
 
     def _attempt(self) -> tuple:
-        """(route, api key, provider, session id, window, threshold) now. The result of an attempt is sized for
-        the window and threshold: a change of them also stops it."""
+        """Route, key, provider, session, window, threshold, and local attempt id now.
+        A change stops the attempt before it can publish a candidate."""
         return (tuple(self._wc_route), self._wc_api_key, self._wc_provider, self._wc_session_id,
-                int(self.context_length or 0), int(self.threshold_tokens or 0))
+                int(self.context_length or 0), int(self.threshold_tokens or 0), self._wc_attempt_serial)
 
     def _warm_summary(self, messages: list, capture: dict[str, Any] | None, focus_topic: str | None, memory: str,
                       prefixes: tuple[str, ...], record: dict[str, Any], attempt: tuple) -> str | None:
@@ -650,7 +676,6 @@ class WarmCompactionEngine(ContextEngine):
         logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
                     record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
                     record["cached_tokens"])
-        self._note_warm_result(record)
 
     def _clear_warm_failures(self) -> None:
         self._warm_failures, self._warm_fixed = 0, 0
@@ -699,11 +724,11 @@ class WarmCompactionEngine(ContextEngine):
 
     def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
                                                 **context: Any) -> str | None:
-        """The Hermes status for an automatic compaction, with the warm failure notice one time after a streak.
-        The notice shows also when the user turned the compaction status off: it is a warning, not progress."""
+        """Return one pending warning when Hermes permits an automatic compaction status."""
         message = super().get_automatic_compaction_status_message(phase=phase, default_message=default_message,
                                                                   **context)
-        notice, self._warm_notice = self._warm_notice, None
-        if notice is None:
-            return message
-        return f"{message}\n{notice}" if message else notice
+        if message is None:
+            return None
+        with self._wc_result_lock:
+            notice, self._warm_notice = self._warm_notice, None
+        return notice if notice is not None else message
