@@ -184,6 +184,7 @@ Manual `/compress` can report `No changes from compression` when all messages fi
 When the warm summary cannot be used, the plugin tries the fallback summary. If that summary cannot be used, it uses the fixed summary. The plugin reports these results:
 
 - Each saved compaction that Hermes confirms without the warm path writes a WARNING with its reason, for example `Warm compaction skipped (provider_error); used the fallback summary`. Hermes copies warnings to `logs/errors.log`.
+- A host compatibility failure (`middleware_order_unknown` or `middleware_unavailable`) prepares a notice after the first confirmed failure. It identifies the failed Hermes check and the summary path used. It does not wait for three failures.
 - After 3 confirmed compactions in a row without the warm path, the plugin writes one WARNING with a hint for each distinct reason. When automatic engine status is enabled, Hermes shows the notice at the next automatic compaction. The notice has no routine progress text, so a gateway filter for that text does not discard it. Later confirmed failures update the pending notice until Hermes shows it. For example:
 
   ```text
@@ -192,7 +193,7 @@ When the warm summary cannot be used, the plugin tries the fallback summary. If 
 
 - When the fallback summary could not be used, the notice says how many times, and that those compactions used the fixed summary (no model, less detail).
 - A warm summary can fail the handoff checks even when the server reports cached tokens. The notice describes the summary result. It does not prove a cache miss, a speed change, or that all details were kept.
-- A confirmed warm compaction or a session reset ends the streak, and the notice can show again after the next 3 failures. A cancelled or rejected attempt does not count or clear the streak, and `warm: false` is not a failure.
+- A confirmed warm compaction or a session reset ends the streak. The notice can then show again at the first host compatibility failure, or after 3 other failures. A cancelled or rejected attempt does not count or clear the streak, and `warm: false` is not a failure.
 - When the engine's automatic status is disabled, warnings stay in the logs. The engine keeps a pending notice until status is enabled or a confirmed warm compaction or session reset clears it.
 - The streak belongs to one engine instance. It is not saved across a restart or shared with separate gateway manual-command engines. A host that sends no successful compaction notification has attempt metadata only.
 - Manual `/compress` has no status line from the engine: after manual compactions only, the notice is in the logs.
@@ -263,6 +264,22 @@ context:
 ```
 
 The new history uses summary rows that Hermes recognizes. The [integration check](evidence/plugin-integration.json) checked a rollback with the plugin still enabled: the built-in compressor loaded the saved history and compacted it again with its own summary. To remove the plugin, use `hermes plugins disable warm_compaction` or `hermes plugins remove warm_compaction`.
+
+## Hermes update compatibility
+
+A future Hermes update can change an API that this plugin uses. The plugin currently reads the private middleware registry to confirm that no execution middleware runs after its capture. A later middleware could send a different request, so removing this check would make the capture unsafe. If the order cannot be checked, the plugin refuses the warm path and uses a fallback. Fallback summaries can omit details; they are not a guarantee of complete retention.
+
+The [compatibility workflow](.github/workflows/hermes-compatibility.yml) tests the real Hermes middleware against the minimum supported revision and upstream `main`. It runs on pull requests, pushes to `main`, each day, and by manual dispatch. Each report records the exact Hermes commit and plugin file hashes. A failed workflow needs review; it does not update or change an installed Hermes. GitHub Actions notification settings control failure notifications.
+
+The check uses synthetic requests and a fake provider callback. It checks capture ordering, request changes before and after capture, and refusal when ordering cannot be read. It does not call a model. Run it with a Hermes dependency interpreter and a clean, isolated source checkout:
+
+```bash
+<hermes-venv-python> -B scripts/check_hermes_compatibility.py --hermes-source <clean-hermes-checkout> --report .work/hermes-compatibility.json
+```
+
+This check does not prove full conversation-loop compatibility or a cache benefit. Before adopting a Hermes update, also run `scripts/check_plugin_hermes.py` as described in [Contributing](CONTRIBUTING.md#run-the-checks). Check `path`, `reason`, and available token counters in an isolated synthetic session. Keep the last working Hermes version available until these checks pass.
+
+To remove the private ordering dependency, Hermes needs a documented execution-middleware contract that tells each callback whether another callback follows it. That information must come from the same chain snapshot that the request executes. It must not be inferred from a separate registry read or from request text. The current Hermes API does not provide it. This plugin does not patch Hermes or assume that this proposed API exists.
 
 ## Development
 
