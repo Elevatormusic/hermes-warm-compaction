@@ -23,19 +23,42 @@
 
 It works on unpatched Hermes Agent. It uses documented plugin APIs only: no host patch, no subclass of the built-in compressor, and no runtime wrapping of Hermes code.
 
+<a id="warm_compaction-vs-hermes-lcm-vs-built-in"></a>
+
+<p align="center">
+  <img src="assets/bench-speed.svg" alt="Median compaction time: warm_compaction 16.8 s, hermes-lcm 43.5 s, built-in 78.5 s. Compaction plus next reply: 27.9 s, 66.1 s, 97.1 s." width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/bench-quality.svg" alt="Compacted facts kept: warm_compaction 59/60, hermes-lcm 43/60, built-in 50/60. Fact in the middle of a long message: 10/10, 0/10, 0/10. Standing rule kept: 10/10, 5/10, 6/10." width="100%">
+</p>
+
+<p align="center"><sub>Synthetic sessions of about 105K tokens on a DGX server, ten cases. Method, all measures, and limits: <a href="#results">Results</a>.</sub></p>
+
 ## Quick start
 
-```bash
-hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
-```
+Run these commands in a terminal (PowerShell, Terminal, or any shell) where the `hermes` command works: the same place where you start Hermes. Do not type them in a Hermes chat.
 
-```yaml
-# config.yaml
-context:
-  engine: warm_compaction
-```
+1. Install and enable the plugin:
 
-Start a new Hermes session. Each compaction writes one `warm_compaction:` line to `logs/agent.log`.
+   ```bash
+   hermes plugins install Elevatormusic/hermes-warm-compaction#warm_compaction --enable
+   ```
+
+2. Select the engine:
+
+   ```bash
+   hermes config set context.engine warm_compaction
+   ```
+
+   This writes the setting to your Hermes `config.yaml` (`hermes config path` shows where it is). You can also edit the file yourself (`hermes config edit`):
+
+   ```yaml
+   context:
+     engine: warm_compaction
+   ```
+
+3. Start a new Hermes session. Each compaction writes one `warm_compaction:` line to `logs/agent.log` in the Hermes home folder.
 
 ## How it works
 
@@ -159,15 +182,7 @@ All runs used synthetic conversations of 100,000 or more prompt tokens on unpatc
 
 On DGX, each warm request read about 108,000 prompt tokens, and the server reported at least 99.9% of them as cached.
 
-**Plugin, hermes-lcm 0.21.0-rc2, and the built-in compressor** ([record](evidence/lcm-bench.json)), DGX, automatic compaction, ten cases:
-
-<p align="center">
-  <img src="assets/bench-speed.svg" alt="Median compaction time: warm_compaction 16.8 s, hermes-lcm 43.5 s, built-in 78.5 s. Compaction plus next reply: 27.9 s, 66.1 s, 97.1 s." width="100%">
-</p>
-
-<p align="center">
-  <img src="assets/bench-quality.svg" alt="Compacted facts kept: warm_compaction 59/60, hermes-lcm 43/60, built-in 50/60. Fact in the middle of a long message: 10/10, 0/10, 0/10. Standing rule kept: 10/10, 5/10, 6/10." width="100%">
-</p>
+**Plugin, hermes-lcm 0.21.0-rc2, and the built-in compressor** ([record](evidence/lcm-bench.json)), DGX, automatic compaction, ten cases: see the [charts at the top](#warm_compaction-vs-hermes-lcm-vs-built-in).
 
 <details>
 <summary>Table with all measures</summary>
