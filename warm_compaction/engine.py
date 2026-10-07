@@ -80,7 +80,7 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
         if _valid(key, value):
             settings[key] = float(value) if key == "threshold" else value
         else:
-            logger.warning("warm_compaction: the setting %s is not valid; the default %r applies", key, default)
+            logger.warning("Invalid warm_compaction setting %s; using the default %r", key, default)
     return settings
 
 
@@ -283,7 +283,7 @@ class WarmCompactionEngine(ContextEngine):
         if summary is not None and not self._summary_fits(summary, overhead, reserve):
             # A dense handoff can pass the byte gate and still not fit below the threshold: the next request would
             # compact again at once. The fallback summary has a smaller limit.
-            logger.warning("warm_compaction: the warm summary does not fit in the room; fallback used")
+            logger.warning("Warm compaction summary does not fit in the free context; using the fallback summary")
             record.update(path=None, reason="summary_too_large")
             summary = None
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
@@ -303,7 +303,8 @@ class WarmCompactionEngine(ContextEngine):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
                 # transcript had. Or above the room (a large system prompt and a low threshold): the next request
                 # would compact again at once. The fixed summary quotes what the final tail cuts, in the room.
-                logger.warning("warm_compaction: the fallback summary is above the reserve; fixed summary used")
+                logger.warning("Warm compaction fallback summary is above its token reserve or the free context; "
+                               "using the fixed summary")
                 summary = None
             if summary is not None:
                 record["path"] = "fallback"
@@ -351,7 +352,8 @@ class WarmCompactionEngine(ContextEngine):
                     else:
                         # No quote fits after the summary: the cut middle would be lost. The fixed summary has
                         # the room for it.
-                        logger.warning("warm_compaction: no room for the cut quote; fixed summary used")
+                        logger.warning("No room for the cut quote after the fallback summary; using the fixed "
+                                       "summary")
                         record["path"] = "fixed"
                         cut = []
                 if record["path"] == "fixed":
@@ -657,23 +659,24 @@ class WarmCompactionEngine(ContextEngine):
         path, reason = record["path"], str(record["reason"])
         if path == "warm":
             if self._warm_failures >= WARM_FAILURE_STREAK:
-                logger.info("warm_compaction: the warm path works again after %d compactions without it",
-                            self._warm_failures)
+                logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
             self._warm_failures, self._warm_failure_reasons, self._warm_notice = 0, [], None
             return
         if path not in ("fallback", "fixed") or reason == "disabled":
             return
-        logger.warning("warm_compaction: the warm request was not used (%s); the %s summary was used", reason, path)
+        logger.warning("Warm compaction skipped (%s); used the %s summary", reason, path)
         self._warm_failures += 1
         self._warm_failure_reasons.append(reason)
         if self._warm_failures == WARM_FAILURE_STREAK:
             reasons = ", ".join(dict.fromkeys(self._warm_failure_reasons))
             hint = FAILURE_HINTS.get(reason.split(":", 1)[0], "see the Limits section of the plugin README")
+            # The Hermes warning style on screen: the sign, the subject, what continues, and where to look.
             self._warm_notice = (
-                f"warm_compaction: the last {self._warm_failures} compactions did not use the warm cache ({reasons}). "
-                f"Compaction still works with the fallback summary, but it is slower. Likely cause: {hint}. "
-                "Details: the warm_compaction lines in logs/agent.log.")
-            logger.warning(self._warm_notice)
+                f"\u26a0 Warm compaction unavailable: the last {self._warm_failures} compactions could not reuse the "
+                f"prompt cache ({reasons}). Likely cause: {hint}. Compaction continues with the slower fallback "
+                "summary \u2014 no messages were dropped. Details: the warm_compaction lines in logs/agent.log.")
+            logger.warning("Warm compaction failed %d times in a row (%s): %s; compaction continues with the "
+                           "fallback summary", self._warm_failures, reasons, hint)
 
     def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
                                                 **context: Any) -> str | None:

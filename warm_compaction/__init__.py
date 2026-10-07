@@ -61,8 +61,8 @@ def register(ctx: Any) -> None:
                      "API.", ", ".join(missing))
         return
     if missing:
-        logger.warning("warm_compaction: Hermes does not have these plugin APIs: %s. The plugin registers "
-                       "nothing, and Hermes keeps its built-in compressor.", ", ".join(missing))
+        logger.warning("Hermes is missing plugin APIs that warm_compaction needs (%s); the plugin registers "
+                       "nothing and Hermes keeps its built-in compressor", ", ".join(missing))
         return
     from .capture import CaptureStore
     from .engine import WarmCompactionEngine, read_settings
@@ -74,12 +74,12 @@ def register(ctx: Any) -> None:
                                     defaults={"timeout": 120})
     except Exception as error:
         task = None
-        logger.warning("warm_compaction: the auxiliary task was not registered (%s). The fallback summary uses "
-                       "the main model route.", type(error).__name__)
+        logger.warning("warm_compaction could not register its auxiliary task (%s); the fallback summary uses "
+                       "the main model route", type(error).__name__)
     store = CaptureStore()
     engine = WarmCompactionEngine(store=store, llm=ctx.llm, settings=read_settings(ctx.get_config), task=task)
     if ctx.register_context_engine(engine) is None:
-        logger.warning("warm_compaction: Hermes did not accept the context engine. The plugin registers no hooks.")
+        logger.warning("Hermes did not accept the warm_compaction context engine; the plugin registers no hooks")
         return
     ctx.register_hook("pre_api_request", store.on_pre_api_request)
     ctx.register_middleware(MIDDLEWARE, store.on_llm_execution)

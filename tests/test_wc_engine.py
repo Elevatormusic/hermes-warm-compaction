@@ -594,12 +594,20 @@ class EngineTest(unittest.TestCase):
             for _ in range(3):
                 engine.compress(history)
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "no_capture"))
-        self.assertEqual(sum("warm request was not used (no_capture)" in line for line in logs.output), 3)
-        self.assertEqual(sum("last 3 compactions did not use the warm cache" in line for line in logs.output), 1)
+        self.assertEqual(sum("Warm compaction skipped (no_capture); used the fallback summary" in line
+                             for line in logs.output), 3)
+        self.assertEqual(sum("Warm compaction failed 3 times in a row (no_capture)" in line for line in logs.output), 1)
+        # Hermes log style: no module prefix in the text (the log format shows the logger name), no emoji.
+        self.assertFalse(any(line.split(":", 2)[2].startswith(("warm_compaction:", "\u26a0")) for line in logs.output))
         message = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
         self.assertTrue(message.startswith("Compacting\n"))
-        self.assertIn("last 3 compactions did not use the warm cache (no_capture)", message)
-        self.assertIn("no main-model request completed", message)
+        # Hermes warning style on screen: the warning sign, a subject, what continues, and where to look.
+        notice = message.split("\n", 1)[1]
+        self.assertTrue(notice.startswith("\u26a0 Warm compaction unavailable: the last 3 compactions could not "
+                                          "reuse the prompt cache (no_capture)."))
+        self.assertIn("no main-model request completed", notice)
+        self.assertIn("no messages were dropped", notice)
+        self.assertIn("logs/agent.log", notice)
         # One time only.
         self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
                                                                         default_message="Compacting"), "Compacting")
@@ -628,7 +636,7 @@ class EngineTest(unittest.TestCase):
         engine._compression_cancelled_check = lambda: False
         for _ in range(2):
             engine.compress(history)
-        self.assertIn("did not use the warm cache",
+        self.assertIn("Warm compaction unavailable",
                       engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting"))
 
     def test_the_warm_setting_off_is_not_a_failure(self):
@@ -648,7 +656,7 @@ class EngineTest(unittest.TestCase):
             engine.compress(history)
         engine.emit_automatic_compaction_status = False
         message = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
-        self.assertTrue(message.startswith("warm_compaction: the last 3 compactions"))
+        self.assertTrue(message.startswith("\u26a0 Warm compaction unavailable: the last 3 compactions"))
 
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next

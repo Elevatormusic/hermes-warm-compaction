@@ -67,7 +67,7 @@ SCENARIOS = ("enable_manual_warm", "manual_fallback", "manual_fixed", "auto_tool
              "rollback")
 # The scenarios with automatic compaction in a tool loop.
 AUTO_SCENARIOS = ("auto_tool_loop", "auto_warm_failures")
-NOTICE_MARK = "did not use the warm cache"
+NOTICE_MARK = "Warm compaction unavailable"
 # The rollback scenario has a third process: a new Hermes process with the built-in compressor.
 PHASES = {"rollback": ("install", "run", "rollback")}
 DEFAULT_PHASES = ("install", "run")
@@ -813,12 +813,12 @@ def run_auto_failures(agent, engine, history, server, result, checks, statuses, 
         path = logs / name
         return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
     agent_log, errors_log = read_log("agent.log"), read_log("errors.log")
-    refusal = "warm request was not used (provider_error)"
+    refusal = "Warm compaction skipped (provider_error)"
     result["log_counts"] = {"agent_refusals": agent_log.count(refusal), "errors_refusals": errors_log.count(refusal),
-                            "errors_notice": errors_log.count(NOTICE_MARK)}
+                            "errors_notice": errors_log.count("Warm compaction failed 3 times in a row")}
     checks["each_refusal_in_agent_log"] = agent_log.count(refusal) == 3
     checks["each_refusal_in_errors_log"] = errors_log.count(refusal) == 3
-    checks["notice_in_errors_log"] = errors_log.count(NOTICE_MARK) == 1
+    checks["notice_in_errors_log"] = errors_log.count("Warm compaction failed 3 times in a row") == 1
 
 
 # ---------------------------------------------------------------------------------------------------------

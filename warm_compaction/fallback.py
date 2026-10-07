@@ -211,7 +211,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     try:
         result = llm.complete(request, task=task, max_tokens=MAX_TOKENS, timeout=timeout_s, purpose=PURPOSE)
     except Exception as error:
-        logger.warning("warm_compaction: the fallback summary request failed (%s)", type(error).__name__)
+        logger.warning("Warm compaction fallback summary request failed (%s)", type(error).__name__)
         return None, None
     # The same checks as the warm reply: the five headings, the byte limit, and no summary markers. A reply
     # without them (cut off, or an answer to the conversation) must not replace the history.
@@ -219,7 +219,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     finish, body = _complete_reply(result, raw)
     text, reason = gate({"content": body, "finish_reason": finish}, prefixes)
     if text is None:
-        logger.warning("warm_compaction: the fallback summary was refused (%s)", reason)
+        logger.warning("Warm compaction fallback summary refused (%s)", reason)
         return None, None
     tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
     return text, tokens if isinstance(tokens, int) and tokens > 0 else None

@@ -171,11 +171,11 @@ The engine status (`get_status()`) has the same values in `warm_last`. The log n
 
 The plugin never stops a compaction: when the warm request cannot run, the fallback summary does the work. So that this does not go unseen:
 
-- Each compaction without the warm path also writes a WARNING with its reason. Hermes copies warnings to `logs/errors.log`.
-- After 3 compactions in a row without the warm path, the plugin writes one WARNING that names the reasons and the likely cause. Hermes shows the same notice with the status of the next automatic compaction, also when the compaction status is turned off. For example:
+- Each compaction without the warm path also writes a WARNING with its reason, for example `Warm compaction skipped (provider_error); used the fallback summary`. Hermes copies warnings to `logs/errors.log`.
+- After 3 compactions in a row without the warm path, the plugin writes one WARNING that names the reasons and the likely cause. Hermes shows a notice in its warning style with the status of the next automatic compaction, also when the compaction status is turned off. For example:
 
   ```text
-  warm_compaction: the last 3 compactions did not use the warm cache (provider_error). Compaction still works with the fallback summary, but it is slower. Likely cause: the server refused the warm request (a provider error, or a gateway that needs a cookie). Details: the warm_compaction lines in logs/agent.log.
+  ⚠ Warm compaction unavailable: the last 3 compactions could not reuse the prompt cache (provider_error). Likely cause: the server refused the warm request (a provider error, or a gateway that needs a cookie). Compaction continues with the slower fallback summary — no messages were dropped. Details: the warm_compaction lines in logs/agent.log.
   ```
 
 - A warm compaction ends the streak, and the notice can show again after the next 3 failures. A cancelled attempt does not count, and `warm: false` is not a failure.
