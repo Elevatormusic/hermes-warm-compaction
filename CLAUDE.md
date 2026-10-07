@@ -60,4 +60,3 @@ Use the [PR template](.github/pull_request_template.md). Link the issue, give th
 Before a PR update or publication, check the current branch head, diff, checks, and relevant issue or review comments again. Inspect the full diff for unrelated changes and private data. Do not infer completion from an old check result.
 
 The final report states what changed, why, the checks and their outcomes, and what remains unproved. Do not present a local fix as deployed or a unit test as a performance result.
-
