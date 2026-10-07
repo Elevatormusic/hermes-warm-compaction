@@ -8,6 +8,10 @@ on:
     - cron: "23 9 * * *"
   workflow_dispatch:
 
+# The cache service enforces this limit on each job token.
+# External Hermes code must have no Actions cache access.
+cache-mode: none
+
 permissions:
   contents: read
 
