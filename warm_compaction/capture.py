@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import copy
-import hashlib
+import hmac
 import json
+import secrets
 import threading
 import time
 from collections import OrderedDict
@@ -17,12 +18,12 @@ MAX_OPEN = 8
 MAX_SESSIONS = 16
 CLIENT_OPTIONS = ("extra_body", "extra_headers", "extra_query", "timeout")
 CAPTURE_FINISH = ("stop", "tool_calls")
+_KEY_STAMP_SECRET = secrets.token_bytes(32)
 
 
 def key_stamp(key: str) -> str:
-    """A digest of a resolved API key. A capture keeps it, never the key: the capture belongs to the key that
-    sent it."""
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+    """Return an in-memory keyed digest of a resolved API key. The secret stays in this module."""
+    return hmac.new(_KEY_STAMP_SECRET, key.encode("utf-8"), "sha256").hexdigest()
 
 
 class UnsupportedRequest(ValueError):

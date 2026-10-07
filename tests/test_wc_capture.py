@@ -1,10 +1,13 @@
 """Tests for the capture store."""
 
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 import wc_hermes_stub
-from warm_compaction.capture import CaptureStore, UnsupportedRequest, final_body
+from warm_compaction.capture import CaptureStore, UnsupportedRequest, final_body, key_stamp
 from warm_compaction.rows import row_digest
 from wc_fixtures import user
 
@@ -17,6 +20,30 @@ def reply_object(content="done", calls=()):
     tool_calls = [SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments="{}"))
                   for call_id, name in calls]
     return SimpleNamespace(content=content, tool_calls=tool_calls or None)
+
+
+class KeyStampTest(unittest.TestCase):
+    def test_stamps_are_stable_and_distinct(self):
+        keys = ("synthetic-key-a", "synthetic-key-b", "", "synthetic-\u03ba\u03bb\u03b5\u03b9\u03b4\u03af")
+        stamps = []
+        for key in keys:
+            with self.subTest(key=key):
+                stamp = key_stamp(key)
+                self.assertEqual(stamp, key_stamp(key))
+                self.assertRegex(stamp, r"^[0-9a-f]{64}$")
+                stamps.append(stamp)
+        self.assertEqual(len(set(stamps)), len(keys))
+
+    def test_fresh_interpreters_have_different_stamps(self):
+        source_root = Path(__file__).resolve().parents[1]
+        code = (
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "from warm_compaction.capture import key_stamp; "
+            "print(key_stamp('synthetic-key-a'))"
+        )
+        command = [sys.executable, "-I", "-B", "-c", code, str(source_root)]
+        stamps = [subprocess.check_output(command, text=True, timeout=10).strip() for _ in range(2)]
+        self.assertNotEqual(stamps[0], stamps[1])
 
 
 class FinalBodyTest(unittest.TestCase):

@@ -2,6 +2,12 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- Use HMAC-SHA-256 with a random secret for each plugin load to check API key changes. Captures keep only the keyed digest in memory.
+
 ## [0.2.0] - 2026-10-06
 
 First public release.
@@ -15,4 +21,5 @@ First public release.
 - Settings: `threshold`, `tail_tokens`, `user_copy_chars`, `warm`.
 - Integration check against real Hermes code and a loopback fake server, and live results on DGX and LM Studio.
 
+[Unreleased]: https://github.com/Elevatormusic/hermes-warm-compaction/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Elevatormusic/hermes-warm-compaction/releases/tag/v0.2.0
