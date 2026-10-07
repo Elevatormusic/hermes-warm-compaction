@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-import hmac
+import hashlib
 import json
 import secrets
 import threading
@@ -18,12 +18,16 @@ MAX_OPEN = 8
 MAX_SESSIONS = 16
 CLIENT_OPTIONS = ("extra_body", "extra_headers", "extra_query", "timeout")
 CAPTURE_FINISH = ("stop", "tool_calls")
+# A random salt for each plugin load: the stamps of one key differ between processes.
 _KEY_STAMP_SECRET = secrets.token_bytes(32)
+# PBKDF2 work for each stamp (about 3 ms): a stamp is made a few times for each main request.
+KEY_STAMP_ROUNDS = 10_000
 
 
 def key_stamp(key: str) -> str:
-    """Return an in-memory keyed digest of a resolved API key. The secret stays in this module."""
-    return hmac.new(_KEY_STAMP_SECRET, key.encode("utf-8"), "sha256").hexdigest()
+    """A digest of a resolved API key. A capture keeps it, never the key: the capture belongs to the key that
+    sent it. PBKDF2-HMAC-SHA-256 with the salt of this plugin load; the salt and the stamps stay in memory."""
+    return hashlib.pbkdf2_hmac("sha256", key.encode("utf-8"), _KEY_STAMP_SECRET, KEY_STAMP_ROUNDS).hex()
 
 
 class UnsupportedRequest(ValueError):

@@ -6,7 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Security
 
-- Use HMAC-SHA-256 with a random secret for each plugin load to check API key changes. Captures keep only the keyed digest in memory.
+- Use PBKDF2-HMAC-SHA-256 with a random salt for each plugin load to check API key changes. Captures keep only the digest in memory.
 
 ## [0.2.0] - 2026-10-06
 
