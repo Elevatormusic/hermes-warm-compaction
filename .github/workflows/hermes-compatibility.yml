@@ -21,26 +21,31 @@ concurrency:
 
 jobs:
   contract:
-    name: Hermes contract (${{ matrix.hermes.name }})
+    name: Hermes contract (${{ matrix.hermes }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        hermes:
-          - name: minimum
-            ref: 45871e100feceb89769536c88e5e6e265226a409
-          - name: upstream-main
-            ref: main
+        hermes: [minimum, upstream-main]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check out Hermes source
+      - name: Check out the minimum Hermes source
+        if: matrix.hermes == 'minimum'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: NousResearch/hermes-agent
-          ref: ${{ matrix.hermes.ref }}
+          ref: 45871e100feceb89769536c88e5e6e265226a409
+          path: .work/hermes
+          persist-credentials: false
+      - name: Check out the upstream Hermes main source
+        if: matrix.hermes == 'upstream-main'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: main
           path: .work/hermes
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -62,7 +67,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: hermes-compatibility-${{ matrix.hermes.name }}
+          name: hermes-compatibility-${{ matrix.hermes }}
           path: |
             .work/hermes-compatibility.json
             .work/hermes-integration.json
