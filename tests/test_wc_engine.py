@@ -585,6 +585,71 @@ class EngineTest(unittest.TestCase):
         engine = self.make(tail_tokens=500_000)
         self.assertEqual(engine._tail_cap(0, None, 0) - engine._tail_cap(2_000, None, 0, 1_000), 3_000)
 
+    def test_three_compactions_without_the_warm_path_tell_the_user_one_time(self):
+        # No capture: each compaction uses the fallback. Each refusal is a WARNING; the third one adds one notice
+        # to the next automatic compaction status that Hermes shows.
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                engine.compress(history)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "no_capture"))
+        self.assertEqual(sum("warm request was not used (no_capture)" in line for line in logs.output), 3)
+        self.assertEqual(sum("last 3 compactions did not use the warm cache" in line for line in logs.output), 1)
+        message = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertTrue(message.startswith("Compacting\n"))
+        self.assertIn("last 3 compactions did not use the warm cache (no_capture)", message)
+        self.assertIn("no main-model request completed", message)
+        # One time only.
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_a_warm_compaction_ends_the_failure_streak(self):
+        engine = self.make()
+        rows, reply = old_turns(), assistant("final")
+        for _ in range(2):
+            engine.compress([*rows, reply])
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.store.forget(session_id="s1")
+        for _ in range(2):
+            engine.compress([*rows, reply])
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_a_cancelled_attempt_does_not_end_the_failure_streak(self):
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        engine.compress(history)
+        engine._compression_cancelled_check = lambda: True
+        engine.compress(history)
+        self.assertEqual(engine.warm_last["path"], "cancelled")
+        engine._compression_cancelled_check = lambda: False
+        for _ in range(2):
+            engine.compress(history)
+        self.assertIn("did not use the warm cache",
+                      engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting"))
+
+    def test_the_warm_setting_off_is_not_a_failure(self):
+        engine = self.make(warm=False)
+        history = [*old_turns(), assistant("done")]
+        with self.assertNoLogs("warm_compaction.engine", level="WARNING"):
+            for _ in range(4):
+                engine.compress(history)
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
+    def test_the_notice_shows_when_the_host_status_is_turned_off(self):
+        # A user who turned the compaction status off still gets the notice: it is a warning, not progress.
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        for _ in range(3):
+            engine.compress(history)
+        engine.emit_automatic_compaction_status = False
+        message = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertTrue(message.startswith("warm_compaction: the last 3 compactions"))
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.

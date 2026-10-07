@@ -167,6 +167,20 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 
 The engine status (`get_status()`) has the same values in `warm_last`. The log never contains message text, request bodies, or keys.
 
+### When the warm path keeps failing
+
+The plugin never stops a compaction: when the warm request cannot run, the fallback summary does the work. So that this does not go unseen:
+
+- Each compaction without the warm path also writes a WARNING with its reason. Hermes copies warnings to `logs/errors.log`.
+- After 3 compactions in a row without the warm path, the plugin writes one WARNING that names the reasons and the likely cause. Hermes shows the same notice with the status of the next automatic compaction, also when the compaction status is turned off. For example:
+
+  ```text
+  warm_compaction: the last 3 compactions did not use the warm cache (provider_error). Compaction still works with the fallback summary, but it is slower. Likely cause: the server refused the warm request (a provider error, or a gateway that needs a cookie). Details: the warm_compaction lines in logs/agent.log.
+  ```
+
+- A warm compaction ends the streak, and the notice can show again after the next 3 failures. A cancelled attempt does not count, and `warm: false` is not a failure.
+- Manual `/compress` has no status line from the engine: after manual compactions only, the notice is in the logs.
+
 ## Results
 
 All runs used synthetic conversations of 100,000 or more prompt tokens on unpatched Hermes `45871e10`, one session at a time. The records have metadata only. "DGX" is an OpenAI-compatible server on an NVIDIA DGX that reports cached tokens. "LM Studio 4B" is LM Studio with a Qwen3.5 4B model; it reports no cached-token counter.

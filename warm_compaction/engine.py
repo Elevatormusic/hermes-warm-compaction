@@ -32,6 +32,25 @@ FIXED_ROUNDS = 10
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
+# After this many compactions in a row without the warm path, the user gets one notice.
+WARM_FAILURE_STREAK = 3
+# What a user can do about the common reasons. Other reasons point to the README Limits.
+FAILURE_HINTS = {
+    "no_capture": "no main-model request completed in this Hermes process before the compaction",
+    "provider_error": "the server refused the warm request (a provider error, or a gateway that needs a cookie)",
+    "timeout": "the warm request took longer than its time limit",
+    "api_mode_unsupported": "this API mode has no warm path; only chat_completions has one",
+    "settings_unsupported": "the main request uses a setting that the warm request cannot keep",
+    "request_options_unsupported": "the main request uses extra headers or query options",
+    "credential_changed": "the API key changed after the last main request",
+    "capacity": "the warm request does not fit in the context window",
+    "summary_too_large": "the handoff did not fit in the free room of the context window",
+    "headers_unknown": "the route headers could not be read",
+    "tls_unknown": "the TLS settings of the route could not be read",
+    "middleware_after_capture": "another plugin middleware runs after the capture and can change the request",
+    "middleware_order_unknown": "the order of the plugin middleware could not be read",
+    "source_transform_unsupported": "a hook or middleware changed the stored rows in the request",
+}
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
 
@@ -144,6 +163,10 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_provider: str = ""
         # True after the first update_model: an empty provider and key are an identity too.
         self._wc_identity_set = False
+        # Compactions in a row without the warm path, their reasons, and the notice for the next status.
+        self._warm_failures = 0
+        self._warm_failure_reasons: list[str] = []
+        self._warm_notice: str | None = None
 
     @property
     def name(self) -> str:
@@ -624,3 +647,41 @@ class WarmCompactionEngine(ContextEngine):
         logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
                     record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
                     record["cached_tokens"])
+        self._note_warm_result(record)
+
+    def _note_warm_result(self, record: dict[str, Any]) -> None:
+        """Count the compactions in a row without the warm path. Each one is a WARNING (errors.log has it too).
+        After WARM_FAILURE_STREAK of them, one WARNING names the reasons and the cause, and the next automatic
+        compaction status shows it to the user. A warm compaction ends the streak. A cancelled attempt is not a
+        result, and the warm setting off is the user's choice: neither counts."""
+        path, reason = record["path"], str(record["reason"])
+        if path == "warm":
+            if self._warm_failures >= WARM_FAILURE_STREAK:
+                logger.info("warm_compaction: the warm path works again after %d compactions without it",
+                            self._warm_failures)
+            self._warm_failures, self._warm_failure_reasons, self._warm_notice = 0, [], None
+            return
+        if path not in ("fallback", "fixed") or reason == "disabled":
+            return
+        logger.warning("warm_compaction: the warm request was not used (%s); the %s summary was used", reason, path)
+        self._warm_failures += 1
+        self._warm_failure_reasons.append(reason)
+        if self._warm_failures == WARM_FAILURE_STREAK:
+            reasons = ", ".join(dict.fromkeys(self._warm_failure_reasons))
+            hint = FAILURE_HINTS.get(reason.split(":", 1)[0], "see the Limits section of the plugin README")
+            self._warm_notice = (
+                f"warm_compaction: the last {self._warm_failures} compactions did not use the warm cache ({reasons}). "
+                f"Compaction still works with the fallback summary, but it is slower. Likely cause: {hint}. "
+                "Details: the warm_compaction lines in logs/agent.log.")
+            logger.warning(self._warm_notice)
+
+    def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
+                                                **context: Any) -> str | None:
+        """The Hermes status for an automatic compaction, with the warm failure notice one time after a streak.
+        The notice shows also when the user turned the compaction status off: it is a warning, not progress."""
+        message = super().get_automatic_compaction_status_message(phase=phase, default_message=default_message,
+                                                                  **context)
+        notice, self._warm_notice = self._warm_notice, None
+        if notice is None:
+            return message
+        return f"{message}\n{notice}" if message else notice

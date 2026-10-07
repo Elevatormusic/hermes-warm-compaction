@@ -2,6 +2,13 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- A WARNING for each compaction that does not use the warm path, with its reason (Hermes copies it to `errors.log`).
+- After 3 compactions in a row without the warm path, one notice with the reasons and the likely cause, in the logs and in the status of the next automatic compaction.
+
 ## [0.2.0] - 2026-10-06
 
 First public release.

@@ -63,7 +63,11 @@ TOOL_PLUGIN = {
         '        "parameters": {"type": "object", "properties": {}, "required": []}})\n'
     ),
 }
-SCENARIOS = ("enable_manual_warm", "manual_fallback", "manual_fixed", "auto_tool_loop", "rollback")
+SCENARIOS = ("enable_manual_warm", "manual_fallback", "manual_fixed", "auto_tool_loop", "auto_warm_failures",
+             "rollback")
+# The scenarios with automatic compaction in a tool loop.
+AUTO_SCENARIOS = ("auto_tool_loop", "auto_warm_failures")
+NOTICE_MARK = "did not use the warm cache"
 # The rollback scenario has a third process: a new Hermes process with the built-in compressor.
 PHASES = {"rollback": ("install", "run", "rollback")}
 DEFAULT_PHASES = ("install", "run")
@@ -191,7 +195,10 @@ class FakeServer:
             entry = {"seq": len(self.requests), "kind": kind, "body": body, "status": 200}
             self.requests.append(entry)
             if kind == "warm":
-                entry["status"] = self.plan.get("warm_status", 200)
+                # The first warm_fail_first warm requests fail; the later ones use warm_status.
+                warm_seen = sum(1 for request in self.requests if request["kind"] == "warm")
+                failing = warm_seen <= self.plan.get("warm_fail_first", 0)
+                entry["status"] = 500 if failing else self.plan.get("warm_status", 200)
                 payload = completion(HANDOFF, prompt_tokens=size, cached_tokens=self.plan.get("cached", size // 2))
             elif kind == "fallback":
                 entry["status"] = self.plan.get("fallback_status", 200)
@@ -355,6 +362,13 @@ def plan_for(scenario):
     if scenario == "manual_fixed":
         return {"warm_status": 500, "fallback_status": 500,
                 "main": [{"content": "The code word is BLUE-7."}, {"content": "Next."}]}
+    if scenario == "auto_warm_failures":
+        # Four automatic compactions; the server refuses the first three warm requests.
+        main = []
+        for index in range(4):
+            main += [{"tool": {"id": f"call_{index + 1}", "name": "wc_note"}, "prompt_tokens": 150_000},
+                     {"content": f"Done {index + 1}.", "prompt_tokens": 20_000}]
+        return {"warm_fail_first": 3, "main": main}
     if scenario == "auto_tool_loop":
         return {"main": [
             {"tool": {"id": "call_1", "name": "wc_note"}, "prompt_tokens": 150_000},
@@ -367,7 +381,7 @@ def plan_for(scenario):
 
 def base_config(scenario):
     """The run phase replaces the placeholder URL with the URL of its fake server."""
-    settings = {"threshold": 0.4} if scenario == "auto_tool_loop" else {}
+    settings = {"threshold": 0.4} if scenario in AUTO_SCENARIOS else {}
     return {
         "model": {"default": MODEL, "provider": "custom", "base_url": PLACEHOLDER_URL,
                   "context_length": CONTEXT_LENGTH},
@@ -433,7 +447,7 @@ def install_phase(spec, session_dir):
         documented = scenario == "enable_manual_warm"
         cmd_install(spec["plugin_url"], enable=documented)
         names = ["warm_compaction"]
-        if scenario == "auto_tool_loop":
+        if scenario in AUTO_SCENARIOS:
             cmd_install(spec["tool_plugin_url"], enable=False)
             names.append("wc_test_tools")
         if not documented:
@@ -499,15 +513,18 @@ def run_phase(spec, session_dir):
         sys.addaudithook(fence)
 
         db = SessionDB(home / "state.db")
+        # The status lines that Hermes shows the user (CLI print and the gateway status callback).
+        statuses = []
         sid = f"wc-{scenario}"
         db.create_session(sid, "cli")
         db.append_messages_batch(sid, synthetic_history())
         agent = AIAgent(base_url=server.base_url, api_key="no-key-required", provider="custom",
                         api_mode="chat_completions", model=MODEL,
-                        enabled_toolsets=["wc_test"] if scenario == "auto_tool_loop" else [],
+                        enabled_toolsets=["wc_test"] if scenario in AUTO_SCENARIOS else [],
                         disabled_toolsets=[], quiet_mode=True, skip_context_files=True, skip_memory=True,
                         skip_background_review=True, capabilities={"vision": False}, session_id=sid,
-                        session_db=db, max_tokens=1024, platform="cli", cwd=str(session_dir))
+                        session_db=db, max_tokens=1024, platform="cli", cwd=str(session_dir),
+                        status_callback=lambda kind, message: statuses.append([kind, str(message)]))
         engine = agent.context_compressor
         checks["engine_selected"] = getattr(engine, "name", None) == "warm_compaction"
         result["engine"] = {"name": getattr(engine, "name", None), "threshold_tokens": engine.threshold_tokens,
@@ -515,6 +532,8 @@ def run_phase(spec, session_dir):
         history = db.get_messages_as_conversation(sid)
         if scenario == "auto_tool_loop":
             run_auto(agent, engine, history, server, result, checks)
+        elif scenario == "auto_warm_failures":
+            run_auto_failures(agent, engine, history, server, result, checks, statuses, home)
         else:
             run_manual(agent, engine, db, history, server, result, checks, scenario,
                        _compress_session_history, finalize_context_engine_compression_notification)
@@ -763,6 +782,43 @@ def run_auto(agent, engine, history, server, result, checks):
         check_warm_request(server, checks, "auto2", tool_rows=1)
     checks["no_fallback_request"] = not by_kind(server, "fallback")
     result["compression_count"] = engine.compression_count
+
+
+def run_auto_failures(agent, engine, history, server, result, checks, statuses, home):
+    """Repeated warm refusals: each one is a WARNING in agent.log and errors.log, and after the third one the
+    next automatic compaction status shows one notice to the user. A warm compaction ends the streak."""
+    questions = (TOOL_QUESTION, TOOL_AGAIN_QUESTION)
+    outcomes, notice_turn = [], None
+    messages = history
+    for turn in range(4):
+        before = len(statuses)
+        reply = agent.run_conversation(questions[turn % 2], system_message=SYSTEM, conversation_history=messages)
+        messages = list(reply.get("messages") or [])
+        checks[f"turn{turn + 1}_final"] = reply.get("final_response") == f"Done {turn + 1}."
+        last = dict(engine.warm_last or {})
+        outcomes.append([last.get("path"), last.get("reason")])
+        if any(NOTICE_MARK in message for _kind, message in statuses[before:]):
+            notice_turn = turn + 1
+    result["outcomes"] = outcomes
+    notices = [message for _kind, message in statuses if NOTICE_MARK in message]
+    # Metadata only: the notice has no conversation text, so its text goes into the report.
+    result["notices"] = notices
+    result["status_count"] = len(statuses)
+    checks["three_fallbacks_then_warm"] = outcomes == [["fallback", "provider_error"]] * 3 + [["warm", "accepted"]]
+    checks["one_notice"] = len(notices) == 1
+    checks["notice_before_the_fourth_compaction"] = notice_turn == 4
+    checks["notice_names_the_reason"] = bool(notices) and "(provider_error)" in notices[0]
+    logs = home / "logs"
+    def read_log(name):
+        path = logs / name
+        return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    agent_log, errors_log = read_log("agent.log"), read_log("errors.log")
+    refusal = "warm request was not used (provider_error)"
+    result["log_counts"] = {"agent_refusals": agent_log.count(refusal), "errors_refusals": errors_log.count(refusal),
+                            "errors_notice": errors_log.count(NOTICE_MARK)}
+    checks["each_refusal_in_agent_log"] = agent_log.count(refusal) == 3
+    checks["each_refusal_in_errors_log"] = errors_log.count(refusal) == 3
+    checks["notice_in_errors_log"] = errors_log.count(NOTICE_MARK) == 1
 
 
 # ---------------------------------------------------------------------------------------------------------
