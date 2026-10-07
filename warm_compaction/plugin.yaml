@@ -6,6 +6,11 @@ kind: standalone
 author: Elevatormusic
 homepage: https://github.com/Elevatormusic/hermes-warm-compaction
 tags: [context-engine, compaction]
+provides_hooks:
+  - pre_api_request
+  - post_api_request
+  - on_session_finalize
+  - on_session_reset
 config_schema:
   threshold:
     type: float
