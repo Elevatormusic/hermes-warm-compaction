@@ -164,9 +164,7 @@ class WarmCompactionEngine(ContextEngine):
         # True after the first update_model: an empty provider and key are an identity too.
         self._wc_identity_set = False
         # Compactions in a row without the warm path, their reasons, and the notice for the next status.
-        self._warm_failures = 0
-        self._warm_failure_reasons: list[str] = []
-        self._warm_notice: str | None = None
+        self._clear_warm_failures()
 
     @property
     def name(self) -> str:
@@ -247,6 +245,8 @@ class WarmCompactionEngine(ContextEngine):
     def on_session_reset(self) -> None:
         super().on_session_reset()
         self.warm_last = None
+        # The failure streak and its notice are of the old session.
+        self._clear_warm_failures()
         # The calibration of the old session: Hermes uses the real prompt count as a floor unless the latch is set.
         self.last_real_prompt_tokens = 0
         self.awaiting_real_usage_after_compression = False
@@ -651,6 +651,11 @@ class WarmCompactionEngine(ContextEngine):
                     record["cached_tokens"])
         self._note_warm_result(record)
 
+    def _clear_warm_failures(self) -> None:
+        self._warm_failures, self._warm_fixed = 0, 0
+        self._warm_failure_reasons: list[str] = []
+        self._warm_notice: str | None = None
+
     def _note_warm_result(self, record: dict[str, Any]) -> None:
         """Count the compactions in a row without the warm path. Each one is a WARNING (errors.log has it too).
         After WARM_FAILURE_STREAK of them, one WARNING names the reasons and the cause, and the next automatic
@@ -660,23 +665,32 @@ class WarmCompactionEngine(ContextEngine):
         if path == "warm":
             if self._warm_failures >= WARM_FAILURE_STREAK:
                 logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
-            self._warm_failures, self._warm_failure_reasons, self._warm_notice = 0, [], None
+            self._clear_warm_failures()
             return
         if path not in ("fallback", "fixed") or reason == "disabled":
             return
         logger.warning("Warm compaction skipped (%s); used the %s summary", reason, path)
         self._warm_failures += 1
+        self._warm_fixed += path == "fixed"
         self._warm_failure_reasons.append(reason)
         if self._warm_failures == WARM_FAILURE_STREAK:
             reasons = ", ".join(dict.fromkeys(self._warm_failure_reasons))
             hint = FAILURE_HINTS.get(reason.split(":", 1)[0], "see the Limits section of the plugin README")
+            # The fixed summary has no model request: when the fallback also failed, the notice says so.
+            if self._warm_fixed:
+                continues = (f"Compaction continues, but the fallback summary also failed {self._warm_fixed} of "
+                             f"{self._warm_failures} times, so those used the fixed summary (no model, less detail)")
+                log_continues = f"compaction continues, {self._warm_fixed} of them with the fixed summary"
+            else:
+                continues = "Compaction continues with the slower fallback summary"
+                log_continues = "compaction continues with the fallback summary"
             # The Hermes warning style on screen: the sign, the subject, what continues, and where to look.
             self._warm_notice = (
                 f"\u26a0 Warm compaction unavailable: the last {self._warm_failures} compactions could not reuse the "
-                f"prompt cache ({reasons}). Likely cause: {hint}. Compaction continues with the slower fallback "
-                "summary \u2014 no messages were dropped. Details: the warm_compaction lines in logs/agent.log.")
-            logger.warning("Warm compaction failed %d times in a row (%s): %s; compaction continues with the "
-                           "fallback summary", self._warm_failures, reasons, hint)
+                f"prompt cache ({reasons}). Likely cause: {hint}. {continues} \u2014 no messages were dropped. "
+                "Details: the warm_compaction lines in logs/agent.log.")
+            logger.warning("Warm compaction failed %d times in a row (%s): %s; %s", self._warm_failures, reasons,
+                           hint, log_continues)
 
     def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
                                                 **context: Any) -> str | None:

@@ -178,7 +178,8 @@ The plugin never stops a compaction: when the warm request cannot run, the fallb
   ⚠ Warm compaction unavailable: the last 3 compactions could not reuse the prompt cache (provider_error). Likely cause: the server refused the warm request (a provider error, or a gateway that needs a cookie). Compaction continues with the slower fallback summary — no messages were dropped. Details: the warm_compaction lines in logs/agent.log.
   ```
 
-- A warm compaction ends the streak, and the notice can show again after the next 3 failures. A cancelled attempt does not count, and `warm: false` is not a failure.
+- When the fallback summary also failed, the notice says how many times, and that those compactions used the fixed summary (no model, less detail).
+- A warm compaction or a session reset ends the streak, and the notice can show again after the next 3 failures. A cancelled attempt does not count, and `warm: false` is not a failure.
 - Manual `/compress` has no status line from the engine: after manual compactions only, the notice is in the logs.
 
 ## Results

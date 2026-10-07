@@ -658,6 +658,36 @@ class EngineTest(unittest.TestCase):
         message = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
         self.assertTrue(message.startswith("\u26a0 Warm compaction unavailable: the last 3 compactions"))
 
+    def test_the_notice_tells_when_the_fallback_also_failed(self):
+        # The fixed summary has no model request: the notice must not say that the fallback summary works.
+        self.llm = FakeLlm(error=RuntimeError("down"))
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                engine.compress(history)
+        self.assertEqual(engine.warm_last["path"], "fixed")
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertNotIn("continues with the slower fallback summary", notice)
+        self.assertIn("the fallback summary also failed 3 of 3 times", notice)
+        self.assertIn("fixed summary", notice)
+        self.assertIn("no messages were dropped", notice)
+        self.assertEqual(sum("3 of them with the fixed summary" in line for line in logs.output), 1)
+
+    def test_a_session_reset_clears_the_failure_streak(self):
+        # A notice or a streak of the old session does not show in the new session.
+        engine = self.make()
+        history = [*old_turns(), assistant("done")]
+        for _ in range(3):
+            engine.compress(history)
+        engine.on_session_reset()
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+        for _ in range(2):
+            engine.compress(history)
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
+                                                                        default_message="Compacting"), "Compacting")
+
     def test_an_unusable_capture_does_not_set_the_reasoning_rule(self):
         # The capture is of this route, but its rows are not the stored rows: it does not show what the next
         # request replays. The stored rows with reasoning_content do.
