@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from agent.context_engine import ContextEngine
 
-from . import fallback, handoff, layout, warm
+from . import fallback, handoff, layout, native, warm
 from .capture import CaptureStore, key_stamp
 from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
@@ -34,7 +34,9 @@ SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
 # After this many compactions in a row without the warm path, the user gets one notice.
+# A host compatibility refusal starts the notice at the first failure.
 WARM_FAILURE_STREAK = 3
+HOST_COMPATIBILITY_REFUSALS = frozenset({"middleware_order_unknown", "middleware_unavailable"})
 # What a user can do about the common reasons. Other reasons point to the README Limits.
 FAILURE_HINTS = {
     "no_capture": "no main-model request completed in this Hermes process before the compaction",
@@ -53,6 +55,7 @@ FAILURE_HINTS = {
     "tls_unknown": "the TLS settings of the route could not be read",
     "middleware_after_capture": "another plugin middleware runs after the capture and can change the request",
     "middleware_order_unknown": "the order of the plugin middleware could not be read",
+    "middleware_unavailable": "the Hermes middleware API could not be loaded",
     "source_transform_unsupported": "a hook or middleware changed the stored rows in the request",
 }
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
@@ -171,6 +174,9 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_provider: str = ""
         # True after the first update_model: an empty provider and key are an identity too.
         self._wc_identity_set = False
+        self._native_available = native.native_available()
+        self._native_notice_pending = self._native_available
+        self._native_notice_logged = False
         # Compactions in a row without the warm path, their reasons, and the notice for the next status.
         self._clear_warm_failures()
 
@@ -303,6 +309,10 @@ class WarmCompactionEngine(ContextEngine):
                                            policy)
         if start <= 0:
             return messages
+        with self._wc_result_lock:
+            if self._native_available and not self._native_notice_logged:
+                self._native_notice_logged = True
+                logger.info(native.NOTICE)
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
@@ -700,15 +710,18 @@ class WarmCompactionEngine(ContextEngine):
         self._warm_failures, self._warm_fixed = 0, 0
         self._warm_failure_reasons: list[str] = []
         self._warm_notice: str | None = None
+        self._warm_notice_issued = False
+        self._warm_compatibility_notice_issued = False
 
     def _note_warm_result(self, record: dict[str, Any]) -> None:
         """Count the compactions in a row without the warm path. Each one is a WARNING (errors.log has it too).
-        After WARM_FAILURE_STREAK of them, one WARNING names the reasons and their hints. The next automatic
-        compaction status shows the notice. Until then, later failures update it. A warm compaction ends the
-        streak. A cancelled attempt and the warm setting off do not count."""
+        A host compatibility refusal starts the notice at the first failure. Other failures wait for
+        WARM_FAILURE_STREAK. A first host refusal can update a pending notice or start one after a displayed
+        generic notice. The next automatic compaction status shows each notice once. Until then, later failures
+        update it. A warm compaction ends the streak. A cancelled attempt and the warm setting off do not count."""
         path, reason = record["path"], str(record["reason"])
         if path == "warm":
-            if self._warm_failures >= WARM_FAILURE_STREAK:
+            if self._warm_notice_issued:
                 logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
             self._clear_warm_failures()
             return
@@ -718,8 +731,9 @@ class WarmCompactionEngine(ContextEngine):
         self._warm_failures += 1
         self._warm_fixed += path == "fixed"
         self._warm_failure_reasons.append(reason)
-        if self._warm_failures >= WARM_FAILURE_STREAK and (
-                self._warm_failures == WARM_FAILURE_STREAK or self._warm_notice is not None):
+        first_notice = ((not self._warm_notice_issued and self._warm_failures >= WARM_FAILURE_STREAK)
+                        or (reason in HOST_COMPATIBILITY_REFUSALS and not self._warm_compatibility_notice_issued))
+        if first_notice or self._warm_notice is not None:
             reasons = ", ".join(dict.fromkeys(self._warm_failure_reasons))
             hints = "; ".join(
                 f"{item}: {FAILURE_HINTS.get(item.split(':', 1)[0], 'see the Limits section of the plugin README')}"
@@ -733,21 +747,34 @@ class WarmCompactionEngine(ContextEngine):
                 continues = "Compaction continues with the fallback summary"
                 log_continues = "compaction continues with the fallback summary"
             # The Hermes warning style on screen: the sign, the subject, what continues, and where to look.
+            compatibility = ("Hermes compatibility check failed; "
+                             if HOST_COMPATIBILITY_REFUSALS.intersection(self._warm_failure_reasons) else "")
+            compactions = "compaction" if self._warm_failures == 1 else "compactions"
             self._warm_notice = (
-                f"\u26a0 Warm compaction unavailable: the last {self._warm_failures} compactions did not use the "
+                f"\u26a0 Warm compaction unavailable: {compatibility}the last {self._warm_failures} {compactions} "
+                "did not use the "
                 f"warm summary ({hints}). {continues}. "
                 "Details: the warm_compaction lines in logs/agent.log.")
-            if self._warm_failures == WARM_FAILURE_STREAK:
-                logger.warning("Warm compaction failed %d times in a row (%s): %s; %s", self._warm_failures, reasons,
-                               hints, log_continues)
+            self._warm_notice_issued = True
+            if compatibility:
+                self._warm_compatibility_notice_issued = True
+            if first_notice:
+                times = "time" if self._warm_failures == 1 else "times"
+                logger.warning("Warm compaction failed %d %s in a row (%s): %s; %s", self._warm_failures, times,
+                               reasons, hints, log_continues)
 
     def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
                                                 **context: Any) -> str | None:
-        """Return one pending warning when Hermes permits an automatic compaction status."""
+        """Return a pending failure warning first, then the native notice, when status is permitted."""
         message = super().get_automatic_compaction_status_message(phase=phase, default_message=default_message,
                                                                   **context)
         if message is None:
             return None
         with self._wc_result_lock:
             notice, self._warm_notice = self._warm_notice, None
-        return notice if notice is not None else message
+            if notice is not None:
+                return notice
+            if self._native_notice_pending:
+                self._native_notice_pending = False
+                return native.NOTICE
+        return message

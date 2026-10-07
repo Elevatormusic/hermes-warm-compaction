@@ -313,5 +313,307 @@
     "Loopback fake server only; no real model or live provider route.",
     "Live cache reuse, summary quality, and speed were not measured.",
     "Leading and inner whitespace changes and content-list rewrites remain refused."
-  ]
+  ],
+  "main_merge_validation": {
+    "main_commit": "0457d6cd478467065beae6867ec040678b28aea8",
+    "hermes": {
+      "commit": "e36a818033f5246e5fcfe9a6967bb85e885ba155",
+      "clean": true
+    },
+    "python": "3.11.14",
+    "plugin_files_sha256": {
+      "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
+      "warm_compaction/capture.py": "a9f907ada5d83eba79628454630d9295664b8215a2f2409cfc26223bcb2ad40f",
+      "warm_compaction/engine.py": "2e655513faef234ae773c8b5cfd193cb972addca2ed830e8ac70c9bb5cba250d",
+      "warm_compaction/fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+      "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+      "warm_compaction/layout.py": "b49314c5236268247c337d9fae939135c97b47384300dcdfd00b0da0c040db93",
+      "warm_compaction/native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+      "warm_compaction/plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+      "warm_compaction/rows.py": "f2ca69a7361affc4fd84388ab9ac718a0e9affa609c87d75efd6e0c25fa860cf",
+      "warm_compaction/warm.py": "db4826e3ba7762c386f523354fe02833bdb4947c03ac80b67e058f9a67333640"
+    },
+    "script_sha256": "47dd18b7a403c298eebbc1fbc5e6f0d41b926ac22b541da275f155c77d4485ec",
+    "integration_passed": true,
+    "scenarios": [
+      {
+        "scenario": "enable_manual_warm",
+        "status": "passed",
+        "checks": 32,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 2,
+          "warm": 1
+        },
+        "rollback_status": null
+      },
+      {
+        "scenario": "manual_whitespace",
+        "status": "passed",
+        "checks": 67,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 3,
+          "warm": 3
+        },
+        "rollback_status": null
+      },
+      {
+        "scenario": "manual_fallback",
+        "status": "passed",
+        "checks": 26,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 2,
+          "warm": 1,
+          "fallback": 1
+        },
+        "rollback_status": null
+      },
+      {
+        "scenario": "manual_fixed",
+        "status": "passed",
+        "checks": 25,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 2,
+          "warm": 1,
+          "fallback": 1
+        },
+        "rollback_status": null
+      },
+      {
+        "scenario": "auto_tool_loop",
+        "status": "passed",
+        "checks": 37,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 4,
+          "warm": 2
+        },
+        "rollback_status": null
+      },
+      {
+        "scenario": "auto_warm_failures",
+        "status": "passed",
+        "checks": 45,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 8,
+          "warm": 4,
+          "fallback": 3
+        },
+        "rollback_status": null
+      },
+      {
+        "scenario": "rollback",
+        "status": "passed",
+        "checks": 24,
+        "failed_checks": [],
+        "install_checks_passed": true,
+        "worker_exit_codes": [
+          0,
+          0,
+          0
+        ],
+        "request_counts": {
+          "main": 2,
+          "warm": 1
+        },
+        "rollback_status": "passed"
+      }
+    ],
+    "whitespace_checks": {
+      "listed_in_engine_picker": true,
+      "engine_selected": true,
+      "native_notice_not_logged_before_compaction": true,
+      "turn1_reply": true,
+      "turn1_stored_question_exact": true,
+      "turn1_sent_question_stripped": true,
+      "turn1_path_warm": true,
+      "turn1_one_warm_request": true,
+      "turn1_prefix_exact": true,
+      "turn1_new_rows": true,
+      "turn1_instruction_last": true,
+      "turn1_not_streamed": true,
+      "turn1_settings_kept": true,
+      "turn1_reply_limit": true,
+      "turn1_removed_rows": true,
+      "turn1_summary_rows": true,
+      "turn1_handoff_in_summary": true,
+      "turn1_tail_question_exact": true,
+      "turn1_history_saved": true,
+      "turn1_saved_question_matches_host": true,
+      "turn1_engine_session_follows": true,
+      "turn2_reply": true,
+      "turn2_stored_question_exact": true,
+      "turn2_sent_question_stripped": true,
+      "turn2_path_warm": true,
+      "turn2_one_warm_request": true,
+      "turn2_prefix_exact": true,
+      "turn2_new_rows": true,
+      "turn2_instruction_last": true,
+      "turn2_not_streamed": true,
+      "turn2_settings_kept": true,
+      "turn2_reply_limit": true,
+      "turn2_removed_rows": true,
+      "turn2_summary_rows": true,
+      "turn2_handoff_in_summary": true,
+      "turn2_tail_question_exact": true,
+      "turn2_history_saved": true,
+      "turn2_saved_question_matches_host": true,
+      "turn2_engine_session_follows": true,
+      "turn3_reply": true,
+      "turn3_stored_question_exact": true,
+      "turn3_sent_question_stripped": true,
+      "turn3_path_warm": true,
+      "turn3_one_warm_request": true,
+      "turn3_prefix_exact": true,
+      "turn3_new_rows": true,
+      "turn3_instruction_last": true,
+      "turn3_not_streamed": true,
+      "turn3_settings_kept": true,
+      "turn3_reply_limit": true,
+      "turn3_removed_rows": true,
+      "turn3_summary_rows": true,
+      "turn3_handoff_in_summary": true,
+      "turn3_tail_question_exact": true,
+      "turn3_history_saved": true,
+      "turn3_saved_question_matches_host": true,
+      "turn3_engine_session_follows": true,
+      "three_compactions": true,
+      "three_main_requests": true,
+      "no_fallback_request": true,
+      "native_notice_status_count": true,
+      "native_notice_log_count": true,
+      "native_notice_engine_unchanged": true,
+      "native_notice_config_unchanged": true,
+      "native_notice_not_in_requests": true,
+      "native_notice_not_in_saved_history": true,
+      "plugin_made_no_blocked_call": true
+    },
+    "compatibility": {
+      "passed": true,
+      "script_sha256": "641b1acb9a311ebad570c4a06800ff866030471db3b4d745148244b2e8ca75c0",
+      "checks": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "script_unchanged": true
+      },
+      "cases": [
+        {
+          "case": "capture_last",
+          "passed": true,
+          "checks": {
+            "capture_body_exact": true,
+            "capture_headers_exact": true,
+            "import_origins_match_source": true,
+            "refusal_expected": true,
+            "reported_prompt_tokens": true,
+            "request_header_forwarded": true,
+            "request_middleware_applied": true,
+            "response_unchanged": true,
+            "terminal_once": true,
+            "terminal_payload_exact": true
+          }
+        },
+        {
+          "case": "earlier_rewrite",
+          "passed": true,
+          "checks": {
+            "capture_body_exact": true,
+            "capture_headers_exact": true,
+            "execution_rewrite_reaches_terminal": true,
+            "import_origins_match_source": true,
+            "refusal_expected": true,
+            "reported_prompt_tokens": true,
+            "request_header_forwarded": true,
+            "request_middleware_applied": true,
+            "response_unchanged": true,
+            "terminal_once": true,
+            "terminal_payload_exact": true
+          }
+        },
+        {
+          "case": "later_rewrite",
+          "passed": true,
+          "checks": {
+            "capture_body_refused": true,
+            "capture_headers_refused": true,
+            "execution_rewrite_reaches_terminal": true,
+            "import_origins_match_source": true,
+            "refusal_expected": true,
+            "reported_prompt_tokens": true,
+            "request_header_forwarded": true,
+            "request_middleware_applied": true,
+            "response_unchanged": true,
+            "terminal_once": true,
+            "terminal_payload_exact": true
+          }
+        },
+        {
+          "case": "unknown_order",
+          "passed": true,
+          "checks": {
+            "capture_body_refused": true,
+            "capture_headers_refused": true,
+            "import_origins_match_source": true,
+            "refusal_expected": true,
+            "reported_prompt_tokens": true,
+            "request_header_forwarded": true,
+            "request_middleware_applied": true,
+            "response_unchanged": true,
+            "terminal_once": true,
+            "terminal_payload_exact": true
+          }
+        }
+      ]
+    },
+    "unit_results": [
+      {
+        "python": "3.14.5",
+        "tests": 305,
+        "status": "passed"
+      },
+      {
+        "python": "3.13.1",
+        "tests": 305,
+        "status": "passed"
+      }
+    ],
+    "ruff": {
+      "version": "0.16.10",
+      "status": "passed"
+    }
+  }
 }
