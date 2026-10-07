@@ -1,10 +1,12 @@
 """Tests for the capture store."""
 
+import copy
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import wc_hermes_stub
 from warm_compaction.capture import CaptureStore, UnsupportedRequest, final_body, key_stamp
@@ -57,6 +59,8 @@ class FinalBodyTest(unittest.TestCase):
         cases = (
             (request(extra_headers={"x": "1"}), "request_options_unsupported"),
             (request(extra_query={"q": "1"}), "request_options_unsupported"),
+            (request(extra_headers={"x-opencode-session": "id"}, extra_body={"extra_headers": {}}),
+             "request_options_unsupported"),
             (request(bad=object()), "request_not_json"),
             (["not", "a", "mapping"], "request_not_mapping"),
         )
@@ -93,6 +97,38 @@ class CaptureStoreTest(unittest.TestCase):
                 self.run_request(request_id="r2", usage=usage)
                 self.assertIsNone(self.store.latest("s1")["prompt_tokens"])
 
+    def test_session_header_is_separate_and_copied(self):
+        body = request(extra_headers={"X-OpenCode-Session": "synthetic-session"})
+        before = copy.deepcopy(body)
+        self.run_request(body=body)
+        capture = self.store.latest("s1")
+        self.assertIsNone(capture["refusal"])
+        self.assertEqual(capture["request_headers"], before["extra_headers"])
+        self.assertNotIn("extra_headers", capture["body"])
+        self.assertEqual(body, before)
+        body["extra_headers"]["X-OpenCode-Session"] = "changed"
+        capture["request_headers"].clear()
+        self.assertEqual(self.store.latest("s1")["request_headers"], before["extra_headers"])
+
+    def test_invalid_session_headers_are_not_kept(self):
+        for headers in (
+            {"x-opencode-session": ""}, {"x-opencode-session": " "},
+            {"x-opencode-session": "id\r\nAuthorization: private"},
+            {"x-opencode-session": "id\x00"}, {"x-opencode-session": "id\x7f"},
+            {"x-opencode-session": "id\t"}, {"x-opencode-session": "id\u00e9"},
+            {"x-opencode-session": 7}, {"x-opencode-session": None},
+            {"x-opencode-session": "id", "Authorization": "private"},
+            {"x-opencode-session": "id", "X-OpenCode-Session": "other"},
+            {"x-other-session": "private"}, ["private"], "private",
+        ):
+            with self.subTest(headers=headers):
+                self.run_request(body=request(extra_headers=headers))
+                capture = self.store.latest("s1")
+                self.assertEqual(capture["refusal"], "request_options_unsupported")
+                self.assertIsNone(capture["body"])
+                self.assertEqual(capture.get("request_headers", {}), {})
+                self.assertNotIn("private", repr(capture))
+
     def test_joins_the_three_calls(self):
         result, calls = self.run_request()
         self.assertEqual((result, calls), ("response", [1]))
@@ -108,6 +144,44 @@ class CaptureStoreTest(unittest.TestCase):
         self.run_request(finish="tool_calls", message=reply_object("", [("c1", "read"), ("c1", "ls"), ("c1", "cat")]))
         self.assertEqual(self.store.latest("s1")["reply"]["tool_calls"],
                          [["c1", "read"], ["c1_d2", "ls"], ["c1_d3", "cat"]])
+
+    def test_keeps_fixed_request_refusals_and_runs_the_request_unchanged(self):
+        cases = (
+            (["synthetic-private-request"], "request_not_mapping"),
+            (request(extra_headers={"Authorization": "synthetic-private-key"}), "request_options_unsupported"),
+            (request(extra_query={"token": "synthetic-private-key"}), "request_options_unsupported"),
+            (request(extra_body=["synthetic-private-request"]), "request_options_unsupported"),
+            (request(value=SimpleNamespace(secret="synthetic-private-value")), "request_not_json"),
+            (request(value=float("nan")), "request_not_json"),
+            (request(value=float("inf")), "request_not_json"),
+        )
+        for body, code in cases:
+            with self.subTest(code=code):
+                before = body.copy()
+                result, calls = self.run_request(body=body)
+                capture = self.store.latest("s1")
+                self.assertEqual((result, calls), ("response", [1]))
+                self.assertEqual(body, before)
+                self.assertEqual((capture["body"], capture["refusal"]), (None, code))
+                self.assertNotIn("synthetic-private", repr(capture))
+
+    def test_unknown_exception_data_does_not_become_a_refusal(self):
+        for data in ("synthetic-private-exception", SimpleNamespace(secret="synthetic-private-value")):
+            with self.subTest(data_type=type(data).__name__), patch(
+                    "warm_compaction.capture.final_body", side_effect=UnsupportedRequest(data)):
+                result, calls = self.run_request()
+                capture = self.store.latest("s1")
+                self.assertEqual((result, calls), ("response", [1]))
+                self.assertEqual((capture["body"], capture["refusal"]), (None, "settings_unsupported"))
+                self.assertNotIn("synthetic-private", repr(capture))
+
+    def test_a_valid_capture_replaces_an_earlier_request_refusal(self):
+        self.run_request(body=request(extra_headers={"x": "synthetic-private-value"}))
+        self.assertEqual(self.store.latest("s1")["refusal"], "request_options_unsupported")
+        self.run_request(request_id="r2")
+        capture = self.store.latest("s1")
+        self.assertEqual(capture["body"], request())
+        self.assertIsNone(capture["refusal"])
 
     def test_no_body_when_an_execution_middleware_runs_after_the_capture(self):
         # A later middleware can change the request after the capture saw it. The capture cannot see that change.

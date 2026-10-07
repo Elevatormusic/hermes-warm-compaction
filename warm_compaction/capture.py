@@ -18,6 +18,7 @@ MAX_OPEN = 8
 MAX_SESSIONS = 16
 CLIENT_OPTIONS = ("extra_body", "extra_headers", "extra_query", "timeout")
 CAPTURE_FINISH = ("stop", "tool_calls")
+REQUEST_REFUSALS = ("request_not_mapping", "request_options_unsupported", "request_not_json")
 # A random salt for each plugin load: the stamps of one key differ between processes.
 _KEY_STAMP_SECRET = secrets.token_bytes(32)
 # PBKDF2 work for each stamp (about 3 ms): a stamp is made a few times for each main request.
@@ -34,14 +35,38 @@ class UnsupportedRequest(ValueError):
     """The request body cannot become a warm request. The message is the reason code."""
 
 
+def request_headers(request: Any) -> dict[str, str]:
+    """Copy only the known session header. Refuse other headers and unsafe HTTP values.
+
+    Hermes 1d6b2786 adds x-opencode-session for OpenCode routes. Keep the captured value: a new session id
+    need not select the same server. Header values stay in memory and never go to status or logs.
+    """
+    if not isinstance(request, dict):
+        raise UnsupportedRequest("request_not_mapping")
+    headers = request.get("extra_headers")
+    if headers is None:
+        return {}
+    if not isinstance(headers, dict) or len(headers) > 1:
+        raise UnsupportedRequest("request_options_unsupported")
+    for name, value in headers.items():
+        if (type(name) is not str or name.lower() != "x-opencode-session" or type(value) is not str
+                or not value or value != value.strip() or any(ord(char) < 32 or ord(char) > 126 for char in value)):
+            raise UnsupportedRequest("request_options_unsupported")
+    return dict(headers)
+
+
 def final_body(request: Any) -> dict[str, Any]:
     """Return the JSON body that the OpenAI client sends: a copy with extra_body merged in."""
     if not isinstance(request, dict):
         raise UnsupportedRequest("request_not_mapping")
-    if request.get("extra_headers") or request.get("extra_query"):
+    headers = request_headers(request)
+    if request.get("extra_query"):
         raise UnsupportedRequest("request_options_unsupported")
     extra = request.get("extra_body") or {}
     if not isinstance(extra, dict):
+        raise UnsupportedRequest("request_options_unsupported")
+    if headers and "extra_headers" in extra:
+        # A JSON field with this name would conflict with the middleware request option.
         raise UnsupportedRequest("request_options_unsupported")
     body = {key: value for key, value in request.items() if key not in CLIENT_OPTIONS}
     body.update(extra)
@@ -132,18 +157,25 @@ class CaptureStore:
         if entry is None or entry["route"][2] != "chat_completions":
             return
         refusal = None
+        headers: dict[str, str] = {}
         try:
             body = final_body(request)
-        except UnsupportedRequest:
+            headers = request_headers(request)
+        except UnsupportedRequest as error:
             body = None
+            # Keep only fixed codes. Exception data must not reach the status or logs.
+            code = error.args[0] if len(error.args) == 1 else None
+            refusal = code if type(code) is str and code in REQUEST_REFUSALS else "settings_unsupported"
         if body is not None:
             # A later middleware can change the request after this capture saw it. The warm request would
             # then send a body that the provider never received.
             refusal = self._middleware_order_refusal()
             if refusal is not None:
                 body = None
+                headers = {}
         with self._lock:
             entry["body"] = body
+            entry["request_headers"] = headers
             entry["refusal"] = refusal
 
     def _middleware_order_refusal(self) -> str | None:

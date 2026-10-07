@@ -1,8 +1,10 @@
 """Tests for the warm_compaction context engine with stand-in Hermes modules."""
 
+import copy
 import json
 import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -164,6 +166,47 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("done", sent.split("\n"))
         self.assertNotIn(rows[-2]["content"][:20], sent)
 
+    def test_request_refusals_reach_fallback_and_fixed_status_without_private_data(self):
+        private = "synthetic-private-request-value"
+        cases = (
+            ([private], "request_not_mapping"),
+            ({"extra_headers": {"Authorization": private}}, "request_options_unsupported"),
+            ({"extra_query": {"token": private}}, "request_options_unsupported"),
+            ({"extra_body": [private]}, "request_options_unsupported"),
+            ({"value": SimpleNamespace(secret=private)}, "request_not_json"),
+        )
+        rows, reply = old_turns(4), assistant("final")
+        for path in ("fallback", "fixed"):
+            for body, code in cases:
+                with self.subTest(path=path, code=code):
+                    self.llm = FakeLlm(error=RuntimeError(private) if path == "fixed" else None)
+                    engine = self.make(tail_tokens=10)
+                    engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key=private,
+                                        provider="custom", api_mode=ROUTE[2])
+                    self.store.on_pre_api_request(api_request_id="r1", session_id="s1", conversation_history=rows,
+                                                  model=ROUTE[0], base_url=ROUTE[1], api_mode=ROUTE[2])
+                    calls = []
+                    with self.assertLogs("warm_compaction", level="INFO") as logs:
+                        result = self.store.on_llm_execution(
+                            request=body, api_request_id="r1",
+                            next_call=lambda calls=calls: calls.append(1) or "response")
+                        self.store.on_post_api_request(api_request_id="r1", session_id="s1", finish_reason="stop",
+                                                       assistant_message=reply_object(reply))
+                        history = [*rows, reply]
+                        new = self.compress_committed(engine, history)
+                    status = engine.get_status()["warm_last"]
+                    self.assertEqual((status["path"], status["reason"]), (path, code))
+                    self.assertEqual((result, calls), ("response", [1]))
+                    self.assertIsNot(new, history)
+                    self.assertTrue(any("Fallback summary." in str(row.get("content")) for row in new)
+                                    if path == "fallback" else any(row.get("_compressed_summary") for row in new))
+                    self.assertEqual(len(self.llm.calls), 1)
+                    self.assertEqual(self.post.calls, [])
+                    self.assertIn(f"path={path} reason={code}", "\n".join(logs.output))
+                    self.assertNotIn(private, "\n".join(logs.output))
+                    self.assertNotIn(private, json.dumps(engine.get_status()))
+                    self.assertNotIn(private, repr(self.store.latest("s1")))
+
     def test_gate_refusal_keeps_the_tokens_and_falls_back(self):
         self.post = fake_post(content="no headings")
         engine = self.make()
@@ -187,6 +230,114 @@ class EngineTest(unittest.TestCase):
         self.engine.compress([*rows, reply])
         self.assertEqual(self.engine.warm_last["path"], "warm")
         self.assertEqual(seen, [(len(rows) + 3, "warm_compaction", None)])
+
+    def test_session_header_reaches_middleware_and_wire_once_without_private_metadata(self):
+        self.engine = self.make(tail_tokens=10)
+        session = "synthetic-captured-session"
+        seen = []
+
+        def request_audit(request=None, **context):
+            seen.append(("request", copy.deepcopy(request.get("extra_headers"))))
+
+        def execution_audit(request=None, next_call=None, **context):
+            seen.append(("execution", copy.deepcopy(request.get("extra_headers"))))
+            return next_call()
+
+        wc_hermes_stub.REQUEST_MIDDLEWARE.append(request_audit)
+        wc_hermes_stub.EXECUTION_MIDDLEWARE.append(execution_audit)
+        wc_hermes_stub.CUSTOM_HEADERS.update({"X-OPENCODE-SESSION": "different-default", "X-Title": "Hermes"})
+        rows, reply = old_turns(4), assistant("final")
+        extra = {"extra_headers": {"x-opencode-session": session}}
+        self.seed(rows, reply, extra=extra)
+        before = self.store.latest("s1")
+        with self.assertLogs("warm_compaction", level="INFO") as logs:
+            self.engine.compress([*rows, reply])
+        self.assertEqual(self.engine.warm_last["path"], "warm")
+        self.assertEqual(seen, [(phase, extra["extra_headers"]) for phase in ("request", "execution")])
+        self.assertEqual(len(self.post.calls), 1)
+        call = self.post.calls[0]
+        self.assertEqual([(key, value) for key, value in call["headers"].items()
+                          if key.lower() == "x-opencode-session"], [("x-opencode-session", session)])
+        self.assertEqual(call["headers"]["X-Title"], "Hermes")
+        self.assertEqual(call["headers"]["Authorization"], "Bearer k")
+        self.assertNotIn("extra_headers", call["body"])
+        self.assertNotIn(session, json.dumps(call["body"]))
+        self.assertNotIn(session, json.dumps(self.engine.get_status()))
+        self.assertNotIn(session, "\n".join(logs.output))
+        self.assertEqual(self.store.latest("s1"), before)
+        self.assertEqual(extra, {"extra_headers": {"x-opencode-session": session}})
+
+    def test_session_header_rewrite_block_cancel_and_route_fences(self):
+        for phase, action, expected in (
+            ("request", "rewrite", "middleware_rewrite"), ("execution", "rewrite", "middleware_rewrite"),
+            ("execution", "rewrite_original", "middleware_rewrite"),
+            ("execution", "block", "middleware_changed_reply"), ("execution", "cancel", "cancelled"),
+            ("execution", "switch", "route_changed"),
+        ):
+            with self.subTest(phase=phase, action=action):
+                engine = self.make(tail_tokens=10)
+                self.post.calls.clear()
+                wc_hermes_stub.REQUEST_MIDDLEWARE.clear()
+                wc_hermes_stub.EXECUTION_MIDDLEWARE.clear()
+
+                def middleware(request=None, next_call=None, action=action, phase=phase, engine=engine, **context):
+                    self.assertEqual(request["extra_headers"], {"x-opencode-session": "synthetic-session"})
+                    if action in ("rewrite", "rewrite_original"):
+                        request["extra_headers"]["x-opencode-session"] = "changed"
+                        if action == "rewrite_original":
+                            context["original_request"]["extra_headers"]["x-opencode-session"] = "changed"
+                    elif action == "block":
+                        return None
+                    elif action == "cancel":
+                        engine._compression_cancelled_check = lambda: True
+                    elif action == "switch":
+                        engine.update_model(model="other-model", context_length=200_000, base_url=ROUTE[1],
+                                            api_key="k", provider="custom", api_mode=ROUTE[2])
+                    return {"request": request} if phase == "request" else next_call(request)
+
+                chain = (wc_hermes_stub.REQUEST_MIDDLEWARE if phase == "request"
+                         else wc_hermes_stub.EXECUTION_MIDDLEWARE)
+                chain.append(middleware)
+                rows, reply = old_turns(4), assistant("final")
+                self.seed(rows, reply, extra={"extra_headers": {"x-opencode-session": "synthetic-session"}})
+                engine.compress([*rows, reply])
+                self.assertEqual(engine.warm_last["reason"], expected)
+                self.assertEqual(self.post.calls, [])
+
+    def test_session_header_on_loopback_http(self):
+        received = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                received.append((self.headers.get_all("x-opencode-session"), body))
+                data = json.dumps({"choices": [{"message": {"content": HEADINGS_TEXT},
+                                               "finish_reason": "stop"}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        route = (ROUTE[0], f"http://127.0.0.1:{server.server_port}/v1", ROUTE[2])
+        with patch(__name__ + ".ROUTE", route):
+            self.post = None
+            engine = self.make(tail_tokens=10)
+            wc_hermes_stub.CUSTOM_HEADERS["X-OpenCode-Session"] = "default-session"
+            rows, reply = old_turns(4), assistant("final")
+            self.seed(rows, reply, extra={"extra_headers": {"x-opencode-session": "captured-session"}})
+            engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0][0], ["captured-session"])
+        self.assertNotIn("extra_headers", received[0][1])
+        self.assertNotIn("captured-session", json.dumps(received[0][1]))
 
     def test_a_blocking_or_mocking_middleware_stops_the_warm_request(self):
         def block(request=None, next_call=None, **context):

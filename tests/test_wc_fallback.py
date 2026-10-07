@@ -175,17 +175,20 @@ class LlmSummaryTest(unittest.TestCase):
         # MAX_TOKENS; the five headings can already be there. Only the end line shows a complete reply.
         self.assertTrue(FALLBACK_INSTRUCTION.rstrip().endswith(END_LINE))
         for text in (SUMMARY, SUMMARY + "\n" + END_LINE + "\nmore text", END_LINE + "\n" + SUMMARY):
-            with self.subTest(text=text[-20:]), self.assertLogs("warm_compaction.fallback", level="WARNING"):
+            with self.subTest(text=text[-20:]), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
                 self.assertEqual(llm_summary(FakeLlm(text=text, output_tokens=300), [user("hi")], PREFIXES),
                                  (None, None))
+            self.assertIn("(missing_end_marker)", logs.output[0])
+            self.assertNotIn(SUMMARY, "\n".join(logs.output))
         text = "<think>plan</think>\n" + SUMMARY + "\n\n  " + END_LINE + "  \n"
         self.assertEqual(llm_summary(FakeLlm(text=text), [user("hi")], PREFIXES), (SUMMARY, 321))
 
     def test_a_reply_that_reached_the_token_limit_is_refused(self):
         # ctx.llm reports no finish reason. A reply at the max_tokens limit can be cut off.
-        for llm in (FakeLlm(output_tokens=MAX_TOKENS),):
-            with self.subTest(), self.assertLogs("warm_compaction.fallback", level="WARNING"):
+        for llm in (FakeLlm(output_tokens=MAX_TOKENS), FakeLlm(text=SUMMARY, output_tokens=MAX_TOKENS + 1)):
+            with self.subTest(), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
                 self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (None, None))
+            self.assertIn("(output_token_limit)", logs.output[0])
         self.assertEqual(llm_summary(FakeLlm(output_tokens=300), [user("hi")], PREFIXES), (SUMMARY, 321))
 
     def test_task_none_uses_the_main_model_route(self):

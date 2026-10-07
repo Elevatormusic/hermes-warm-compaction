@@ -482,8 +482,8 @@ def route_headers(api_key: Any, base_url: Any, provider: Any) -> dict[str, str]:
     45871e10 (agent.agent_init): the host headers or the provider profile headers, then model.default_headers,
     then providers.<name>.extra_headers. Provider headers go with every request (attribution, a User-Agent for a
     WAF, gateway credentials). Raise WarmRefusal("headers_unknown") when a source cannot be read: a request
-    without them can be refused or go to another cache. Per-request headers (session affinity) are in the
-    captured request and refused there. The values can be credentials: never log them."""
+    without them can be refused or go to another cache. The engine adds supported per-request session headers
+    from the capture after this step. The values can be credentials: never log them."""
     url = str(base_url or "")
     try:
         from agent.agent_init import _host_default_headers_factory
