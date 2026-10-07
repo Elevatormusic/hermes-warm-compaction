@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from agent.context_engine import ContextEngine
 
-from . import fallback, handoff, layout, warm
+from . import fallback, handoff, layout, native, warm
 from .capture import CaptureStore, key_stamp
 from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
@@ -174,6 +174,9 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_provider: str = ""
         # True after the first update_model: an empty provider and key are an identity too.
         self._wc_identity_set = False
+        self._native_available = native.native_available()
+        self._native_notice_pending = self._native_available
+        self._native_notice_logged = False
         # Compactions in a row without the warm path, their reasons, and the notice for the next status.
         self._clear_warm_failures()
 
@@ -306,6 +309,10 @@ class WarmCompactionEngine(ContextEngine):
                                            policy)
         if start <= 0:
             return messages
+        with self._wc_result_lock:
+            if self._native_available and not self._native_notice_logged:
+                self._native_notice_logged = True
+                logger.info(native.NOTICE)
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
@@ -758,11 +765,16 @@ class WarmCompactionEngine(ContextEngine):
 
     def get_automatic_compaction_status_message(self, *, phase: str, default_message: str,
                                                 **context: Any) -> str | None:
-        """Return one pending warning when Hermes permits an automatic compaction status."""
+        """Return a pending failure warning first, then the native notice, when status is permitted."""
         message = super().get_automatic_compaction_status_message(phase=phase, default_message=default_message,
                                                                   **context)
         if message is None:
             return None
         with self._wc_result_lock:
             notice, self._warm_notice = self._warm_notice, None
-        return notice if notice is not None else message
+            if notice is not None:
+                return notice
+            if self._native_notice_pending:
+                self._native_notice_pending = False
+                return native.NOTICE
+        return message

@@ -125,6 +125,38 @@ context:
 
 Start a new Hermes session after the change.
 
+## Native warm handoff
+
+Some Hermes versions include warm handoff in the built-in compressor. This plugin checks the installed
+constructor and default configuration for that feature. It does not use a release number or the merge state
+of a pull request. Updating Hermes keeps `context.engine: warm_compaction` selected.
+
+Update this plugin to get the notice. When the feature is available, the plugin supplies one notice through
+the automatic compaction status API for each engine instance. A pending warm-request failure warning has
+priority; the native notice stays pending for the next permitted status. Session reset and warm-path recovery
+do not repeat the notice. A new engine instance, including a clone, gets its own notice.
+
+Hermes controls how each surface shows automatic status. The plugin keeps the notice pending when the API
+suppresses status, but it cannot detect suppression after it returns the text. This is not a startup banner
+or a guaranteed notice on every surface. Manual `/compress` does not use this status API. The first actual
+compaction also writes the notice once to `logs/agent.log` for each engine instance. There is no persistent
+notice record, configuration change, or conversation message.
+
+To use native warm handoff, set these values in your Hermes configuration and restart Hermes:
+
+```yaml
+context:
+  engine: compressor
+compression:
+  warm_handoff: "on"
+```
+
+The native default is `"off"`. `"on"` tries the warm request when a usable captured request is available.
+`"auto"` also requires the compression summary route to use the main model, reported cached prompt tokens
+greater than zero, and a captured request no more than five minutes old. A server that does not report cached
+tokens needs `"on"` to try the native warm path. Refused or failed warm requests use the normal auxiliary summary.
+The native mode keeps the built-in history policy, so retained history can differ from this plugin.
+
 ## Settings
 
 The settings are in `plugins.entries.warm_compaction.settings`. An invalid value uses the default and writes a warning to the log.
