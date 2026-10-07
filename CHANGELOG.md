@@ -6,6 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
+- Accept trailing whitespace removal by Hermes from complete text strings, including `api_content`, without a false `source_transform_unsupported` fallback. Keep the captured request prefix unchanged.
 - Keep safe request refusal codes in status and logs, instead of the generic `settings_unsupported`.
 - Keep the captured `x-opencode-session` header on warm requests, including the header that Hermes adds for OpenCode routes. Refuse unknown headers and header rewrites; send the session value only as an HTTP header.
 - Report `missing_end_marker` or `output_token_limit` when a fallback reply fails the completion check. Incomplete replies still use the fixed summary.

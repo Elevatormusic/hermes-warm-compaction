@@ -38,7 +38,8 @@ SEED_QUESTION = "What is the code word?"
 NEXT_QUESTION = "What is the next step?"
 TOOL_QUESTION = "Call the note tool, then answer."
 TOOL_AGAIN_QUESTION = "Call the note tool again, then answer."
-QUESTIONS = (SEED_QUESTION, NEXT_QUESTION, TOOL_QUESTION, TOOL_AGAIN_QUESTION)
+WHITESPACE_QUESTIONS = ("Hello there ", "Hello there\n")
+QUESTIONS = (SEED_QUESTION, NEXT_QUESTION, TOOL_QUESTION, TOOL_AGAIN_QUESTION, "Hello there")
 HANDOFF = (
     "## Goal\nFinish the synthetic test task.\n\n"
     "## User instructions\n- \"Answer in one short sentence.\"\n\n"
@@ -64,8 +65,8 @@ TOOL_PLUGIN = {
         '        "parameters": {"type": "object", "properties": {}, "required": []}})\n'
     ),
 }
-SCENARIOS = ("enable_manual_warm", "manual_fallback", "manual_fixed", "auto_tool_loop", "auto_warm_failures",
-             "rollback")
+SCENARIOS = ("enable_manual_warm", "manual_whitespace", "manual_fallback", "manual_fixed", "auto_tool_loop",
+             "auto_warm_failures", "rollback")
 # The scenarios with automatic compaction in a tool loop.
 AUTO_SCENARIOS = ("auto_tool_loop", "auto_warm_failures")
 NOTICE_MARK = "Warm compaction unavailable"
@@ -357,6 +358,9 @@ def synthetic_history(pairs=30):
 
 
 def plan_for(scenario):
+    if scenario == "manual_whitespace":
+        return {"main": [{"content": "The code word is BLUE-7."}, {"content": "Hello."},
+                         {"content": "Hello again."}]}
     if scenario in ("enable_manual_warm", "rollback"):
         return {"main": [{"content": "The code word is BLUE-7."}, {"content": "Next: report BLUE-7."}]}
     if scenario == "manual_fallback":
@@ -540,6 +544,9 @@ def run_phase(spec, session_dir):
             run_auto(agent, engine, history, server, result, checks, statuses)
         elif scenario == "auto_warm_failures":
             run_auto_failures(agent, engine, history, server, result, checks, statuses, home)
+        elif scenario == "manual_whitespace":
+            run_manual_whitespace(agent, engine, db, history, server, result, checks,
+                                  _compress_session_history, finalize_context_engine_compression_notification)
         else:
             run_manual(agent, engine, db, history, server, result, checks, scenario,
                        _compress_session_history, finalize_context_engine_compression_notification)
@@ -810,6 +817,55 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     # Information only: Hermes rebuilds the system prompt during /compress. This is host behavior.
     result["continuation_keeps_custom_system_text"] = bool(later) and SYSTEM in str(
         later[0]["body"]["messages"][0].get("content") or "")
+
+
+def run_manual_whitespace(agent, engine, db, history, server, result, checks, compress, finalize):
+    """Repeat manual compaction when Hermes strips a string only in the sent request."""
+    messages, outcomes = history, []
+    for index, question in enumerate((SEED_QUESTION, *WHITESPACE_QUESTIONS), 1):
+        if index > 1:
+            # Add enough synthetic rows for another compaction. Only the new question has outer white space.
+            extra = synthetic_history(20)
+            for row in extra:
+                row["content"] = row["content"].strip()
+            messages = list(messages) + extra
+        reply = agent.run_conversation(question, system_message=SYSTEM, conversation_history=messages)
+        messages = list(reply.get("messages") or [])
+        label = f"turn{index}"
+        checks[f"{label}_reply"] = bool(str(reply.get("final_response") or "").strip())
+        checks[f"{label}_stored_question_exact"] = len(messages) >= 2 and messages[-2].get("content") == question
+        main = by_kind(server, "main")[-1]
+        checks[f"{label}_sent_question_stripped"] = main["body"]["messages"][-1].get("content") == question.strip()
+        session = {"agent": agent, "history": messages, "history_lock": threading.Lock(),
+                   "history_version": index, "session_key": agent.session_id}
+        warm_before = len(by_kind(server, "warm"))
+        removed, _usage = compress(session, "")
+        finalize(agent, committed=True)
+        last = dict(engine.warm_last or {})
+        outcomes.append([last.get("path"), last.get("reason")])
+        result[f"warm_last_{index}"] = last
+        checks[f"{label}_path_warm"] = (last.get("path"), last.get("reason")) == ("warm", "accepted")
+        checks[f"{label}_one_warm_request"] = len(by_kind(server, "warm")) == warm_before + 1
+        if checks[f"{label}_one_warm_request"]:
+            check_warm_request(server, checks, label)
+        checks[f"{label}_removed_rows"] = removed > 0
+        messages = session["history"]
+        checks[f"{label}_summary_rows"] = summary_rows_ok(messages)
+        checks[f"{label}_handoff_in_summary"] = len(messages) >= 2 and HANDOFF in str(messages[1].get("content"))
+        checks[f"{label}_tail_question_exact"] = any(
+            row.get("role") == "user" and row.get("content") == question for row in messages[2:])
+        saved = db.get_messages_as_conversation(agent.session_id)
+        # Hermes strips outer white space when it reloads user and assistant strings from the database.
+        checks[f"{label}_history_saved"] = [row.get("content") for row in saved] == [
+            str(row.get("content") or "").strip() for row in messages]
+        checks[f"{label}_saved_question_matches_host"] = any(
+            row.get("role") == "user" and row.get("content") == question.strip() for row in saved[2:])
+        checks[f"{label}_engine_session_follows"] = engine._wc_session_id == agent.session_id
+    result["outcomes"] = outcomes
+    result["compression_count"] = engine.compression_count
+    checks["three_compactions"] = engine.compression_count == 3
+    checks["three_main_requests"] = len(by_kind(server, "main")) == 3
+    checks["no_fallback_request"] = not by_kind(server, "fallback")
 
 
 def run_auto(agent, engine, history, server, result, checks, statuses):
