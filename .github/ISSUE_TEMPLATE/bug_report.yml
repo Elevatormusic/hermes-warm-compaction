@@ -1,45 +1,142 @@
 name: Bug report
-description: The plugin does something wrong or fails.
+description: Report a failure with the data needed to diagnose it.
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Do not paste private conversations, API keys, or full request bodies. For a security problem, use the Security tab instead (see SECURITY.md).
+        Complete each section. Use `unknown`, `not run`, or `not applicable` with a short reason when needed; do not guess. See [CONTRIBUTING.md](https://github.com/Elevatormusic/hermes-warm-compaction/blob/main/CONTRIBUTING.md).
+        Use synthetic messages. Do not paste real or private histories, summaries, full configs, raw requests, credentials, header/query values, account identifiers, or private local paths. Clearly label synthetic fixtures, synthetic summaries, and fake keys or option values used for tests. Do not enable full request dumps to complete this report. Review all output before sharing it. For a security problem, use [private reporting](https://github.com/Elevatormusic/hermes-warm-compaction/security/advisories/new).
+        These fields reduce follow-up requests. A new problem can still need more checks. No production cache reset or model deployment change is required.
   - type: textarea
-    id: what
+    id: behavior
     attributes:
-      label: What happened
-      description: What you did, what you expected, and what happened.
+      label: Expected and actual behavior
+      description: Give the concrete action that fails, what you expected, what happened, and the effect on your task.
+      placeholder: |
+        Action:
+        Expected:
+        Actual:
+        Effect:
     validations:
       required: true
   - type: textarea
-    id: log
+    id: versions
     attributes:
-      label: warm_compaction log lines
-      description: The `warm_compaction:` lines from `logs/agent.log`. They have the path, the reason, and the time, and no conversation text.
-      render: text
-  - type: input
-    id: plugin
-    attributes:
-      label: Plugin version or commit
+      label: Plugin and Hermes versions
+      description: Give the versions that are installed and running. Give a full source commit when available, or the install ref. State local edits separately.
+      placeholder: |
+        Plugin version:
+        Plugin source commit or install ref:
+        Plugin install method and local edits:
+        Running Hermes version and commit:
+        Hermes install method and local edits:
     validations:
       required: true
-  - type: input
-    id: hermes
+  - type: textarea
+    id: environment
     attributes:
-      label: Hermes Agent commit or version
+      label: Environment and session
+      description: Python means the interpreter that runs Hermes. Name the run mode and relevant other plugins or middleware. Omit private paths and profile names.
+      placeholder: |
+        OS version and CPU architecture:
+        Hermes Python version:
+        Run mode (interactive CLI, one-shot CLI, Desktop, gateway, container, WSL, or other):
+        New or resumed session:
+        A main-model reply completed in this same process before compaction (yes/no/unknown):
+        Restart after install or settings change:
+        Other context engines, plugins, or middleware that affect requests:
+        Recent changes before the failure:
     validations:
       required: true
-  - type: input
+  - type: textarea
     id: route
     attributes:
-      label: API mode and server
-      description: For example `chat_completions` on vLLM 0.x, llama.cpp, LM Studio, or a hosted API.
+      label: Main model route
+      description: Give the exact model ID and API mode. Give the server version when known. Name any proxy or gateway; give a hostname only if needed, never a full endpoint URL.
+      placeholder: |
+        Provider:
+        Model ID:
+        API mode (chat_completions, codex_responses, anthropic_messages, other, or unknown):
+        Server name and version (or hosted API):
+        Proxy or gateway in use:
+    validations:
+      required: true
+  - type: textarea
+    id: compaction
+    attributes:
+      label: Compaction setup and frequency
+      description: Give only these non-secret settings. Use default, unknown, or not applicable with a reason as needed. For the auxiliary route, state inherited/auto or give provider, model, API mode, and server version when known.
+      placeholder: |
+        Trigger (manual /compress, automatic, both, or install/load failure):
+        Failures / attempts and whether every attempt fails:
+        context.engine:
+        Plugin threshold, tail_tokens, user_copy_chars, warm:
+        Main model context window and reply limit:
+        auxiliary.warm_compaction route:
+        Route or settings changes during the attempt:
+    validations:
+      required: true
+  - type: textarea
+    id: request_options
+    attributes:
+      label: Request options and connection settings
+      description: Give custom option names and value types when known, never real values. Include options added by a gateway or middleware. State your source (selected settings or documentation), or use none/unknown with a reason. Omit certificate paths and data.
+      placeholder: |
+        Extra header names (including model.default_headers and provider extra_headers):
+        Extra query option names:
+        extra_body option names and value types:
+        Tool use and forced tool_choice present:
+        response_format or other structured-response option present:
+        Audio options or n above 1 present:
+        TLS checks enabled; custom CA used:
+        Gateway needs cookies:
+        Source of this information (or reason it is unknown):
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce
-      description: Use a synthetic conversation if you can.
+      label: Minimal synthetic reproduction
+      description: Give numbered steps and clearly labeled invented messages or a small synthetic fixture. State approximate message and token counts. If a safe reproduction is unavailable, explain why. No real or private transcript or generated summary.
+      placeholder: |
+        1.
+        2.
+        Synthetic input or fixture:
+        Approximate message and token counts:
+        Built-in compressor result, if already checked (or not run):
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Redacted compaction diagnostics
+      description: Paste relevant warm_compaction lines from logs/agent.log and adjacent plugin warnings about capture, fallback, or fixed summaries. Keep path, reason, elapsed time, token counts, and error class when available. Do not attach the whole log. If absent, state no log line and why.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Plugin doctor results
+      description: Run hermes plugins doctor warm_compaction in the terminal environment where Hermes runs. Give redacted check results. If the name does not resolve, use hermes plugins doctor <plugin-folder> locally. Replace private paths with <plugin-folder>. If unavailable or not run, state why.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: performance
+    attributes:
+      label: Performance evidence, if this report makes a performance claim
+      description: Complete only for a speed, cache, or token-use claim. Give synthetic workload, comparison method, versions/settings, number of runs, per-run times, prompt/output/cached-token counts, and concurrent load when known. State what was not measured. Missing counters are unknown, not zero. No live benchmark is required to report a functional bug.
+      placeholder: |
+        Claim and comparison:
+        Synthetic workload, versions, settings, and concurrent load:
+        Runs, per-run times, and token counts:
+        Unknown counters and measurement limits:
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submission
+      options:
+        - label: I reviewed all text and attachments. They contain no real or private conversation, summary, full config, raw request, credential, header/query value, account identifier, or private local path. Synthetic fixtures and fake values are clearly labeled.
+          required: true

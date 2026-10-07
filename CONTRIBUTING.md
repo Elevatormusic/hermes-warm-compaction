@@ -4,24 +4,55 @@ Thank you for your help. This guide tells you how to report a problem, propose a
 
 ## Report a problem
 
-- For a bug, open an issue with the **Bug report** form. Give the Hermes Agent commit, the plugin version, the API mode, and the server (for example vLLM, llama.cpp, or a hosted API).
-- Each compaction writes one `warm_compaction:` line to `logs/agent.log`. Add that line: it has the path (`warm`, `fallback`, or `fixed`), the reason, and the time. It has no conversation text.
-- Do not attach private conversations, API keys, or full request bodies. Use a synthetic conversation that shows the problem.
-- For a security problem, do not open an issue. See [SECURITY.md](SECURITY.md).
+Use the [Bug report form](.github/ISSUE_TEMPLATE/bug_report.yml) for a failure. Use the [Feature request form](.github/ISSUE_TEMPLATE/feature_request.yml) for a proposed capability. For a security problem, use the private route in [SECURITY.md](SECURITY.md).
+
+Complete each bug report section. Give exact versions when you have them. Write `unknown`, `not run`, or `not applicable` with a short reason when you cannot give a value. Do not guess. These fields reduce follow-up requests, but a new or version-specific problem can still need more checks.
+
+Include:
+
+- The installed plugin version, source commit or install ref, install method, and local edits. Give the running Hermes version and commit, and any local Hermes edits.
+- OS version, CPU architecture, Python version used by Hermes, and run mode (interactive CLI, one-shot CLI, Desktop, gateway, container, or WSL). State whether the session is new or resumed, whether a main-model reply completed in this process before compaction, and whether Hermes restarted after the plugin or settings changed.
+- Main provider, exact model ID, API mode, server name and version when known, and whether a proxy or gateway is used. Include a hostname only if needed to explain routing. Do not give full endpoint URLs.
+- Compaction trigger and frequency, selected context engine, plugin settings, context window, reply limit, and the auxiliary `warm_compaction` route. State any recent route or settings change and other context engines, plugins, or middleware that can affect the request.
+- Names of extra headers, query options, and `extra_body` options, their value types when known, and whether tool, structured-response, audio, or multiple-choice request options are set. State where this information came from, or why it is unknown. Give no real header, query, or `extra_body` values. State whether TLS checks are enabled, whether a custom CA is used, and whether a gateway needs cookies. Give no certificate or cookie data.
+- Minimal steps with a synthetic conversation, expected behavior, actual behavior, and how often the failure occurs. State whether the built-in compressor has the same problem, if already checked. A baseline check is optional.
+- Redacted diagnostic output, as described below. For a performance claim, also give the comparison method, per-run times, token counts, cache counters, versions, and limits. A missing cache counter is `unknown`, not zero.
+
+### Safe reproduction and diagnostics
+
+Use invented messages that reproduce the failure. State the approximate message count and token count. If no safe reproduction is available, explain that limit. Do not attach real or private histories, generated summaries, full configurations, raw requests, credentials, header/query values, account identifiers, or private local paths. Clearly label synthetic fixtures, synthetic summaries, and fake credential or option values used for tests. Do not enable full request dumps just to complete a report.
+
+Copy the relevant `warm_compaction:` lines from `logs/agent.log`, and any adjacent plugin warnings about capture, fallback, or fixed summaries. Keep path, reason, elapsed time, token counts, and error class when available. Report `no log line` with a reason when the plugin never loaded or no compaction ran. Review the selected lines before you paste them; do not attach the whole log.
+
+Run this command in the same terminal environment where Hermes runs, then provide the redacted check results:
+
+```bash
+hermes plugins doctor warm_compaction
+```
+
+If the installed plugin name cannot be resolved, use `hermes plugins doctor <plugin-folder>` locally. Replace private paths in the shared command and output with `<plugin-folder>`. If the command is unavailable or you did not run it, give that status and reason. Doctor checks discovery and registration; it does not prove that a running session loaded the plugin, that a summary is correct, or that a server reused its cache.
+
+Use a clean, isolated Hermes copy for further probes. Keep installed source and production sessions intact. A report does not require a production cache reset, a model deployment change, or a live benchmark.
 
 ## Propose a change
 
 1. Open an issue first for a large change, so that we can agree on the design.
 2. Fork the repository and make a branch from `main`.
-3. Write a test that fails without your change. Then make the change.
-4. Run the checks below.
-5. Open a pull request. Fill in the template.
+3. For a behavior fix, add a test that fails without your change. Then make the change. A document-only change does not need a code test.
+4. Run the applicable checks below. Record the exact command and whether it passed, failed, was skipped, or was unavailable. Explain every skipped or unavailable check.
+5. Open a pull request. Complete the [PR template](.github/pull_request_template.md): link the issue, state the concrete trigger and before/after behavior, explain the scope, and give check results and limits. If there is no issue, explain why.
 
 Keep each pull request to one subject. The plugin uses documented Hermes plugin APIs only: no patch of Hermes, no subclass of the built-in compressor, and no runtime wrapping of Hermes code. A change that needs one of those cannot be merged.
+
+For a bug fix, link a complete bug report or include its applicable diagnostic fields in the PR. For a performance change, include the comparison method and small metadata evidence. Clearly label synthetic fixtures and redact runtime evidence before publication. A document-only PR needs no model, server, or private runtime data; write `not applicable` with a reason for those sections.
+
+Agents must read [AGENTS.md](AGENTS.md) before work. [CLAUDE.md](CLAUDE.md) has the same instructions.
 
 ## Run the checks
 
 You need Python 3.10 or later and Git. The plugin has no third-party dependency.
+
+For Python changes, run the unit tests and lint. Unit tests check local behavior with fixtures; they do not prove deployed compatibility, summary quality, or cache reuse.
 
 ```bash
 python -m unittest discover -s tests -p "test_wc_*.py"
@@ -34,11 +65,15 @@ pip install ruff==0.16.10
 ruff check .
 ```
 
-The integration check runs real Hermes code against a loopback fake server. Run it with the Python of a Hermes virtual environment and a **clean** Hermes checkout, not your installed Hermes:
+For changes to Hermes interaction, also run the integration check. It runs real Hermes code against a loopback fake server with synthetic conversations. Run it with the Python of a Hermes virtual environment and a **clean** Hermes checkout, not your installed Hermes. Record the exact Hermes commit, Python version, command, and report result:
 
 ```bash
 <hermes-venv-python> -B scripts/check_plugin_hermes.py --hermes-source <clean-hermes-checkout> --report .work/plugin-integration-report.json
 ```
+
+The integration check covers install, request, compaction, and history behavior on that Hermes version. It does not call a real model or prove live cache reuse or a performance gain. Keep evidence small and metadata only.
+
+For document or form changes, check local Markdown links and run `git diff --check`. For issue forms, parse the YAML and check its fields against the [GitHub form schema](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema). No live model check is needed for these changes.
 
 CI runs the unit tests on Python 3.10 to 3.13 (Linux) and on Python 3.12 (Windows and macOS), and the lint. A pull request must pass both.
 
