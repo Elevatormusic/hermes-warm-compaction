@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -68,6 +69,7 @@ SCENARIOS = ("enable_manual_warm", "manual_fallback", "manual_fixed", "auto_tool
 # The scenarios with automatic compaction in a tool loop.
 AUTO_SCENARIOS = ("auto_tool_loop", "auto_warm_failures")
 NOTICE_MARK = "Warm compaction unavailable"
+NATIVE_NOTICE_MARK = "Hermes includes native warm handoff."
 # The rollback scenario has a third process: a new Hermes process with the built-in compressor.
 PHASES = {"rollback": ("install", "run", "rollback")}
 DEFAULT_PHASES = ("install", "run")
@@ -508,6 +510,8 @@ def run_phase(spec, session_dir):
         from hermes_state import SessionDB
         from run_agent import AIAgent
         from tui_gateway.server import _compress_session_history
+        result["native_warm_handoff"] = native_warm_handoff_capabilities()
+        config_before = (home / "config.yaml").read_bytes()
         checks["listed_in_engine_picker"] = any(name == "warm_compaction" for name, *_ in _discover_context_engines())
         fence = Fence(session_dir, server.httpd.server_port, spec["hermes_source"],
                       home / "plugins" / "warm_compaction")
@@ -530,14 +534,19 @@ def run_phase(spec, session_dir):
         checks["engine_selected"] = getattr(engine, "name", None) == "warm_compaction"
         result["engine"] = {"name": getattr(engine, "name", None), "threshold_tokens": engine.threshold_tokens,
                             "context_length": engine.context_length}
+        checks["native_notice_not_logged_before_compaction"] = NATIVE_NOTICE_MARK not in read_agent_log(home)
         history = db.get_messages_as_conversation(sid)
         if scenario == "auto_tool_loop":
-            run_auto(agent, engine, history, server, result, checks)
+            run_auto(agent, engine, history, server, result, checks, statuses)
         elif scenario == "auto_warm_failures":
             run_auto_failures(agent, engine, history, server, result, checks, statuses, home)
         else:
             run_manual(agent, engine, db, history, server, result, checks, scenario,
                        _compress_session_history, finalize_context_engine_compression_notification)
+        check_native_notice(agent, engine, db, server, result, checks, statuses, home, config_before)
+        if scenario == "auto_warm_failures":
+            # The boundary probe uses a second engine. Check the main engine's log count first.
+            check_host_commit_boundaries(engine, checks)
         result["fence_denied"] = fence.denied
         result["fence_blocked_programs"] = sorted(fence.programs)
         result["fence_blocked_hosts"] = sorted(fence.hosts)
@@ -712,6 +721,42 @@ def summary_rows_ok(history):
             and str(history[1].get("content") or "").startswith("[CONTEXT SUMMARY]:"))
 
 
+def native_warm_handoff_capabilities():
+    """Read the native constructor and config contract from the real Hermes source."""
+    from agent.context_compressor import ContextCompressor
+    from hermes_cli import config
+
+    parameter = inspect.signature(ContextCompressor.__init__).parameters.get("warm_handoff")
+    constructor = parameter is not None and parameter.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    defaults = getattr(config, "DEFAULT_CONFIG", {})
+    setting = defaults.get("compression", {}).get("warm_handoff") in ("off", "on", "auto")
+    return {"constructor_parameter": constructor, "config_setting": setting, "available": constructor and setting}
+
+
+def read_agent_log(home):
+    path = home / "logs" / "agent.log"
+    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+
+
+def check_native_notice(agent, engine, db, server, result, checks, statuses, home, config_before):
+    """Check notice delivery and isolation without changing the host or engine selection."""
+    expected = result["native_warm_handoff"]["available"]
+    notices = [message for _kind, message in statuses if NATIVE_NOTICE_MARK in message]
+    log_count = read_agent_log(home).count(NATIVE_NOTICE_MARK)
+    automatic = result["scenario"] in AUTO_SCENARIOS
+    result["native_notice"] = {"status_count": len(notices), "log_count": log_count}
+    checks["native_notice_status_count"] = len(notices) == int(expected and automatic)
+    checks["native_notice_log_count"] = log_count == int(expected)
+    checks["native_notice_engine_unchanged"] = (
+        agent.context_compressor is engine and getattr(engine, "name", None) == "warm_compaction")
+    checks["native_notice_config_unchanged"] = (home / "config.yaml").read_bytes() == config_before
+    checks["native_notice_not_in_requests"] = all(
+        NATIVE_NOTICE_MARK not in json.dumps(request["body"]) for request in server.requests)
+    saved = db.get_messages_as_conversation(agent.session_id)
+    checks["native_notice_not_in_saved_history"] = NATIVE_NOTICE_MARK not in json.dumps(saved)
+
+
 def run_manual(agent, engine, db, history, server, result, checks, scenario, compress, finalize):
     seed = agent.run_conversation(SEED_QUESTION, system_message=SYSTEM, conversation_history=history)
     messages = seed.get("messages") or []
@@ -739,6 +784,7 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     checks["path_and_reason"] = (warm_last.get("path"), warm_last.get("reason")) == expected
     checks["removed_rows"] = removed > 0
     after = session["history"]
+    checks["native_notice_not_in_manual_history"] = NATIVE_NOTICE_MARK not in json.dumps(after)
     checks["summary_rows"] = summary_rows_ok(after)
     checks["tail_starts_with_user"] = after[2].get("role") == "user"
     if scenario == "enable_manual_warm":
@@ -766,9 +812,12 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
         later[0]["body"]["messages"][0].get("content") or "")
 
 
-def run_auto(agent, engine, history, server, result, checks):
+def run_auto(agent, engine, history, server, result, checks, statuses):
     checks["threshold_from_settings"] = engine.threshold_tokens == int(CONTEXT_LENGTH * 0.4)
     first = agent.run_conversation(TOOL_QUESTION, system_message=SYSTEM, conversation_history=history)
+    first_notice_count = sum(NATIVE_NOTICE_MARK in message for _kind, message in statuses)
+    checks["native_notice_on_first_automatic_compaction"] = (
+        first_notice_count == int(result["native_warm_handoff"]["available"]))
     checks["first_turn_final"] = first.get("final_response") == "Done."
     checks["first_warm_request"] = len(by_kind(server, "warm")) == 1
     result["warm_last_1"] = dict(engine.warm_last or {})
@@ -781,6 +830,10 @@ def run_auto(agent, engine, history, server, result, checks):
     second = agent.run_conversation(TOOL_AGAIN_QUESTION, system_message=SYSTEM,
                                     conversation_history=list(after_first))
     checks["second_turn_final"] = second.get("final_response") == "Done again."
+    checks["native_notice_not_repeated"] = (
+        sum(NATIVE_NOTICE_MARK in message for _kind, message in statuses) == first_notice_count)
+    checks["native_notice_not_in_automatic_history"] = all(
+        NATIVE_NOTICE_MARK not in json.dumps(rows) for rows in (after_first, second.get("messages") or []))
     checks["second_warm_request"] = len(by_kind(server, "warm")) == 2
     result["warm_last_2"] = dict(engine.warm_last or {})
     checks["second_path_warm"] = result["warm_last_2"].get("path") == "warm"
@@ -850,7 +903,6 @@ def run_auto_failures(agent, engine, history, server, result, checks, statuses, 
     checks["each_refusal_in_agent_log"] = agent_log.count(refusal) == 3
     checks["each_refusal_in_errors_log"] = errors_log.count(refusal) == 3
     checks["notice_in_errors_log"] = errors_log.count("Warm compaction failed 3 times in a row") == 1
-    check_host_commit_boundaries(engine, checks)
 
 
 def check_host_commit_boundaries(engine, checks):

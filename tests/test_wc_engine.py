@@ -749,6 +749,154 @@ class EngineTest(unittest.TestCase):
         engine = self.make(tail_tokens=500_000)
         self.assertEqual(engine._tail_cap(0, None, 0) - engine._tail_cap(2_000, None, 0, 1_000), 3_000)
 
+    def compatibility_candidate(self, engine, reason):
+        """Run a synthetic compaction with one missing Hermes middleware API."""
+        rows, reply = old_turns(), assistant("done")
+        if reason == "middleware_order_unknown":
+            with patch.object(wc_hermes_stub.PLUGINS, "_delivery_manager",
+                              side_effect=AttributeError("synthetic change")):
+                self.seed(rows, reply)
+            result = engine.compress([*rows, reply])
+        else:
+            self.seed(rows, reply)
+            with patch.dict(wc_hermes_stub.MIDDLEWARE.__dict__, clear=True):
+                result = engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["reason"], reason)
+        self.assertEqual(self.post.calls, [])
+        return result
+
+    def test_a_host_compatibility_failure_tells_the_user_at_the_first_commit(self):
+        for reason in ("middleware_order_unknown", "middleware_unavailable"):
+            for path in ("fallback", "fixed"):
+                with self.subTest(reason=reason, path=path):
+                    self.llm.error = RuntimeError("synthetic fallback failure") if path == "fixed" else None
+                    engine = self.make()
+                    self.compatibility_candidate(engine, reason)
+                    self.assertEqual(engine.warm_last["path"], path)
+                    self.assertEqual(engine._warm_failures, 0)
+                    self.assertIsNone(engine._warm_notice)
+                    self.commit(engine)
+                    notice = engine.get_automatic_compaction_status_message(
+                        phase="compress", default_message="Compacting")
+                    self.assertIn("Hermes compatibility", notice)
+                    self.assertIn(reason, notice)
+                    self.assertIn("fallback summary", notice)
+                    self.assertIn("logs/agent.log", notice)
+                    self.assertNotIn("no messages were dropped", notice)
+                    if path == "fixed":
+                        self.assertIn("fixed summary (no model, less detail)", notice)
+                    else:
+                        self.assertIn("Compaction continues with the fallback summary.", notice)
+
+    def test_a_compatibility_notice_stays_pending_when_the_host_hides_status(self):
+        engine = self.make()
+        self.compatibility_candidate(engine, "middleware_order_unknown")
+        self.commit(engine)
+        pending = engine._warm_notice
+        self.assertIsNotNone(pending)
+        engine.emit_automatic_compaction_status = False
+        self.assertIsNone(engine.get_automatic_compaction_status_message(
+            phase="compress", default_message="Compacting"))
+        self.assertEqual(engine._warm_notice, pending)
+        self.llm.error = RuntimeError("synthetic fallback failure")
+        self.compress_committed(engine, [*old_turns(), assistant("done")])
+        engine.emit_automatic_compaction_status = True
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("Hermes compatibility", notice)
+        self.assertIn("no_capture", notice)
+        self.assertIn("the last 2 compactions", notice)
+        self.assertIn("the fallback summary could not be used 1 of 2 times", notice)
+        self.assertEqual(engine.get_automatic_compaction_status_message(
+            phase="compress", default_message="Compacting"), "Compacting")
+
+    def test_a_consumed_compatibility_notice_does_not_repeat_at_the_third_failure(self):
+        engine = self.make()
+        self.compatibility_candidate(engine, "middleware_unavailable")
+        self.commit(engine)
+        self.assertIn("Hermes compatibility", engine.get_automatic_compaction_status_message(
+            phase="compress", default_message="Compacting"))
+        for _ in range(4):
+            self.compatibility_candidate(engine, "middleware_order_unknown")
+            self.commit(engine)
+            self.assertEqual(engine.get_automatic_compaction_status_message(
+                phase="compress", default_message="Compacting"), "Compacting")
+
+    def test_a_host_failure_updates_a_pending_provider_notice_or_follows_a_displayed_one(self):
+        def refused(*args, **kwargs):
+            raise RuntimeError("synthetic provider refusal")
+
+        for consumed in (False, True):
+            with self.subTest(consumed=consumed):
+                engine = self.make()
+                engine._post = refused
+                rows, reply = old_turns(), assistant("done")
+                for _ in range(3):
+                    self.seed(rows, reply)
+                    self.compress_committed(engine, [*rows, reply])
+                self.assertIsNotNone(engine._warm_notice)
+                self.assertNotIn("Hermes compatibility", engine._warm_notice)
+                if consumed:
+                    notice = engine.get_automatic_compaction_status_message(
+                        phase="compress", default_message="Compacting")
+                    self.assertIn("provider_error", notice)
+                self.compatibility_candidate(engine, "middleware_order_unknown")
+                self.commit(engine)
+                notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+                self.assertIn("Hermes compatibility", notice)
+                self.assertIn("middleware_order_unknown", notice)
+                self.assertIn("provider_error", notice)
+                for reason in ("middleware_order_unknown", "middleware_unavailable"):
+                    self.compatibility_candidate(engine, reason)
+                    self.commit(engine)
+                    self.assertEqual(engine.get_automatic_compaction_status_message(
+                        phase="compress", default_message="Compacting"), "Compacting")
+
+    def test_warm_success_and_session_reset_allow_a_new_compatibility_notice(self):
+        for action in ("warm", "reset"):
+            for consumed in (False, True):
+                with self.subTest(action=action, consumed=consumed):
+                    engine = self.make()
+                    self.compatibility_candidate(engine, "middleware_order_unknown")
+                    self.commit(engine)
+                    self.assertIsNotNone(engine._warm_notice)
+                    if consumed:
+                        engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+                    if action == "reset":
+                        engine.on_session_reset()
+                    else:
+                        rows, reply = old_turns(), assistant("done")
+                        self.seed(rows, reply)
+                        self.compress_committed(engine, [*rows, reply])
+                        self.assertEqual(engine.warm_last["path"], "warm")
+                        self.post.calls.clear()
+                    self.assertEqual(engine._warm_failures, 0)
+                    self.assertIsNone(engine._warm_notice)
+                    self.compatibility_candidate(engine, "middleware_order_unknown")
+                    self.commit(engine)
+                    self.assertIn("Hermes compatibility", engine.get_automatic_compaction_status_message(
+                        phase="compress", default_message="Compacting"))
+
+    def test_provider_and_capture_failures_keep_the_three_failure_notice_delay(self):
+        def refused(*args, **kwargs):
+            raise RuntimeError("synthetic refusal")
+
+        for reason in ("provider_error", "no_capture"):
+            with self.subTest(reason=reason):
+                engine = self.make()
+                rows, reply = old_turns(), assistant("done")
+                for count in range(1, 4):
+                    if reason == "provider_error":
+                        self.seed(rows, reply)
+                        engine._post = refused
+                    self.compress_committed(engine, [*rows, reply])
+                    self.assertEqual(engine.warm_last["reason"], reason)
+                    notice = engine.get_automatic_compaction_status_message(
+                        phase="compress", default_message="Compacting")
+                    if count < 3:
+                        self.assertEqual(notice, "Compacting")
+                    else:
+                        self.assertIn("the last 3 compactions", notice)
+
     def test_three_compactions_without_the_warm_path_tell_the_user_one_time(self):
         # No capture: each compaction uses the fallback. Each refusal is a WARNING; the third one adds one notice
         # to the next automatic compaction status that Hermes shows.

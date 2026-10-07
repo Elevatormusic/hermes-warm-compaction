@@ -1,0 +1,75 @@
+name: Hermes compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+
+# The cache service enforces this limit on each job token.
+# External Hermes code must have no Actions cache access.
+cache-mode: none
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Hermes contract (${{ matrix.hermes }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        hermes: [minimum, upstream-main]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the minimum Hermes source
+        if: matrix.hermes == 'minimum'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 45871e100feceb89769536c88e5e6e265226a409
+          path: .work/hermes
+          persist-credentials: false
+      - name: Check out the upstream Hermes main source
+        if: matrix.hermes == 'upstream-main'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: main
+          path: .work/hermes
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install the Hermes locked runtime
+        run: |
+          python -m pip install uv==0.12.17
+          uv sync --project .work/hermes --frozen --no-dev --python 3.14
+      - name: Check real middleware and capture behavior
+        run: |
+          .work/hermes/.venv/bin/python -B scripts/check_hermes_compatibility.py \
+            --hermes-source .work/hermes --report .work/hermes-compatibility.json
+      - name: Check install, compaction, fallback, and rollback
+        run: |
+          .work/hermes/.venv/bin/python -B scripts/check_plugin_hermes.py \
+            --hermes-source .work/hermes --report .work/hermes-integration.json
+      - name: Save the metadata report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hermes-compatibility-${{ matrix.hermes }}
+          path: |
+            .work/hermes-compatibility.json
+            .work/hermes-integration.json
+          if-no-files-found: warn
+          retention-days: 14
