@@ -254,7 +254,14 @@ def wire_rows(rows: list, base_url: Any = None, *, used_ids: set | None = None, 
 def check_source(body: dict[str, Any], history: list, base_url: Any = None, native_type: Any = None) -> None:
     """Require that the captured input is the supported form of the stored history."""
     check_settings(body, base_url)
-    if body.get("input") != wire_rows(history, base_url, model=body.get("model")):
+    want = wire_rows(history, base_url, model=body.get("model"))
+    got = body.get("input")
+    # The Responses API treats an input item that has a role and no "type" as a message.
+    # Hermes omits that default, so normalise it before the comparison.
+    if isinstance(got, list):
+        got = [({**item, "type": "message"} if isinstance(item, dict) and "type" not in item and "role" in item
+                else item) for item in got]
+    if got != want:
         raise WarmRefusal("source_transform_unsupported")
 
 
