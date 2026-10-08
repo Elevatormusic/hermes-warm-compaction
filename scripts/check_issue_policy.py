@@ -1,4 +1,4 @@
-"""Check the issue, AI agent, and test requirements for new pull requests.
+"""Check the issue, open PR limit, AI agent, and test requirements for new PRs.
 
 Use one complete plain line at column zero: Closes #123, Fixes #123, or Resolves #123.
 The same keywords can precede an exact HTTPS URL for this repository's issue.
@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
@@ -41,6 +42,20 @@ class GitHubApi:
         self.opener = build_opener(NoRedirect())
 
     def get(self, path: str) -> dict:
+        result = self._read(path)
+        if not isinstance(result, dict):
+            raise ApiError()
+        return result
+
+    def get_list(self, path: str) -> list[dict]:
+        result = self._read(path)
+        if not isinstance(result, list) or len(result) > 100 or any(not isinstance(item, dict) for item in result):
+            raise ApiError()
+        return result
+
+    def _read(self, path: str):
+        if not isinstance(path, str) or not path.startswith("/repos/") or re.search(r"[\x00-\x20\x7f]", path):
+            raise ApiError()
         request = Request(
             "https://api.github.com" + path,
             headers={
@@ -55,10 +70,7 @@ class GitHubApi:
                 raw = response.read(1024 * 1024 + 1)
             if len(raw) > 1024 * 1024:
                 raise ApiError()
-            result = json.loads(raw)
-            if not isinstance(result, dict):
-                raise ApiError()
-            return result
+            return json.loads(raw)
         except HTTPError as error:
             raise ApiError(error.code) from None
         except (URLError, TimeoutError, OSError, ValueError):
@@ -83,16 +95,30 @@ def plain_lines(body: str) -> list[str]:
     comment = False
     inline_code = None
     html_blocks = []
+    raw_html = None
+    math_block = False
     tag_parts = []
     tag_quote = None
     nested = False
     comment_end = re.compile(r"--!?>")
     tag_start = re.compile(r"</?[A-Za-z]")
     hidden_tags = {"pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "li", "dl", "dt", "dd"}
+    block_tags = (
+        "address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div "
+        "dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe "
+        "legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table "
+        "tbody td tfoot th thead title tr track ul"
+    )
+    raw_block_tag = re.compile(r" {0,3}</?(?:" + "|".join(block_tags.split()) + r")(?=[ \t/>]|$)", re.IGNORECASE)
+    attribute = r"[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?"
+    complete_tag = re.compile(
+        r" {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:" + attribute + r")*[ \t]*/?>|</[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$"
+    )
+    math_marker = re.compile(r"(?<!\\)(?:\\\\)*\$\$")
 
-    def scan_markup(line: str) -> bool:
-        nonlocal comment, tag_quote
-        hidden = comment or bool(html_blocks) or bool(tag_parts)
+    def scan_markup(line: str, allow_inline: bool = True) -> bool:
+        nonlocal comment, tag_quote, inline_code
+        hidden = comment or bool(html_blocks) or bool(tag_parts) or inline_code is not None
         index = 0
         while index < len(line):
             if comment:
@@ -121,6 +147,14 @@ def plain_lines(body: str) -> list[str]:
                     tag_parts.clear()
                 index += 1
                 continue
+            if inline_code is not None:
+                marker = re.search(r"`+", line[index:])
+                if not marker:
+                    break
+                index += marker.end()
+                if len(marker[0]) == inline_code:
+                    inline_code = None
+                continue
             if line.startswith("<!--", index):
                 comment = True
                 hidden = True
@@ -129,6 +163,15 @@ def plain_lines(body: str) -> list[str]:
                 tag_parts.append("<")
                 hidden = True
                 index += 1
+            elif allow_inline and not html_blocks and line[index] == "`":
+                start = index
+                while start and line[start - 1] == "\\":
+                    start -= 1
+                marker = re.match(r"`+", line[index:])
+                if (index - start) % 2 == 0:
+                    inline_code = len(marker[0])
+                    hidden = True
+                index += len(marker[0])
             else:
                 index += 1
         if tag_parts:
@@ -138,15 +181,23 @@ def plain_lines(body: str) -> list[str]:
     for line in body.splitlines():
         if not line.strip():
             nested = False
+            if raw_html == "blank":
+                raw_html = None
+        if raw_html:
+            if raw_html == "blank":
+                scan_markup(line, allow_inline=False)
+            elif re.search(raw_html, line):
+                raw_html = None
+            continue
+        if math_block:
+            if math_marker.search(line):
+                math_block = False
+            continue
         if html_blocks or tag_parts:
             scan_markup(line)
             continue
-        if inline_code:
-            for marker in re.finditer(r"`+", line):
-                if inline_code is None:
-                    inline_code = len(marker[0])
-                elif len(marker[0]) == inline_code:
-                    inline_code = None
+        if inline_code is not None:
+            scan_markup(line)
             continue
         if fence:
             if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", line):
@@ -156,25 +207,39 @@ def plain_lines(body: str) -> list[str]:
         if mark and not comment:
             fence = (mark[1][0], len(mark[1]))
             continue
+        if not comment:
+            # Raw HTML blocks use their Markdown end rule, not a closing tag.
+            endings = ((r" {0,3}<\?", r"\?>"), (r" {0,3}<![A-Z]", r">"),
+                       (r" {0,3}<!\[CDATA\[", r"\]\]>"))
+            ending = next((end for start, end in endings if re.match(start, line)), None)
+            if ending:
+                raw_html = None if re.search(ending, line) else ending
+                continue
+            if re.match(r" {0,3}<(?:script|pre|style|textarea)(?=[ \t>]|$)", line, re.IGNORECASE):
+                scan_markup(line, allow_inline=False)
+                continue
+            if raw_block_tag.match(line) or complete_tag.fullmatch(line):
+                raw_html = "blank"
+                scan_markup(line, allow_inline=False)
+                continue
+            if re.match(r" {0,3}\$\$", line):
+                opening = math_marker.search(line)
+                math_block = math_marker.search(line, opening.end()) is None
+                continue
         # A comment must not change a code fence or join parts of a plain line.
         if scan_markup(line):
             continue
-        ticks = list(re.finditer(r"(?<!\\)`+", line))
-        if ticks:
-            for marker in ticks:
-                if inline_code is None:
-                    inline_code = len(marker[0])
-                elif len(marker[0]) == inline_code:
-                    inline_code = None
-            continue
         # Require column zero so list continuations cannot become policy lines.
         list_or_quote = re.match(r" {0,3}(?:[-+*][ \t]+|[0-9]+[.)][ \t]+|>)", line)
+        was_nested = nested
         if list_or_quote:
             nested = True
         if line.startswith((" ", "\t")):
             continue
         if list_or_quote:
-            if not re.fullmatch(r"- \[[xX]\] I ran all tests listed in CONTRIBUTING\.md and all passed\.", line):
+            if was_nested or not re.fullmatch(
+                r"- \[[xX]\] I ran all tests listed in CONTRIBUTING\.md and all passed\.", line
+            ):
                 continue
         elif re.match(r"#{1,6}[ \t]", line):
             nested = False
@@ -263,6 +328,83 @@ def body_requirement(body: str) -> str | None:
     return None
 
 
+OPEN_PR_LIMIT = 5
+OPEN_PR_PAGE_LIMIT = 100
+
+
+def author_open_pulls(api, repository: str, author: str, number: int) -> frozenset[int]:
+    """Read all open PRs by this author, including drafts and older PRs."""
+    seen = set()
+    numbers = set()
+    for page in range(1, OPEN_PR_PAGE_LIMIT + 1):
+        query = urlencode({
+            "state": "open", "creator": author, "sort": "created", "direction": "asc", "per_page": 100, "page": page,
+        })
+        items = api.get_list(f"/repos/{repository}/issues?{query}")
+        if not isinstance(items, list) or len(items) > 100:
+            raise PolicyError("The open PR list is incomplete or inconsistent.")
+        for item in items:
+            try:
+                item_number = item["number"]
+                login = item["user"]["login"]
+                if (
+                    not isinstance(item_number, int) or isinstance(item_number, bool) or item_number < 1
+                    or item_number in seen or item["state"] not in ("open", "closed")
+                    or not isinstance(login, str) or login.casefold() != author.casefold()
+                ):
+                    raise ValueError
+                seen.add(item_number)
+                is_pull = "pull_request" in item
+                kind = "pull" if is_pull else "issues"
+                if item["html_url"].lower() != f"https://github.com/{repository}/{kind}/{item_number}".lower():
+                    raise ValueError
+                if is_pull:
+                    details = item["pull_request"]
+                    if not isinstance(details, dict) or details["url"].lower() != (
+                        f"https://api.github.com/repos/{repository}/pulls/{item_number}".lower()
+                    ):
+                        raise ValueError
+                    merged_at = details.get("merged_at")
+                    if merged_at is not None:
+                        timestamp(merged_at)
+                    if "draft" in item and not isinstance(item["draft"], bool):
+                        raise ValueError
+                    if item["state"] == "open" and merged_at is None:
+                        numbers.add(item_number)
+            except (KeyError, TypeError, AttributeError, ValueError):
+                raise PolicyError("The open PR list is incomplete or inconsistent.") from None
+        if len(items) < 100:
+            if number not in numbers:
+                raise PolicyError(
+                    "The current pull request is missing from the author's open PR list. Run the check again."
+                )
+            return frozenset(numbers)
+    raise PolicyError("The open PR list exceeds the page limit. The count is unknown.")
+
+
+def pull_policy_fields(pull: dict) -> tuple:
+    """Compare policy inputs without mutable repository and profile metadata."""
+    try:
+        values = [pull.get(field) for field in ("number", "body", "created_at", "state", "merged")]
+        user = pull["user"]
+        values.extend((user["login"].casefold(), user.get("id")))
+        for name in ("head", "base"):
+            branch = pull.get(name, {})
+            if not isinstance(branch, dict):
+                raise TypeError
+            repository = branch.get("repo")
+            if repository is None:
+                repository = {}
+            elif not isinstance(repository, dict):
+                raise TypeError
+            values.extend((branch.get("ref"), repository.get("full_name"), repository.get("id")))
+            if name == "head":
+                values.append(branch.get("sha"))
+        return tuple(values)
+    except (KeyError, TypeError, AttributeError):
+        raise PolicyError("Pull request data is incomplete or inconsistent.") from None
+
+
 def check_policy(api, repository: str, number: int, activated_at: str) -> tuple[bool, str]:
     """Check fresh API data. This script has no write operation."""
     activated = timestamp(activated_at)
@@ -290,11 +432,22 @@ def check_policy(api, repository: str, number: int, activated_at: str) -> tuple[
         raise PolicyError("Pull request data is incomplete or inconsistent.") from None
 
     def finish(passed: bool, message: str) -> tuple[bool, str]:
+        open_pulls = None
+        if passed:
+            open_pulls = author_open_pulls(api, repository, author, number)
+            if len(open_pulls) > OPEN_PR_LIMIT:
+                passed = False
+                message = (
+                    f"Keep at most {OPEN_PR_LIMIT} open pull requests per author in this repository. "
+                    f"This author has {len(open_pulls)}, including this PR, drafts, and older open PRs. "
+                    "Close or merge an existing PR, then run the check again. This check does not close PRs."
+                )
         # Check again before reporting a decision based on PR or issue data.
         fresh = api.get(f"/repos/{repository}/pulls/{number}")
-        fields = ("number", "body", "created_at", "updated_at", "state", "merged", "head", "base", "user")
-        if any(fresh.get(field) != pull.get(field) for field in fields):
+        if pull_policy_fields(fresh) != pull_policy_fields(pull):
             raise PolicyError("The pull request changed during the check. Run the check again.")
+        if passed and author_open_pulls(api, repository, author, number) != open_pulls:
+            raise PolicyError("The author's open PR list changed during the check. Run the check again.")
         return passed, message
 
     reason = body_requirement(body or "")

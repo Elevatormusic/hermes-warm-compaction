@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
 
 from scripts import check_issue_policy as policy
 
@@ -52,9 +53,26 @@ def issue(number=7, **changes):
 
 
 class FakeApi:
-    def __init__(self, *responses):
+    def __init__(self, *responses, list_responses=None):
         self.responses = list(responses)
         self.paths = []
+        self.list_responses = list(list_responses or [])
+        self.explicit_list_responses = list_responses is not None
+        self.list_paths = []
+        self.default_open_pulls = [open_pull(author=responses[0]["user"]["login"])] if (
+            responses and isinstance(responses[0], dict) and isinstance(responses[0].get("user", {}).get("login"), str)
+        ) else []
+
+    def get_list(self, path):
+        self.list_paths.append(path)
+        if not self.list_responses:
+            if self.explicit_list_responses:
+                raise AssertionError("An unexpected list API read was requested.")
+            return copy.deepcopy(self.default_open_pulls)
+        response = self.list_responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return copy.deepcopy(response)
 
     def get(self, path):
         self.paths.append(path)
@@ -64,6 +82,355 @@ class FakeApi:
         if isinstance(response, Exception):
             raise response
         return copy.deepcopy(response)
+
+
+def open_pull(number=23, author="contributor", **changes):
+    data = issue(number, user={"login": author}, html_url=f"https://github.com/{REPOSITORY}/pull/{number}")
+    data["pull_request"] = {"url": f"https://api.github.com/repos/{REPOSITORY}/pulls/{number}", "merged_at": None}
+    data.update(changes)
+    return data
+
+
+class OpenPullLimitTests(unittest.TestCase):
+    def test_five_open_prs_pass_after_two_count_reads(self):
+        items = [open_pull(number) for number in (23, 24, 25, 26, 27)]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[items, items])
+        self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        self.assertEqual(len(api.list_paths), 2)
+
+    def test_six_open_prs_fail(self):
+        items = [open_pull(number) for number in (23, 24, 25, 26, 27, 28)]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[items])
+        passed, message = policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+        self.assertFalse(passed)
+        self.assertIn("5", message)
+
+    def test_owner_has_no_open_pr_limit_exception(self):
+        for author in ("Elevatormusic", "ELEVATORMUSIC"):
+            with self.subTest(author=author):
+                data = pull(user={"login": author}, body=NO_AGENT)
+                items = [open_pull(number, author) for number in (23, 24, 25, 26, 27, 28)]
+                api = FakeApi(data, data, list_responses=[items])
+                passed, message = policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+                self.assertFalse(passed)
+                self.assertIn("6", message)
+                self.assertEqual(api.paths, [PR_PATH, PR_PATH])
+
+    def test_drafts_older_prs_and_all_base_branches_count(self):
+        items = [open_pull(number) for number in (23, 24, 25, 26)]
+        items += [
+            open_pull(27, draft=True, created_at="2026-10-08T17:09:41Z"),
+            open_pull(28, base={"ref": "another-branch"}),
+        ]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[items])
+        self.assertFalse(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        query = parse_qs(urlsplit(api.list_paths[0]).query)
+        self.assertEqual(query, {
+            "state": ["open"], "creator": ["contributor"], "sort": ["created"],
+            "direction": ["asc"], "per_page": ["100"], "page": ["1"],
+        })
+
+    def test_closed_merged_prs_and_ordinary_issues_do_not_count(self):
+        merged = open_pull(29)
+        merged["pull_request"]["merged_at"] = "2026-10-08T18:01:00Z"
+        items = [open_pull(number) for number in (23, 24, 25, 26, 27)] + [
+            open_pull(28, state="closed"), merged, issue(30, user={"login": "contributor"}),
+        ]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[items, items])
+        self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+
+    def test_open_pr_without_optional_merged_timestamp_counts(self):
+        items = [open_pull(number) for number in (23, 24, 25, 26, 27)]
+        for item in items:
+            del item["pull_request"]["merged_at"]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[items, items])
+        self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        items.append(open_pull(28))
+        del items[-1]["pull_request"]["merged_at"]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[items])
+        self.assertFalse(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+
+    def test_case_insensitive_author(self):
+        data = pull(user={"login": "ConTRibutor"})
+        items = [open_pull(author="CONTRIBUTOR")]
+        api = FakeApi(data, issue(), data, list_responses=[items, items])
+        self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+
+    def test_query_values_are_encoded(self):
+        author = "contributor&state=all#fragment"
+        items = [open_pull(author=author)]
+        api = FakeApi(list_responses=[items])
+        self.assertEqual(policy.author_open_pulls(api, REPOSITORY, author, 23), frozenset({23}))
+        parsed = urlsplit(api.list_paths[0])
+        self.assertEqual(parsed.path, "/repos/owner/repo/issues")
+        self.assertEqual(parsed.fragment, "")
+        self.assertEqual(parse_qs(parsed.query)["creator"], [author])
+        self.assertEqual(parse_qs(parsed.query)["state"], ["open"])
+
+    def test_pagination_passes_only_after_all_issue_pages_are_read_twice(self):
+        first = [issue(number, user={"login": "contributor"}) for number in range(100, 200)]
+        second = [open_pull(number) for number in (23, 24, 25, 26, 27)]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[first, second, first, second])
+        self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        self.assertEqual([parse_qs(urlsplit(path).query)["page"] for path in api.list_paths],
+                         [["1"], ["2"], ["1"], ["2"]])
+        self.assertFalse(api.list_responses)
+
+    def test_sixth_pr_on_a_later_page_refuses(self):
+        first = [open_pull(number) for number in (23, 24, 25, 26, 27)]
+        first += [issue(number, user={"login": "contributor"}) for number in range(100, 195)]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[first, [open_pull(28)]])
+        self.assertFalse(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        self.assertEqual(len(api.list_paths), 2)
+
+    def test_full_final_page_needs_an_empty_page(self):
+        items = [open_pull()] + [issue(number, user={"login": "contributor"}) for number in range(100, 199)]
+        api = FakeApi(list_responses=[items, []])
+        self.assertEqual(policy.author_open_pulls(api, REPOSITORY, "contributor", 23), frozenset({23}))
+        self.assertEqual(len(api.list_paths), 2)
+
+    def test_page_limit_refuses_an_unknown_count(self):
+        pages = [
+            [open_pull()] + [issue(number, user={"login": "contributor"}) for number in range(100, 199)],
+            [issue(number, user={"login": "contributor"}) for number in range(200, 300)],
+        ]
+        api = FakeApi(list_responses=pages)
+        with patch.object(policy, "OPEN_PR_PAGE_LIMIT", 2):
+            with self.assertRaisesRegex(policy.PolicyError, "page limit.*unknown"):
+                policy.author_open_pulls(api, REPOSITORY, "contributor", 23)
+        self.assertEqual(len(api.list_paths), 2)
+
+    def test_current_pr_must_be_present_and_open(self):
+        for items in ([], [open_pull(24)], [open_pull(state="closed")]):
+            with self.subTest(items=items):
+                api = FakeApi(pull(), issue(), pull(), list_responses=[items])
+                with self.assertRaisesRegex(policy.PolicyError, "current pull request is missing"):
+                    policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+
+    def test_malformed_list_data_refuses(self):
+        cases = [
+            {}, None, [None], ["not-an-item"], [open_pull(number=True)], [open_pull(number=0)],
+            [open_pull(state="unknown")], [open_pull(user={})], [open_pull(user={"login": "another-author"})],
+            [open_pull(html_url="https://github.com/other/repo/pull/23")], [open_pull(html_url=None)],
+            [open_pull(pull_request=None)], [open_pull(pull_request={})],
+            [open_pull(pull_request={"url": "https://api.example.com/repos/owner/repo/pulls/23", "merged_at": None})],
+            [open_pull(pull_request={"url": "https://api.github.com/repos/owner/repo/pulls/23", "merged_at": "bad"})],
+            [open_pull(draft="true")], [open_pull()] * 101,
+        ]
+        for items in cases:
+            with self.subTest(items=items):
+                with self.assertRaises(policy.PolicyError):
+                    policy.author_open_pulls(FakeApi(list_responses=[items]), REPOSITORY, "contributor", 23)
+
+    def test_duplicate_items_on_same_or_later_pages_refuse(self):
+        first = [open_pull()] + [issue(number, user={"login": "contributor"}) for number in range(100, 199)]
+        for pages in ([[open_pull(), open_pull()]], [first, [issue(100, user={"login": "contributor"})]]):
+            with self.subTest(pages=len(pages)):
+                with self.assertRaisesRegex(policy.PolicyError, "incomplete or inconsistent"):
+                    policy.author_open_pulls(FakeApi(list_responses=pages), REPOSITORY, "contributor", 23)
+
+    def test_list_api_errors_refuse_on_both_reads_and_later_pages(self):
+        first = [open_pull()] + [issue(number, user={"login": "contributor"}) for number in range(100, 199)]
+        for status in (None, 403, 404, 429, 500):
+            for pages in ([policy.ApiError(status)], [[open_pull()], policy.ApiError(status)],
+                          [first, policy.ApiError(status)]):
+                with self.subTest(status=status, pages=len(pages)):
+                    api = FakeApi(pull(), issue(), pull(), list_responses=pages)
+                    with self.assertRaises(policy.ApiError):
+                        policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+
+    def test_open_pr_set_changes_abort_a_pass(self):
+        first = [open_pull(number) for number in (23, 24, 25, 26, 27)]
+        for last in (first + [open_pull(28)], first[:-1], first[:-1] + [open_pull(28)]):
+            with self.subTest(numbers=[item["number"] for item in last]):
+                api = FakeApi(pull(), issue(), pull(), list_responses=[first, last])
+                with self.assertRaisesRegex(policy.PolicyError, "open PR list changed"):
+                    policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+
+    def test_old_candidate_skips_count_even_above_limit(self):
+        api = FakeApi(pull(created_at="2026-10-08T17:09:41Z"), list_responses=[
+            [open_pull(number) for number in (23, 24, 25, 26, 27, 28)],
+        ])
+        self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        self.assertEqual(api.list_paths, [])
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    def test_raw_html_block_cannot_supply_declarations(self):
+        body = "<div>\nCloses #7\n" + NO_AGENT + "\n</div>"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_markup_after_multiline_inline_code_is_still_scanned(self):
+        body = "`\nexample`<!--\nCloses #7\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_block_math_cannot_supply_declarations(self):
+        body = "$$\nCloses #7\n" + NO_AGENT + "\n$$"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_unrelated_repository_metadata_does_not_abort_a_pass(self):
+        first = pull()
+        last = copy.deepcopy(first)
+        last["head"]["repo"]["stargazers_count"] = 1
+        last["base"]["repo"]["updated_at"] = "2026-10-08T18:01:00Z"
+        last["user"]["avatar_url"] = "https://example.com/avatar.png"
+        self.assertTrue(policy.check_policy(FakeApi(first, issue(), last), REPOSITORY, 23, ACTIVATED_AT)[0])
+
+    def test_checkbox_after_an_example_needs_a_blank_line(self):
+        body = NO_AGENT.replace(TEST_CONFIRMATION, "- Example:\n" + TEST_CONFIRMATION)
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_raw_html_tag_blocks_need_a_blank_line_after_their_close(self):
+        for opening, closing in (
+            ("<div>", "</div>"), ("<TABLE>", "</TABLE>"), ("<details>", "</details>"),
+            ("<section class='example'>", "</section>"), ("<div\nclass='example'>", "</div>"),
+            ("<span>", "</span>"), ("<custom data-value=example>", "</custom>"),
+            ("<img src=example.png />", ""), ("</custom>", ""), ("</div>", ""),
+        ):
+            with self.subTest(opening=opening):
+                body = opening + "\nCloses #7\n## AI agent use\nNo AI agent used\n" + TEST_CONFIRMATION
+                body += ("\n" + closing if closing else "") + "\nCloses #8"
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+                public = body + "\n\nCloses #9\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [9])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_raw_html_special_blocks_keep_their_own_end_rule(self):
+        for opening, closing in (("<?example", "?>"), ("<!DOCTYPE example", ">"), ("<![CDATA[", "]]>")):
+            with self.subTest(opening=opening):
+                body = opening + "\n\nCloses #7\n" + NO_AGENT + "\n" + closing
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+                public = body + "\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+                one_line = opening + closing + "\n" + NO_AGENT
+                self.assertIsNone(policy.body_requirement(one_line))
+
+    def test_script_pre_style_and_textarea_end_at_the_matching_close(self):
+        for tag in ("script", "pre", "style", "textarea"):
+            with self.subTest(tag=tag):
+                hidden = f"<{tag}>\n`\n\nCloses #7\n{NO_AGENT}\n</{tag}>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_raw_html_does_not_interpret_code_or_math_markers(self):
+        for marker in ("```", "`", "$$"):
+            with self.subTest(marker=marker):
+                body = "<div>\n" + marker + "\nCloses #7\n</div>\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_text_and_autolinks_do_not_start_a_raw_html_block(self):
+        for line in ("<https://example.com>", "<author@example.com>", "2 < 3", "Example: <span>word</span>"):
+            with self.subTest(line=line):
+                body = line + "\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_inline_code_suffix_comments_and_pre_blocks_hide_declarations(self):
+        for marker in ("`", "``"):
+            for opening, closing in (("<!--", "-->"), ("<!--", "--!>"), ("<pre>", "</pre>")):
+                with self.subTest(marker=marker, opening=opening, closing=closing):
+                    hidden = marker + "\nexample" + marker + opening + "\nCloses #7\n" + NO_AGENT + "\n" + closing
+                    self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(hidden))
+                    public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+        hidden = "``\nexample`different``<!--\nCloses #7\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+
+    def test_inline_code_does_not_interpret_markup_until_it_closes(self):
+        for text in ("<!--", "<pre>", "<div>"):
+            with self.subTest(text=text):
+                body = "``\n" + text + "``\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+        body = "`\nexample`<span title='<!--'>\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_math_opening_content_and_blank_lines_stay_hidden(self):
+        for opening in ("$$", "$$x + y", "   $$x + y"):
+            with self.subTest(opening=opening):
+                hidden = opening + "\n\nCloses #7\n" + NO_AGENT + "\n$$"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+        self.assertIsNotNone(policy.body_requirement("$$\n" + NO_AGENT))
+
+    def test_same_line_and_escaped_math_delimiters_do_not_hide_public_lines(self):
+        for line in ("$$x + y$$", r"\$$", "Price: $$", r"$$x + y\\$$"):
+            with self.subTest(line=line):
+                body = line + "\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+        body = "$$\n" + r"\$$" + "\nCloses #7\n" + NO_AGENT + "\n$$\n\nCloses #8\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [8])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_metadata_and_base_commit_changes_do_not_change_the_decision(self):
+        for valid in (False, True):
+            first = pull() if valid else pull(body="")
+            last = copy.deepcopy(first)
+            last.update(title="New title", labels=[{"name": "policy"}], draft=True, updated_at="2026-10-08T18:01:00Z")
+            last["base"]["sha"] = "unrelated-main-commit"
+            last["base"]["repo"]["pushed_at"] = "2026-10-08T18:01:00Z"
+            last["user"]["login"] = "CONTRIBUTOR"
+            api = FakeApi(first, issue(), last) if valid else FakeApi(first, last)
+            self.assertEqual(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0], valid)
+
+    def test_real_policy_field_changes_abort_the_decision(self):
+        changes = [
+            ("number", 24), ("created_at", "2026-10-08T18:00:01Z"), ("user.login", "other-author"), ("user.id", 42),
+            ("head.sha", "new-head"), ("head.ref", "new-ref"), ("head.repo.full_name", "other/fork"),
+            ("head.repo.id", 43), ("base.ref", "release"), ("base.repo.full_name", "other/repo"), ("base.repo.id", 44),
+        ]
+        for path, value in changes:
+            for valid in (False, True):
+                with self.subTest(path=path, valid=valid):
+                    first = pull() if valid else pull(body="")
+                    last = copy.deepcopy(first)
+                    parts = path.split(".")
+                    node = last
+                    for part in parts[:-1]:
+                        node = node[part]
+                    node[parts[-1]] = value
+                    api = FakeApi(first, issue(), last) if valid else FakeApi(first, last)
+                    with self.assertRaisesRegex(policy.PolicyError, "changed during"):
+                        policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+
+    def test_malformed_recheck_data_fails_closed(self):
+        for path, value in (("user", None), ("user", {}), ("head", []), ("base", "bad"), ("head.repo", [])):
+            with self.subTest(path=path):
+                last = pull()
+                parts = path.split(".")
+                node = last
+                for part in parts[:-1]:
+                    node = node[part]
+                node[parts[-1]] = value
+                with self.assertRaises(policy.PolicyError):
+                    policy.check_policy(FakeApi(pull(), issue(), last), REPOSITORY, 23, ACTIVATED_AT)
+
+    def test_checkbox_after_a_list_or_quote_needs_its_own_block(self):
+        for prefix in ("- Example:", "1. Example:", "> Example:", "  - Example:", "- [ ] Example task:"):
+            with self.subTest(prefix=prefix):
+                body = NO_AGENT.replace(TEST_CONFIRMATION, prefix + "\n" + TEST_CONFIRMATION)
+                self.assertIsNotNone(policy.body_requirement(body))
+                public = NO_AGENT.replace(TEST_CONFIRMATION, prefix + "\n\n" + TEST_CONFIRMATION)
+                self.assertIsNone(policy.body_requirement(public))
+        public = NO_AGENT.replace(TEST_CONFIRMATION, "- Example:\n## Tests\n" + TEST_CONFIRMATION)
+        self.assertIsNone(policy.body_requirement(public))
 
 
 class ParserTests(unittest.TestCase):
@@ -334,8 +701,7 @@ class DecisionTests(unittest.TestCase):
     def test_changed_pr_aborts_both_pass_and_fail(self):
         changes = [
             {"body": "Closes #8"}, {"state": "closed"}, {"merged": True},
-            {"head": {"sha": "new-head"}}, {"base": {"sha": "new-base"}},
-            {"updated_at": "2026-10-08T18:01:00Z"},
+            {"head": {"sha": "new-head"}}, {"base": {"ref": "release", "repo": {"full_name": REPOSITORY}}},
             {"user": {"login": "Elevatormusic"}},
         ]
         for change in changes:
@@ -556,6 +922,47 @@ class TransportTests(unittest.TestCase):
                 with patch.object(api.opener, "open", return_value=self.reply(raw)):
                     with self.assertRaises(policy.ApiError):
                         api.get(PR_PATH)
+
+    def test_list_request_keeps_the_fixed_host_and_does_not_weaken_dict_checks(self):
+        api = policy.GitHubApi("fake-test-token")
+        path = "/repos/owner/repo/issues?state=open&creator=contributor&per_page=100&page=1"
+        with patch.object(api.opener, "open", return_value=self.reply(b'[{"number": 23}]')) as opened:
+            self.assertEqual(api.get_list(path), [{"number": 23}])
+        request = opened.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.github.com" + path)
+        self.assertEqual(request.get_method(), "GET")
+        self.assertIsNone(request.data)
+        self.assertEqual(opened.call_args.kwargs, {"timeout": 30})
+        with patch.object(api.opener, "open", return_value=self.reply(b'[{"number": 23}]')):
+            with self.assertRaises(policy.ApiError):
+                api.get(PR_PATH)
+
+    def test_list_invalid_json_type_items_size_and_api_errors_fail(self):
+        for raw in (b"not-json", b"{}", b"null", b"[null]", b"[true]", b'["item"]',
+                    json.dumps([{}] * 101).encode(), b"x" * (1024 * 1024 + 1)):
+            with self.subTest(size=len(raw)):
+                api = policy.GitHubApi("fake-test-token")
+                with patch.object(api.opener, "open", return_value=self.reply(raw)):
+                    with self.assertRaises(policy.ApiError):
+                        api.get_list("/repos/owner/repo/issues")
+        for error in (HTTPError("https://api.github.com", 500, "private-body", {}, None),
+                      URLError("private-url-or-token"), TimeoutError("private-url-or-token")):
+            api = policy.GitHubApi("fake-test-token")
+            with patch.object(api.opener, "open", side_effect=error):
+                with self.assertRaises(policy.ApiError) as raised:
+                    api.get_list("/repos/owner/repo/issues")
+            self.assertNotIn("private", str(raised.exception))
+            self.assertNotIn("fake-test-token", str(raised.exception))
+
+    def test_invalid_api_paths_fail_before_a_request(self):
+        for path in ("@example.com", "//example.com/path", "https://example.com", "/repos/owner/repo\r\nunsafe"):
+            for method in ("get", "get_list"):
+                with self.subTest(path=path, method=method):
+                    api = policy.GitHubApi("fake-test-token")
+                    with patch.object(api.opener, "open") as opened:
+                        with self.assertRaises(policy.ApiError):
+                            getattr(api, method)(path)
+                        opened.assert_not_called()
 
     def test_redirects_are_not_followed(self):
         self.assertIsNone(policy.NoRedirect().redirect_request(None, None, 302, "", {}, "https://example.com"))

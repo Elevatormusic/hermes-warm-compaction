@@ -59,7 +59,7 @@ Unit tests prove local fixture behavior. Loopback integration checks prove behav
 
 Use the [PR template](.github/pull_request_template.md). Link the issue, give the concrete trigger and before/after behavior, describe scope and limits, and include exact check results. A document-only PR needs the full synthetic test results, but can mark live provider and performance details `not applicable` with a reason.
 
-A PR authored by `Elevatormusic` is exempt from the issue requirement only. The author name check is not case-sensitive. AI agent disclosure and the test checkbox still apply. Do not close PRs under this policy. PRs that predate the policy cutoff stay outside the automated check.
+A PR authored by `Elevatormusic` is exempt from the issue requirement only. The author name check is not case-sensitive. The limit of five open PRs, AI agent disclosure, and the test checkbox still apply. Count draft PRs and open PRs on all base branches. Closed or merged PRs and ordinary issues do not count. Do not close PRs under this policy. PRs that predate the policy cutoff stay outside the automated check, but they count toward the author's open PR limit for later PRs.
 
 Every issue and PR must declare AI agent use. If agents helped diagnose the problem or write code, list every harness, exact model, and task. Use plain `Harness:`, `Model:`, and `Work:` lines for each agent. If no AI agent was used, write exactly `No AI agent used`. Do not invent a model or include private paths, configs, credentials, or conversations.
 

@@ -44,6 +44,14 @@ Use a clean, isolated Hermes copy for further probes. Keep installed source and 
 4. Run all tests listed below and lint for every PR, including document and form changes. Run them locally, or let CI run after you open the PR. Record the exact commands, versions, and results, or link the complete passing CI results. Do not repeat the same suite locally if CI already ran it in full. All tests must pass before you mark the required test checkbox. Record a failed, skipped, or unavailable check with its reason; it does not satisfy this requirement.
 5. Open a pull request. Complete the [PR template](.github/pull_request_template.md): link the earlier issue, declare AI agent use, state the concrete trigger and before/after behavior, explain the scope, and give check results and limits. Mark `I ran all tests listed in CONTRIBUTING.md and all passed.` only after you ran the full suite and it passed.
 
+### Open pull request limit
+
+Each author can have at most five open pull requests in this repository. The count includes the PR being checked, draft PRs, and open PRs on every base branch. Open PRs that predate policy activation also count. Closed or merged PRs and ordinary issues do not count. The limit applies to every author, including `Elevatormusic`.
+
+The policy check fails a new PR when its author has more than five open PRs. Wait until another PR is merged or close a PR you no longer need. Then ask a maintainer to rerun the failed policy job, or edit the remaining PR description to trigger a new check. GitHub can still create the sixth PR; the required check prevents it from passing the merge policy. The workflow does not close PRs.
+
+PRs opened before policy activation keep their existing exemption from the automated check. They still use open PR slots when a later PR is checked. An API failure or an incomplete PR count fails the check. The check reads the open PR set again before it reports a pass.
+
 ### Required issue link
 
 Unless the PR author is `Elevatormusic`, put one of these lines in the PR description. Replace `123` with the issue number:
@@ -54,11 +62,11 @@ Fixes #123
 Resolves #123
 ```
 
-Use one complete line at the left margin, with no leading spaces. Keep it outside a comment, code block, list, or quote. Put a blank line after any preceding list or quote. These format rules also apply to the AI declaration and test checkbox. You can also use the full issue URL, for example `Closes https://github.com/Elevatormusic/hermes-warm-compaction/issues/123`.
+Use one complete line at the left margin, with no leading spaces. Keep it outside a comment, code block, raw HTML block, math block, list, or quote. Put a blank line after any preceding list or quote. These format rules also apply to the AI declaration. Put the test checkbox in its own task list, with a blank line before it. You can also use the full issue URL, for example `Closes https://github.com/Elevatormusic/hermes-warm-compaction/issues/123`.
 
 The linked item must be an issue in this repository, and it must have been opened before the PR. An issue from another repository or a link to another PR does not count. An existing issue can have a different author or be closed.
 
-GitHub cannot enforce this rule before it creates a PR. The [issue policy workflow](.github/workflows/require-issue.yml) checks each new PR and fails if it has no valid earlier issue, except for PRs authored by `Elevatormusic`. It checks draft PRs too. The author exception applies only to the issue link: AI agent disclosure and the test checkbox are still required. If the link is missing, add a valid earlier issue link. If you opened the issue after the PR, open a new PR for that issue. API failures fail the check. The workflow preserves PRs that predate the policy cutoff and does not close any PR.
+GitHub cannot enforce this rule before it creates a PR. The [issue policy workflow](.github/workflows/require-issue.yml) checks each new PR and fails if it has no valid earlier issue, except for PRs authored by `Elevatormusic`. It checks draft PRs too. The author exception applies only to the issue link: the five-open-PR limit, AI agent disclosure, and the test checkbox still apply. If the link is missing, add a valid earlier issue link. If you opened the issue after the PR, open a new PR for that issue. API failures fail the check. The workflow preserves PRs that predate the policy cutoff and does not close any PR.
 
 The workflow reads PR and issue metadata. It checks out the trusted workflow commit and does not run code from the PR. Manual dispatch checks one PR without changing it.
 
