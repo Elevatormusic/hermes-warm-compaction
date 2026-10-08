@@ -60,7 +60,9 @@ The linked item must be an issue in this repository, and it must have been opene
 
 GitHub cannot enforce this rule before it creates a PR. The [issue policy workflow](.github/workflows/require-issue.yml) checks each new PR and fails if it has no valid earlier issue, except for PRs authored by `Elevatormusic`. It checks draft PRs too. The author exception applies only to the issue link: AI agent disclosure and the test checkbox are still required. If the link is missing, add a valid earlier issue link. If you opened the issue after the PR, open a new PR for that issue. API failures fail the check. The workflow preserves PRs that predate the policy cutoff and does not close any PR.
 
-The workflow reads PR and issue metadata. It checks out the trusted workflow commit and does not run code from the PR. Manual dispatch checks one PR without changing it. To enforce the rule at merge, maintainers must require the `issue-first` check in the `main` branch protection settings. The Actions event policy must allow `pull_request_target` for this workflow.
+The workflow reads PR and issue metadata. It checks out the trusted workflow commit and does not run code from the PR. Manual dispatch checks one PR without changing it.
+
+To activate the policy, a maintainer sets the repository variable `ISSUE_POLICY_ACTIVATED_AT` once to the actual activation time in UTC, in `YYYY-MM-DDTHH:MM:SSZ` format. Do not advance this value for later policy edits. A missing or invalid value fails the check. Then require the `issue-first` check in the `main` branch protection settings and allow `pull_request_target` for this workflow in the Actions event policy.
 
 Run its local tests with:
 

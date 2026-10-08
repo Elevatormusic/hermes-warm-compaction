@@ -17,7 +17,7 @@ permissions:
 
 env:
   # Existing pull requests stay outside the policy after edits or reopening.
-  ISSUE_POLICY_ACTIVATED_AT: "2026-10-08T17:09:42Z"
+  ISSUE_POLICY_ACTIVATED_AT: ${{ vars.ISSUE_POLICY_ACTIVATED_AT }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.number || inputs.pr_number }}

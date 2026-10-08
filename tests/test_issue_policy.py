@@ -412,6 +412,14 @@ class DecisionTests(unittest.TestCase):
         api = FakeApi(data, data)
         self.assertFalse(self.check(api)[0])
 
+    def test_missing_or_invalid_activation_fails_before_api_reads(self):
+        for activated_at in (None, "", "invalid", "2026-10-08T17:09:42", "2026-02-30T17:09:42Z"):
+            with self.subTest(activated_at=activated_at):
+                api = FakeApi()
+                with self.assertRaisesRegex(policy.PolicyError, "timestamp"):
+                    policy.check_policy(api, REPOSITORY, 23, activated_at)
+                self.assertEqual(api.paths, [])
+
     def test_malformed_pr_and_timestamp_fail(self):
         for data in (
             pull(number=24), pull(merged="false"), pull(created_at="invalid"), pull(base={}),
