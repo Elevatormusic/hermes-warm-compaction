@@ -689,6 +689,16 @@ class SendTest(unittest.TestCase):
              extra_headers={"X-Title": "Hermes Agent"})
         self.assertEqual((calls[0][2]["X-Title"], calls[0][2]["Authorization"]), ("Hermes Agent", "Bearer k"))
 
+    def test_the_warm_request_sends_a_user_agent(self):
+        # Python urllib adds "Python-urllib/x.y" when the request sets no User-Agent.
+        # Cloudflare-fronted routes refuse that signature with HTTP 403 (error 1010).
+        calls = []
+        payload = {"choices": [{"message": {"content": "text"}, "finish_reason": "stop"}], "usage": {}}
+        send({"messages": []}, "http://h/v1", "k", post=fake_post(200, payload, calls))
+        agent = calls[0][2]["User-Agent"]
+        self.assertTrue(agent, "the warm request must set a User-Agent")
+        self.assertNotIn("urllib", agent.lower(), "the library User-Agent is refused by a bot rule")
+
     def test_reads_the_reply_and_the_usage(self):
         calls = []
         payload = {"choices": [{"message": {"content": "text"}, "finish_reason": "stop"}],

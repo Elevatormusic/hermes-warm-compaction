@@ -25,6 +25,9 @@ DEFAULT_RESERVE = 4096
 HANDOFF_MIN_TOKENS = 2048
 HANDOFF_MAX_TOKENS = 8192
 TIMEOUT_S = 120.0
+# Cloudflare-fronted routes reject Python's default "Python-urllib/x.y" User-Agent with
+# HTTP 403 (error 1010). Send an explicit one, as the Hermes SDK client does.
+USER_AGENT = "hermes-warm-compaction/0.2"
 SAFETY = 1.1
 SYSTEM_ROLES = ("system", "developer")
 UNSUPPORTED_SETTINGS = ("response_format", "functions", "function_call", "modalities", "audio")
@@ -585,7 +588,8 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
     extra_headers are the client default headers of the route (route_headers); they win, as in the SDK."""
     if not base_url:
         raise WarmRefusal("provider_error")
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers = {"Content-Type": "application/json", "Accept": "application/json",
+               "User-Agent": USER_AGENT}
     key = api_key_text(api_key)
     if key and api_mode != "anthropic_messages":
         headers["Authorization"] = f"Bearer {key}"
