@@ -22,8 +22,10 @@ Chat requests with long or nested tool schemas also need the host's copied
 `request_tools` observer field. Older observer previews truncate these schemas;
 the plugin then uses a fallback with `moa_payload_incomplete`.
 
-The native API is a separate Hermes extension. It is not part of the plugin or
-the plugin PR #15. Hermes versions without that extension use a fallback for
+The native API is a separate Hermes extension proposed in
+[Hermes PR #134922](https://github.com/NousResearch/hermes-agent/pull/134922).
+That PR is a draft. The API is not part of the plugin or plugin PR #15.
+Hermes versions without that extension use a fallback for
 native MOA compaction. Solo native compaction and Chat MOA do not require the new
 API. The plugin does not change or wrap Hermes code.
 
@@ -121,3 +123,6 @@ the full tool-schema observer field; that limit must stay explicit in results.
 This check proves request and history behavior only on the named source. Live
 cache reuse, summary quality, and performance need separate evidence. The
 broader qualification gates remain open.
+
+See the [integration and live results](moa-results.md) for exact tested source
+revisions, cache counters, and the failed Luna-aggregator continuation.
