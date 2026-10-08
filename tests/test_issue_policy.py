@@ -157,12 +157,29 @@ class ParserTests(unittest.TestCase):
         self.assertIsNotNone(policy.body_requirement(hidden_model))
 
     def test_comments_cannot_turn_code_text_into_assertions(self):
-        body = "```text\n<!-- example -->```\n" + NO_AGENT + "\n```"
-        self.assertIsNotNone(policy.body_requirement(body))
-        body = "```text\n<!-- example -->```\nCloses #7\n```"
-        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
-        self.assertIsNotNone(policy.body_requirement("```text <!-- example -->\n" + NO_AGENT + "\n```"))
-        self.assertIsNone(policy.body_requirement("<!--\n```\n-->\n" + NO_AGENT))
+        for end in ("-->", "--!>"):
+            with self.subTest(end=end):
+                body = f"```text\n<!-- example {end}```\n" + NO_AGENT + "\n```"
+                self.assertIsNotNone(policy.body_requirement(body))
+                body = f"```text\n<!-- example {end}```\nCloses #7\n```"
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(f"```text <!-- example {end}\n" + NO_AGENT + "\n```"))
+                self.assertIsNone(policy.body_requirement(f"<!--\n```\n{end}\n" + NO_AGENT))
+
+    def test_both_html_comment_end_tags_restore_public_lines(self):
+        for end in ("-->", "--!>"):
+            with self.subTest(end=end):
+                body = f"Closes #6\n<!--\nCloses #7\n{end}\nCloses #8"
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [6, 8])
+                hidden = "<!--\n" + NO_AGENT + f"\n{end}"
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                self.assertIsNone(policy.body_requirement(NO_AGENT + "\n\n" + hidden))
+                self.assertIsNone(policy.body_requirement(hidden + "\n\n" + NO_AGENT))
+                hidden_ai = f"<!--\n## AI agent use\nNo AI agent used\n{end}\n" + TEST_CONFIRMATION
+                self.assertIsNotNone(policy.body_requirement(hidden_ai))
+                hidden_test = f"## AI agent use\nNo AI agent used\n<!--\n{TEST_CONFIRMATION}\n{end}"
+                self.assertIsNotNone(policy.body_requirement(hidden_test))
+                self.assertEqual(policy.issue_references(f"<!-- example {end}Closes #7", REPOSITORY), [])
 
     def test_multiline_inline_code_does_not_count(self):
         for marker in ("`", "``"):

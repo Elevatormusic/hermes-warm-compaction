@@ -113,11 +113,11 @@ def plain_lines(body: str) -> list[str]:
             fence = (mark[1][0], len(mark[1]))
             continue
         hidden = comment
-        for marker in re.finditer(r"<!--|-->", line):
+        for marker in re.finditer(r"<!--|--!?>", line):
             if marker[0] == "<!--" and not comment:
                 comment = True
                 hidden = True
-            elif marker[0] == "-->" and comment:
+            elif marker[0] in ("-->", "--!>") and comment:
                 comment = False
         # A comment must not change a code fence or join parts of a plain line.
         if hidden:
