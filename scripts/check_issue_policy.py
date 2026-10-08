@@ -29,6 +29,10 @@ class ApiError(PolicyError):
         super().__init__(f"GitHub API request failed (status {status or 'unknown'}).")
 
 
+class ResponseTooLarge(ApiError):
+    """The API response exceeds the fixed byte limit."""
+
+
 class NoRedirect(HTTPRedirectHandler):
     """Keep the token on the fixed GitHub API host."""
 
@@ -69,7 +73,7 @@ class GitHubApi:
             with self.opener.open(request, timeout=30) as response:
                 raw = response.read(1024 * 1024 + 1)
             if len(raw) > 1024 * 1024:
-                raise ApiError()
+                raise ResponseTooLarge()
             return json.loads(raw)
         except HTTPError as error:
             raise ApiError(error.code) from None
@@ -106,8 +110,10 @@ def plain_lines(body: str) -> list[str]:
     declaration_start = re.compile(r"<![A-Z]")
     tick_run = re.compile(r"`+")
     hidden_tags = {
-        "pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "li", "dl", "dt", "dd", "details",
+        "pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "menu", "li", "dl", "dt", "dd",
+        "details",
     }
+    list_parents = {"ul", "ol", "menu"}
     literal_tags = {"pre", "code", "script", "style", "textarea"}
     block_tags = (
         "address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div "
@@ -153,6 +159,21 @@ def plain_lines(body: str) -> list[str]:
                     tag = re.match(r"<(/?)([A-Za-z][A-Za-z0-9:-]*)(?=[\s/>])", "".join(tag_parts))
                     if tag and tag[2].lower() in hidden_tags:
                         name = tag[2].lower()
+                        if (
+                            len(html_blocks) >= 2 and html_blocks[-1] == "li" and html_blocks[-2] in list_parents
+                            and ((not tag[1] and name == "li") or (tag[1] and name == html_blocks[-2]))
+                        ):
+                            # A sibling item or its parent end can omit the li end.
+                            html_blocks.pop()
+                        elif (
+                            len(html_blocks) >= 2 and html_blocks[-2] == "dl" and html_blocks[-1] in {"dt", "dd"}
+                            and (
+                                (not tag[1] and name in {"dt", "dd"})
+                                or (tag[1] and name == "dl" and html_blocks[-1] == "dd")
+                            )
+                        ):
+                            # Description items can omit their defined end tags.
+                            html_blocks.pop()
                         if not tag[1]:
                             html_blocks.append(name)
                         elif html_blocks and html_blocks[-1] == name:
@@ -366,14 +387,30 @@ OPEN_PR_PAGE_LIMIT = 100
 
 def author_open_pulls(api, repository: str, author: str, number: int) -> frozenset[int]:
     """Read all open PRs by this author, including drafts and older PRs."""
+    page_size = 100
+    while True:
+        try:
+            return _author_open_pulls(api, repository, author, number, page_size)
+        except ResponseTooLarge:
+            if page_size == 1:
+                raise PolicyError(
+                    "One open issue exceeds the response size limit. The open PR count is unknown."
+                ) from None
+            # A new page size must start a new complete read at page one.
+            page_size = max(1, page_size // 2)
+
+
+def _author_open_pulls(api, repository: str, author: str, number: int, page_size: int) -> frozenset[int]:
+    """Read a complete author set with one fixed page size."""
     seen = set()
     numbers = set()
     for page in range(1, OPEN_PR_PAGE_LIMIT + 1):
         query = urlencode({
-            "state": "open", "creator": author, "sort": "created", "direction": "asc", "per_page": 100, "page": page,
+            "state": "open", "creator": author, "sort": "created", "direction": "asc",
+            "per_page": page_size, "page": page,
         })
         items = api.get_list(f"/repos/{repository}/issues?{query}")
-        if not isinstance(items, list) or len(items) > 100:
+        if not isinstance(items, list) or len(items) > page_size:
             raise PolicyError("The open PR list is incomplete or inconsistent.")
         for item in items:
             try:
@@ -405,7 +442,7 @@ def author_open_pulls(api, repository: str, author: str, number: int) -> frozens
                         numbers.add(item_number)
             except (KeyError, TypeError, AttributeError, ValueError):
                 raise PolicyError("The open PR list is incomplete or inconsistent.") from None
-        if len(items) < 100:
+        if len(items) < page_size:
             if number not in numbers:
                 raise PolicyError(
                     "The current pull request is missing from the author's open PR list. Run the check again."

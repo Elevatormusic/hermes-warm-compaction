@@ -92,6 +92,65 @@ def open_pull(number=23, author="contributor", **changes):
 
 
 class OpenPullLimitTests(unittest.TestCase):
+    def test_large_later_page_restarts_with_fresh_sets(self):
+        first = [open_pull()] + [issue(number, user={"login": "contributor"}) for number in range(100, 199)]
+        api = FakeApi(list_responses=[first, policy.ResponseTooLarge(), first[:50], first[50:], [open_pull(24)]])
+        self.assertEqual(policy.author_open_pulls(api, REPOSITORY, "contributor", 23), frozenset({23, 24}))
+        queries = [parse_qs(urlsplit(path).query) for path in api.list_paths]
+        self.assertEqual([(int(q["per_page"][0]), int(q["page"][0])) for q in queries],
+                         [(100, 1), (100, 2), (50, 1), (50, 2), (50, 3)])
+
+    def test_five_pass_and_six_refuse_after_page_shrink(self):
+        for count in (5, 6):
+            with self.subTest(count=count):
+                items = [open_pull(number) for number in range(23, 23 + count)]
+                pages = [policy.ResponseTooLarge(), items]
+                if count == 5:
+                    pages += [policy.ResponseTooLarge(), items]
+                api = FakeApi(pull(), issue(), pull(), list_responses=pages)
+                self.assertEqual(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0], count == 5)
+                self.assertFalse(api.list_responses)
+
+    def test_page_shrink_is_bounded_and_single_item_overflow_refuses(self):
+        api = FakeApi(list_responses=[policy.ResponseTooLarge() for _ in range(7)])
+        with self.assertRaisesRegex(policy.PolicyError, "size limit.*unknown"):
+            policy.author_open_pulls(api, REPOSITORY, "contributor", 23)
+        queries = [parse_qs(urlsplit(path).query) for path in api.list_paths]
+        self.assertEqual([int(q["per_page"][0]) for q in queries], [100, 50, 25, 12, 6, 3, 1])
+        self.assertEqual([q["page"] for q in queries], [["1"]] * 7)
+
+    def test_non_size_api_error_has_no_retry(self):
+        api = FakeApi(list_responses=[policy.ApiError(500)])
+        with self.assertRaises(policy.ApiError):
+            policy.author_open_pulls(api, REPOSITORY, "contributor", 23)
+        self.assertEqual(len(api.list_paths), 1)
+
+    def test_small_page_keeps_duplicate_membership_and_size_checks(self):
+        cases = [[open_pull(), open_pull()], [open_pull(24)], [open_pull()] * 51]
+        for items in cases:
+            with self.subTest(length=len(items)):
+                api = FakeApi(list_responses=[policy.ResponseTooLarge(), items])
+                with self.assertRaises(policy.PolicyError):
+                    policy.author_open_pulls(api, REPOSITORY, "contributor", 23)
+
+    def test_small_full_page_requires_next_page_and_keeps_page_bound(self):
+        items = [open_pull()] + [issue(number, user={"login": "contributor"}) for number in range(100, 149)]
+        api = FakeApi(list_responses=[policy.ResponseTooLarge(), items, []])
+        self.assertEqual(policy.author_open_pulls(api, REPOSITORY, "contributor", 23), frozenset({23}))
+        self.assertEqual(len(api.list_paths), 3)
+        api = FakeApi(list_responses=[policy.ResponseTooLarge(), items])
+        with patch.object(policy, "OPEN_PR_PAGE_LIMIT", 1):
+            with self.assertRaisesRegex(policy.PolicyError, "page limit.*unknown"):
+                policy.author_open_pulls(api, REPOSITORY, "contributor", 23)
+
+    def test_small_page_set_change_still_aborts_pass(self):
+        first = [open_pull(number) for number in range(23, 28)]
+        api = FakeApi(pull(), issue(), pull(), list_responses=[
+            policy.ResponseTooLarge(), first, policy.ResponseTooLarge(), first[:-1],
+        ])
+        with self.assertRaisesRegex(policy.PolicyError, "open PR list changed"):
+            policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
+
     def test_five_open_prs_pass_after_two_count_reads(self):
         items = [open_pull(number) for number in (23, 24, 25, 26, 27)]
         api = FakeApi(pull(), issue(), pull(), list_responses=[items, items])
@@ -256,6 +315,89 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_optional_description_item_ends_recover_public_policy_lines(self):
+        sample = "<dl>\n<dt>Term\n<dd>Definition\n</dl>"
+        body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_optional_description_siblings_and_nested_lists(self):
+        for sample in (
+            "<dl><dt>First<dt>Second<dd>One<dd>Two<dt>Last</dt></dl>",
+            "<dl><dt>Term<dd><dl><dt>Nested<dd>Definition</dl></dl>",
+            "<dl><dt>Term<dd><ul><li>One<li>Two</ul></dl>",
+        ):
+            with self.subTest(sample=sample):
+                body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_description_list_keeps_hidden_context_and_defined_end_rules(self):
+        samples = [
+            "`</dl>`", "```\n</dl>\n```", "    </dl>", "\t</dl>",
+            '<span title="</dl><dt><dd>">text</span>', "<!-- </dl><dt><dd> -->", "<![CDATA[</dl><dt><dd>]]>",
+            "</ul>",
+        ]
+        samples += [f"<{tag}></dl><dt><dd></{tag}>" for tag in ("pre", "code", "script", "style", "textarea")]
+        for sample in samples:
+            with self.subTest(sample=sample):
+                body = "<dl><dt>Term<dd>Definition\n\n" + sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+        body = "<dl><dt>Term</dl>\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        for outer in ("details", "blockquote"):
+            body = f"<{outer}>\n\n<dl><dt>Term<dd>Definition</dl>\n\nCloses #7\n\n{NO_AGENT}"
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+            self.assertIsNotNone(policy.body_requirement(body))
+            body += f"\n</{outer}>\n\nCloses #7\n\n" + NO_AGENT
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+            self.assertIsNone(policy.body_requirement(body))
+
+    def test_description_list_close_keeps_raw_block_until_blank(self):
+        body = "Closes #7\n\n<dl><dt>Term<dd>Definition\n\n</dl>\n" + NO_AGENT
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_optional_list_item_end_recovers_public_policy_lines(self):
+        for sample in ("<ul><li>First<li>Second</ul>", "<ol><li>First<li>Second</li></ol>"):
+            with self.subTest(sample=sample):
+                body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_optional_list_ends_keep_nested_lists_and_outer_containers(self):
+        for tag in ("ul", "ol", "menu"):
+            sample = f"<{tag}><li>First<ol><li>Nested<li>More</ol><li>Last</{tag}>"
+            body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+            self.assertIsNone(policy.body_requirement(body))
+            for outer in ("details", "blockquote"):
+                body = f"<{outer}>\n\n{sample}\n\nCloses #7\n\n{NO_AGENT}\n</{outer}>"
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+                body += "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_optional_list_end_keeps_raw_close_boundary(self):
+        body = "Closes #7\n\n<ul><li>Example</ul>\n" + NO_AGENT
+        self.assertIsNotNone(policy.body_requirement(body))
+        body = "Closes #7\n\n<ul><li>Example\n\n</ul>\n" + NO_AGENT
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_fake_optional_list_ends_cannot_release_hidden_fields(self):
+        samples = [
+            "`</ul>`", "```\n</ul>\n```", "    </ul>", "\t</ul>",
+            '<span title="</ul><li>">text</span>', "<!-- </ul><li> -->", "<![CDATA[</ul><li>]]>",
+            "</ol>",
+        ]
+        samples += [f"<{tag}></ul><li></{tag}>" for tag in ("pre", "code", "script", "style", "textarea")]
+        for sample in samples:
+            with self.subTest(sample=sample):
+                body = "<ul><li>Example\n\n" + sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+
     def test_container_close_requires_blank_before_ai_heading(self):
         for tag in ("details", "blockquote"):
             for indent in ("", "   "):
@@ -1112,6 +1254,56 @@ class TransportTests(unittest.TestCase):
                 return raw[:limit]
 
         return Response()
+
+    def test_large_issue_bodies_allow_five_prs_with_smaller_pages(self):
+        items = [issue(number, user={"login": "contributor"}, body="x" * 65536) for number in range(100, 124)]
+        items += [open_pull(number) for number in (23, 24, 25, 26, 27)]
+        requests = []
+        api = policy.GitHubApi("fake-test-token")
+
+        def reply(request, timeout):
+            parsed = urlsplit(request.full_url)
+            if parsed.query:
+                query = parse_qs(parsed.query)
+                size, page = int(query["per_page"][0]), int(query["page"][0])
+                requests.append((size, page))
+                result = items[(page - 1) * size:page * size]
+            else:
+                result = pull() if parsed.path == PR_PATH else issue()
+            return self.reply(json.dumps(result).encode())
+
+        with patch.object(api.opener, "open", side_effect=reply):
+            self.assertTrue(policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)[0])
+        self.assertEqual(requests, [(100, 1), (50, 1), (25, 1), (12, 1), (12, 2), (12, 3)] * 2)
+
+    def test_one_oversized_item_refuses_with_fixed_transport_limit(self):
+        raw = json.dumps([issue(100, user={"login": "contributor"}, body="x" * (1024 * 1024))]).encode()
+        reads = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+            def read(self, limit):
+                reads.append(limit)
+                return raw[:limit]
+
+        api = policy.GitHubApi("fake-test-token")
+        with patch.object(api.opener, "open", return_value=Response()) as opened:
+            with self.assertRaisesRegex(policy.PolicyError, "size limit.*unknown"):
+                policy.author_open_pulls(api, REPOSITORY, "contributor", 23)
+        self.assertEqual(opened.call_count, 7)
+        self.assertEqual(reads, [1024 * 1024 + 1] * 7)
+
+    def test_oversized_dict_response_is_typed_without_retry(self):
+        api = policy.GitHubApi("fake-test-token")
+        with patch.object(api.opener, "open", return_value=self.reply(b"x" * (1024 * 1024 + 1))) as opened:
+            with self.assertRaises(policy.ResponseTooLarge):
+                api.get(PR_PATH)
+        self.assertEqual(opened.call_count, 1)
 
     def test_request_is_a_get_to_the_fixed_host(self):
         api = policy.GitHubApi("fake-test-token")
