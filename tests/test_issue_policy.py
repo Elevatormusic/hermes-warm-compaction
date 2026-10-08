@@ -256,6 +256,225 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_container_close_requires_blank_before_ai_heading(self):
+        for tag in ("details", "blockquote"):
+            for indent in ("", "   "):
+                with self.subTest(tag=tag, indent=indent):
+                    body = f"Closes #7\n\n<{tag}>\nExample\n\nSample\n{indent}</{tag}>\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                    self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_container_close_requires_blank_before_test_checkbox(self):
+        for tag in ("details", "blockquote"):
+            with self.subTest(tag=tag):
+                body = "Closes #7\n\n## AI agent use\nNo AI agent used\n\n"
+                body += f"<{tag}>\nExample\n\nSample\n</{tag}>\n" + TEST_CONFIRMATION
+                self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_container_close_recovers_ai_heading_after_a_blank_line(self):
+        for tag in ("details", "blockquote", "ul", "ol", "li", "dl", "dt", "dd"):
+            for indent in ("", " ", "  ", "   "):
+                for blank in ("", "   "):
+                    with self.subTest(tag=tag, indent=indent, blank=blank):
+                        body = f"Closes #7\n\n<{tag}>\nExample\n\nSample\n{indent}</{tag}>\n{blank}\n" + NO_AGENT
+                        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                        self.assertIsNone(policy.body_requirement(body))
+
+    def test_container_close_recovers_test_checkbox_after_a_blank_line(self):
+        for tag in ("details", "blockquote"):
+            with self.subTest(tag=tag):
+                body = "Closes #7\n\n## AI agent use\nNo AI agent used\n\n"
+                body += f"<{tag}>\nExample\n\nSample\n</{tag}>\n\n" + TEST_CONFIRMATION
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_literal_close_keeps_the_confirmed_heading_control(self):
+        for tag in ("code", "pre", "script", "style", "textarea"):
+            with self.subTest(tag=tag):
+                body = f"Closes #7\n\n<{tag}>\nExample\n\nSample\n</{tag}>\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_container_close_suffix_is_raw_and_does_not_open_code(self):
+        for suffix in ("`", "```", "~~~"):
+            with self.subTest(suffix=suffix):
+                hidden = "<details>\nExample\n\nSample\n</details>" + suffix + "\nCloses #7"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_details_inline_code_cannot_close_the_container(self):
+        hidden = "<details>\n<summary>Example</summary>\n\n`</details>`\n`\nCloses #7\n" + NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(hidden))
+
+    def test_details_fenced_code_cannot_close_the_container(self):
+        hidden = "<details>\n<summary>Example</summary>\n\n```text\n</details>\n```\n\n```\nCloses #7\n"
+        hidden += NO_AGENT + "\n```\n\n</details>"
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(hidden))
+
+    def test_details_indented_code_cannot_close_the_container(self):
+        hidden = "<details>\n<summary>Example</summary>\n\n    </details>\n\nCloses #7\n"
+        hidden += NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(hidden))
+
+    def test_markdown_container_inline_code_preserves_the_real_close(self):
+        for tag in ("details", "blockquote", "ul", "ol", "li", "dl", "dt", "dd"):
+            for marker in ("`", "``"):
+                with self.subTest(tag=tag, marker=marker):
+                    hidden = f"<{tag}>\n\n{marker}</{tag}>{marker}\nCloses #7\n{NO_AGENT}\n</{tag}>"
+                    self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(hidden))
+                    public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+
+    def test_multiline_container_code_span_ignores_fake_tags_and_comments(self):
+        hidden = "<details>\n<summary>Example</summary>\n\n``\n</details>\n<!--\n<pre>\n``\n\nCloses #7\n"
+        hidden += NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(hidden))
+        public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+        self.assertIsNone(policy.body_requirement(public))
+
+    def test_container_fences_ignore_fake_tags_and_restore_public_lines(self):
+        for tag in ("details", "blockquote", "ul"):
+            for marker in ("```", "~~~"):
+                for indent in ("", "   "):
+                    with self.subTest(tag=tag, marker=marker, indent=indent):
+                        hidden = f"<{tag}>\n\n{indent}{marker}text\n</{tag}>\n<!--\n<pre>\n{indent}{marker}\n\n"
+                        hidden += f"Closes #7\n{NO_AGENT}\n</{tag}>"
+                        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                        self.assertIsNotNone(policy.body_requirement(hidden))
+                        public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                        self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                        self.assertIsNone(policy.body_requirement(public))
+
+    def test_container_indented_code_ignores_fake_tags_and_comments(self):
+        for tag in ("details", "blockquote", "ul"):
+            for indent in ("    ", "\t", " \t", "   \t"):
+                with self.subTest(tag=tag, indent=indent):
+                    hidden = f"<{tag}>\n\n{indent}</{tag}>\n{indent}<!--\n{indent}<pre>\n\nCloses #7\n"
+                    hidden += NO_AGENT + f"\n</{tag}>"
+                    self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(hidden))
+                    public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+
+    def test_literal_tags_keep_tag_behavior_inside_a_markdown_container(self):
+        for tag in ("pre", "code", "script", "style", "textarea"):
+            with self.subTest(tag=tag):
+                hidden = f"<details>\n<summary>Example</summary>\n\n<{tag}>\n```\n</details>\n`</{tag}>`\n\n"
+                hidden += "Closes #7\n" + NO_AGENT + "\n</details>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_processing_instruction_suffix_comment_hides_declarations(self):
+        body = "<?example\n?> <!--\nCloses #7\n" + NO_AGENT + "\n-->"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_cdata_suffix_comment_hides_declarations(self):
+        body = "<![CDATA[\n]]><!--\nCloses #7\n" + NO_AGENT + "\n-->"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_details_with_blank_lines_hide_declarations(self):
+        body = "<details>\n<summary>Example</summary>\n\nCloses #7\n" + NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_special_markup_ends_scan_comment_and_pre_suffixes(self):
+        for opening, ending in (("<?example", "?>"), ("<![CDATA[", "]]>"), ("<!DOCTYPE example", ">")):
+            for separator in ("", "\n"):
+                for suffix, closing in (("<!--", "-->"), ("<!--", "--!>"), ("<pre>", "</pre>")):
+                    with self.subTest(opening=opening, separator=separator, suffix=suffix, closing=closing):
+                        hidden = opening + separator + ending + suffix + "\nCloses #7\n" + NO_AGENT + "\n" + closing
+                        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                        self.assertIsNotNone(policy.body_requirement(hidden))
+                        public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                        self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                        self.assertIsNone(policy.body_requirement(public))
+
+    def test_special_markup_after_code_and_tag_suffixes_stays_hidden(self):
+        for prefix in ("`\nexample`", "<span>example</span>"):
+            for opening, ending in (("<?example", "?>"), ("<![CDATA[", "]]>"), ("<!DOCTYPE example", ">")):
+                with self.subTest(prefix=prefix, opening=opening):
+                    hidden = prefix + opening + "\nCloses #7\n" + NO_AGENT + "\n" + ending + "<!--"
+                    hidden += "\nCloses #8\n" + NO_AGENT + "\n-->"
+                    self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(hidden))
+                    public = hidden + "\n\nCloses #9\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [9])
+                    self.assertIsNone(policy.body_requirement(public))
+
+    def test_special_markup_contents_do_not_interpret_tags_or_code(self):
+        for opening, ending in (("<?example", "?>"), ("<![CDATA[", "]]>"), ("<!DOCTYPE example", ">")):
+            with self.subTest(opening=opening):
+                content = "<!-- <pre `" if ending == ">" else "<!-- <pre> `"
+                hidden = opening + "\n" + content + "\nCloses #7\n" + NO_AGENT + "\n" + ending + "`"
+                public = hidden + "\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_special_markup_inside_code_or_quoted_attributes_has_no_effect(self):
+        for text in ("<?example", "<![CDATA[", "<!DOCTYPE example"):
+            with self.subTest(text=text):
+                body = "``\n" + text + "``\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+                body = "`\nexample`<span title='" + text + "'>\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_unclosed_special_markup_and_details_keep_declarations_hidden(self):
+        for opening in ("<?example", "<![CDATA[", "<!DOCTYPE example", "<details>\n<summary>Example</summary>"):
+            with self.subTest(opening=opening):
+                hidden = opening + "\n\nCloses #7\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+
+    def test_nested_details_keep_outer_contents_hidden_until_its_close(self):
+        hidden = "<details>\n<summary>Outer</summary>\n\n<details>\n<summary>Inner</summary>\n\n</details>"
+        hidden += "\n\nCloses #7\n" + NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(hidden))
+        public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+        self.assertIsNone(policy.body_requirement(public))
+
+    def test_details_attributes_and_comments_cannot_close_the_container(self):
+        for opening in (
+            '<details><span title="</details>">', "<details><span title='</details><!--'>",
+            '<details><span\ntitle="\n</details>\n">',
+            "<details>\n<!--\n</details>\n-->", "<details>\n<!-- </details> --!>",
+            "<details>\n<![CDATA[\n</details>\n]]>",
+        ):
+            with self.subTest(opening=opening):
+                hidden = opening + "\n\nCloses #7\n" + NO_AGENT + "\n</span></details>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_details_open_flag_keeps_the_strict_plain_line_rule(self):
+        for opening in ("<details open>", "<DETAILS open='open'>"):
+            with self.subTest(opening=opening):
+                hidden = opening + "\n<summary>Example</summary>\n\nCloses #7\n" + NO_AGENT + "\n</details>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
     def test_raw_html_block_cannot_supply_declarations(self):
         body = "<div>\nCloses #7\n" + NO_AGENT + "\n</div>"
         self.assertEqual(policy.issue_references(body, REPOSITORY), [])

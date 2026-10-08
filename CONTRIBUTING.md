@@ -62,7 +62,7 @@ Fixes #123
 Resolves #123
 ```
 
-Use one complete line at the left margin, with no leading spaces. Keep it outside a comment, code block, raw HTML block, math block, list, or quote. Put a blank line after any preceding list or quote. These format rules also apply to the AI declaration. Put the test checkbox in its own task list, with a blank line before it. You can also use the full issue URL, for example `Closes https://github.com/Elevatormusic/hermes-warm-compaction/issues/123`.
+Use one complete line at the left margin, with no leading spaces. Keep it outside a comment, code block, raw HTML block, math block, collapsed section, list, or quote. Put a blank line after any preceding list, quote, or HTML block. These format rules also apply to the AI declaration. Put the test checkbox in its own task list, with a blank line before it. Keep the checkbox outside hidden examples too. You can also use the full issue URL, for example `Closes https://github.com/Elevatormusic/hermes-warm-compaction/issues/123`.
 
 The linked item must be an issue in this repository, and it must have been opened before the PR. An issue from another repository or a link to another PR does not count. An existing issue can have a different author or be closed.
 

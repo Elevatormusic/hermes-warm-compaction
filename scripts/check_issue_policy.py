@@ -96,14 +96,19 @@ def plain_lines(body: str) -> list[str]:
     inline_code = None
     html_blocks = []
     raw_html = None
+    markup_end = None
     math_block = False
     tag_parts = []
     tag_quote = None
     nested = False
     comment_end = re.compile(r"--!?>")
     tag_start = re.compile(r"</?[A-Za-z]")
+    declaration_start = re.compile(r"<![A-Z]")
     tick_run = re.compile(r"`+")
-    hidden_tags = {"pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "li", "dl", "dt", "dd"}
+    hidden_tags = {
+        "pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "li", "dl", "dt", "dd", "details",
+    }
+    literal_tags = {"pre", "code", "script", "style", "textarea"}
     block_tags = (
         "address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div "
         "dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe "
@@ -118,8 +123,8 @@ def plain_lines(body: str) -> list[str]:
     math_marker = re.compile(r"(?<!\\)(?:\\\\)*\$\$")
 
     def scan_markup(line: str, allow_inline: bool = True) -> bool:
-        nonlocal comment, tag_quote, inline_code
-        hidden = comment or bool(html_blocks) or bool(tag_parts) or inline_code is not None
+        nonlocal comment, tag_quote, inline_code, markup_end
+        hidden = comment or bool(html_blocks) or bool(tag_parts) or inline_code is not None or markup_end is not None
         index = 0
         while index < len(line):
             if comment:
@@ -128,6 +133,13 @@ def plain_lines(body: str) -> list[str]:
                     break
                 comment = False
                 index = end.end()
+                continue
+            if markup_end is not None:
+                end = line.find(markup_end, index)
+                if end < 0:
+                    break
+                index = end + len(markup_end)
+                markup_end = None
                 continue
             if tag_parts:
                 char = line[index]
@@ -160,11 +172,23 @@ def plain_lines(body: str) -> list[str]:
                 comment = True
                 hidden = True
                 index += 4
+            elif line.startswith("<?", index):
+                markup_end = "?>"
+                hidden = True
+                index += 2
+            elif line.startswith("<![CDATA[", index):
+                markup_end = "]]>"
+                hidden = True
+                index += 9
+            elif declaration_start.match(line, index):
+                markup_end = ">"
+                hidden = True
+                index += 2
             elif tag_start.match(line, index):
                 tag_parts.append("<")
                 hidden = True
                 index += 1
-            elif allow_inline and not html_blocks and line[index] == "`":
+            elif allow_inline and not any(tag in literal_tags for tag in html_blocks) and line[index] == "`":
                 start = index
                 while start and line[start - 1] == "\\":
                     start -= 1
@@ -185,17 +209,11 @@ def plain_lines(body: str) -> list[str]:
             if raw_html == "blank":
                 raw_html = None
         if raw_html:
-            if raw_html == "blank":
-                scan_markup(line, allow_inline=False)
-            elif re.search(raw_html, line):
-                raw_html = None
+            scan_markup(line, allow_inline=False)
             continue
         if math_block:
             if math_marker.search(line):
                 math_block = False
-            continue
-        if html_blocks or tag_parts:
-            scan_markup(line)
             continue
         if inline_code is not None:
             scan_markup(line)
@@ -205,16 +223,29 @@ def plain_lines(body: str) -> list[str]:
                 fence = None
             continue
         mark = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
-        if mark and not comment:
+        literal_html = any(tag in literal_tags for tag in html_blocks)
+        if (
+            html_blocks and not literal_html and not tag_parts and not markup_end and not comment
+            and re.match(r"(?: {4}| {0,3}\t)", line)
+        ):
+            continue
+        if mark and not comment and not literal_html and not tag_parts and not markup_end:
             fence = (mark[1][0], len(mark[1]))
+            continue
+        if html_blocks or tag_parts or markup_end:
+            starts_raw_close = (
+                not literal_html and not comment and not tag_parts and not markup_end
+                and re.match(r" {0,3}</", line) is not None and raw_block_tag.match(line) is not None
+            )
+            scan_markup(line, allow_inline=markup_end is None and not literal_html and not starts_raw_close)
+            if starts_raw_close:
+                # A block HTML close keeps the following lines raw until a blank.
+                raw_html = "blank"
             continue
         if not comment:
             # Raw HTML blocks use their Markdown end rule, not a closing tag.
-            endings = ((r" {0,3}<\?", r"\?>"), (r" {0,3}<![A-Z]", r">"),
-                       (r" {0,3}<!\[CDATA\[", r"\]\]>"))
-            ending = next((end for start, end in endings if re.match(start, line)), None)
-            if ending:
-                raw_html = None if re.search(ending, line) else ending
+            if re.match(r" {0,3}(?:<\?|<![A-Z]|<!\[CDATA\[)", line):
+                scan_markup(line, allow_inline=False)
                 continue
             if re.match(r" {0,3}<(?:script|pre|style|textarea)(?=[ \t>]|$)", line, re.IGNORECASE):
                 scan_markup(line, allow_inline=False)
