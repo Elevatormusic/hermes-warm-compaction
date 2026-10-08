@@ -109,6 +109,13 @@ def plain_lines(body: str) -> list[str]:
     nested = False
     paragraph = False
     paragraph_start = 0
+    link_mode = None
+    link_depth = 0
+    link_quote = None
+    link_angle = False
+    link_seen = False
+    link_phase = None
+    reference_next = None
     comment_end = re.compile(r"--!?>")
     tag_start = re.compile(r"</?[A-Za-z]")
     declaration_start = re.compile(r"<![A-Z]")
@@ -134,6 +141,7 @@ def plain_lines(body: str) -> list[str]:
     math_marker = re.compile(r"(?<!\\)(?:\\\\)*\$\$")
     setext_underline = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
     thematic_break = re.compile(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})")
+    reference_start = re.compile(r"\[(?:\\.|[^\]\\]){1,999}\]:")
 
     def fence_start(line: str):
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
@@ -141,13 +149,8 @@ def plain_lines(body: str) -> list[str]:
             return None
         return marker
 
-    body_lines = re.split(r"\r\n|\r|\n", body)
-    matched_ticks = set()
-    later_ticks = set()
-    for line_number in range(len(body_lines) - 1, -1, -1):
-        line = body_lines[line_number]
-        # Code spans cannot match across these paragraph boundaries.
-        boundary = (
+    def paragraph_boundary(line: str) -> bool:
+        return bool(
             not line.strip(" \t") or fence_start(line) or raw_block_tag.match(line)
             or setext_underline.fullmatch(line) or thematic_break.fullmatch(line)
             or re.match(r" {0,3}<(?:script|pre|style|textarea)(?=[ \t>]|$)", line, re.IGNORECASE)
@@ -155,6 +158,14 @@ def plain_lines(body: str) -> list[str]:
                 r" {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*][ \t]+|[0-9]+[.)][ \t]+|<!--|<\?|<![A-Z]|<!\[CDATA\[)", line,
             )
         )
+
+    body_lines = re.split(r"\r\n|\r|\n", body)
+    matched_ticks = set()
+    later_ticks = set()
+    for line_number in range(len(body_lines) - 1, -1, -1):
+        line = body_lines[line_number]
+        # Code spans cannot match across these paragraph boundaries.
+        boundary = paragraph_boundary(line)
         if boundary:
             later_ticks.clear()
         for marker in reversed(list(tick_run.finditer(line))):
@@ -173,9 +184,66 @@ def plain_lines(body: str) -> list[str]:
 
     def scan_markup(line: str, allow_inline: bool = True) -> bool:
         nonlocal comment, tag_quote, inline_code, markup_end
+        nonlocal link_mode, link_depth, link_quote, link_angle, link_seen, reference_next
+        nonlocal link_phase
         hidden = comment or bool(html_blocks) or bool(tag_parts) or inline_code is not None or markup_end is not None
         index = 0
         while index < len(line):
+            if link_mode:
+                hidden = True
+                char = line[index]
+                base_depth = 1 if link_mode == "inline" else 0
+                if not link_quote and not link_angle:
+                    if char in " \t":
+                        if link_phase in {"destination", "after_angle"}:
+                            if link_depth != base_depth:
+                                raise PolicyError("A Markdown link target is incomplete or inconsistent.")
+                            link_phase = "after_destination"
+                        index += 1
+                        continue
+                    closing = link_mode == "inline" and char == ")" and link_depth == 1
+                    if link_phase in {"after_title", "after_angle"} and not closing:
+                        raise PolicyError("A Markdown link target is incomplete or inconsistent.")
+                    if link_phase == "after_destination" and not closing:
+                        if char not in ("'", '"', "("):
+                            raise PolicyError("A Markdown link target is incomplete or inconsistent.")
+                        link_quote = ")" if char == "(" else char
+                        link_phase = "title"
+                        index += 1
+                        continue
+                link_seen = link_seen or char not in " \t"
+                if char == "\\":
+                    if link_phase == "start":
+                        link_phase = "destination"
+                    index += 2
+                    continue
+                if link_quote:
+                    if char == link_quote:
+                        link_quote = None
+                        link_phase = "after_title"
+                elif link_angle:
+                    if char == ">":
+                        link_angle = False
+                        link_phase = "after_angle"
+                elif char == "<":
+                    link_angle = True
+                elif char in ("'", '"') and (index == 0 or line[index - 1] in " \t"):
+                    link_quote = char
+                    link_phase = "title"
+                elif char == "(":
+                    link_depth += 1
+                    if link_depth > 32:
+                        raise PolicyError("A Markdown link target exceeds the nesting limit.")
+                elif char == ")":
+                    link_depth -= 1
+                    if link_depth < 0:
+                        raise PolicyError("A Markdown link target is incomplete or inconsistent.")
+                    if link_mode == "inline" and link_depth == 0:
+                        link_mode = None
+                if link_phase == "start":
+                    link_phase = "destination"
+                index += 1
+                continue
             if comment:
                 end = comment_end.search(line, index)
                 if not end:
@@ -208,6 +276,8 @@ def plain_lines(body: str) -> list[str]:
                             or not re.fullmatch(r"</[A-Za-z][A-Za-z0-9:-]*[ \t\n]*>", text)
                         ):
                             tag = None
+                    if tag and not tag[1] and re.fullmatch(r"h[1-6]", tag[2], re.IGNORECASE) and not html_blocks:
+                        lines.append("#")
                     if tag and tag[2].lower() in hidden_tags:
                         name = tag[2].lower()
                         if (
@@ -241,7 +311,20 @@ def plain_lines(body: str) -> list[str]:
                     inline_code = None
                 continue
             markdown = allow_inline and not any(tag in literal_tags for tag in html_blocks)
-            if markdown and line[index] == "<" and escaped(line, index):
+            reference = reference_start.match(line, index) if (
+                markdown and index <= 3 and not line[:index].strip(" ")
+            ) else None
+            if reference:
+                link_mode, link_depth, link_seen = "reference", 0, False
+                link_phase = "start"
+                hidden = True
+                index = reference.end()
+            elif markdown and line.startswith("](", index) and not escaped(line, index):
+                link_mode, link_depth, link_seen = "inline", 1, False
+                link_phase = "start"
+                hidden = True
+                index += 2
+            elif markdown and line[index] == "<" and escaped(line, index):
                 index += 1
             elif line.startswith("<!--", index):
                 comment = True
@@ -273,6 +356,9 @@ def plain_lines(body: str) -> list[str]:
                 index += 1
         if tag_parts:
             tag_parts.append("\n")
+        if link_mode == "reference" and not link_quote and not link_angle and link_depth == 0:
+            link_mode = None
+            reference_next = None if link_phase == "after_title" else "title" if link_seen else "destination"
         return hidden
 
     for _line_number, line in enumerate(body_lines):
@@ -295,6 +381,28 @@ def plain_lines(body: str) -> list[str]:
                 math_block = False
             continue
         if inline_code is not None:
+            scan_markup(line)
+            continue
+        if reference_next:
+            if reference_next == "destination" or line.lstrip(" \t").startswith(("'", '"', "(")):
+                link_mode, link_depth, link_seen = "reference", 0, reference_next == "title"
+                link_phase = "after_destination" if link_seen else "start"
+            reference_next = None
+        if link_mode:
+            if (
+                paragraph_boundary(line) or link_angle
+                or (
+                    link_seen and not link_quote
+                    and (
+                        (link_mode == "inline" and link_depth != 1)
+                        or (link_mode == "reference" and link_depth != 0)
+                        or not line.lstrip(" \t").startswith((")", "'", '"', "("))
+                    )
+                )
+            ):
+                raise PolicyError("A Markdown link target is incomplete or inconsistent.")
+            if link_phase in {"destination", "after_angle"}:
+                link_phase = "after_destination"
             scan_markup(line)
             continue
         if fence:
@@ -394,6 +502,8 @@ def plain_lines(body: str) -> list[str]:
         elif nested:
             continue
         lines.append(line.rstrip(" \t"))
+    if link_mode or reference_next == "destination":
+        raise PolicyError("A Markdown link target is incomplete or inconsistent.")
     return lines
 
 
@@ -449,6 +559,10 @@ def ai_agent_requirement(lines: list[str]) -> str | None:
         ).strip()
         visible = any(not char.isspace() and category(char)[0] in "LN" for char in value)
         normalized = value.strip("`*_ ").casefold()
+        while normalized and (normalized[0].isspace() or category(normalized[0])[0] in "PS"):
+            normalized = normalized[1:]
+        while normalized and (normalized[-1].isspace() or category(normalized[-1])[0] in "PS"):
+            normalized = normalized[:-1]
         placeholders = {
             "...", "…", "todo", "tbd", "unknown", "none", "n/a", "not applicable", "not run",
             "harness", "harness name", "model", "model name", "exact model", "exact model id",

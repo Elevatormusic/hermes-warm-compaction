@@ -316,6 +316,160 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_link_destination_cannot_close_details(self):
+        body = "<details><summary>Example</summary>\n\n[sample](</details>)\n\nCloses #7\n\n" + NO_AGENT
+        body += "\n</details>"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_incomplete_link_cannot_mask_a_raw_html_block(self):
+        body = "[sample](target\n<pre>\n)\n\nCloses #7\n\n" + NO_AGENT
+        with self.assertRaises(policy.PolicyError):
+            policy.body_requirement(body)
+
+    def test_indented_html_cannot_continue_a_bare_link_destination(self):
+        body = "[sample](target\n    <pre>\n)\n\nCloses #7\n\n" + NO_AGENT
+        with self.assertRaises(policy.PolicyError):
+            policy.body_requirement(body)
+
+    def test_inline_html_cannot_continue_a_bare_link_destination(self):
+        body = "[sample](target\ntext <pre>\n)\n\nCloses #7\n\n" + NO_AGENT
+        with self.assertRaises(policy.PolicyError):
+            policy.body_requirement(body)
+
+    def test_unquoted_html_cannot_follow_a_link_destination(self):
+        body = "[sample](target <pre>)\n\nCloses #7\n\n" + NO_AGENT
+        with self.assertRaises(policy.PolicyError):
+            policy.body_requirement(body)
+
+    def test_extra_text_cannot_follow_a_completed_link_title(self):
+        body = '[sample](target "title" <pre>)\n\nCloses #7\n\n' + NO_AGENT
+        with self.assertRaises(policy.PolicyError):
+            policy.body_requirement(body)
+
+    def test_raw_html_heading_ends_the_ai_section(self):
+        body = "## AI agent use\n\n<h2>Other section</h2>\n\nNo AI agent used\n\n" + TEST_CONFIRMATION
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_punctuated_placeholder_values_do_not_supply_disclosure(self):
+        for value in ("TODO.", "unknown.", "not run."):
+            with self.subTest(value=value):
+                body = AGENT_USE.replace("Work: Write policy tests.", "Work: " + value)
+                self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_link_destinations_and_titles_keep_details_hidden(self):
+        samples = (
+            "[sample](</details>)", '[sample](target "</details>")', "[sample](target '</details>')",
+            r'[sample](target "escaped \" </details>")', "[id]: </details>", '[id]: target "</details>"',
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                body = "<details>\n\n" + sample + "\n\nCloses #7\n\n" + NO_AGENT + "\n</details>"
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+                public = body + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_incomplete_links_refuse_markdown_block_interruptions(self):
+        blocks = (
+            "<pre>", "<script>", "<style>", "<textarea>", "<!--", "<?pi", "<!DOCTYPE html>",
+            "<![CDATA[", "<div>", "</details>", "```text", "~~~text", "## Other", "- item",
+            "1. item", "> quote", "---", "===", "***",
+        )
+        for prefix in ('[sample](target\n', '[sample](target "first\n', '[id]:\n', '[id]: target "first\n'):
+            for block in blocks:
+                with self.subTest(prefix=prefix, block=block):
+                    with self.assertRaises(policy.PolicyError):
+                        policy.plain_lines(prefix + block + '\nlast")\n\n')
+
+    def test_multiline_links_preserve_noninterrupting_text_and_type_seven_html(self):
+        samples = (
+            '[sample](target\n "two\nlines")', '[id]: target\n "two\nlines"',
+            "[sample](target\n)", "[sample](\n<span>\n)", '[sample](target\n (title))',
+        )
+        for sample in samples:
+            body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+            self.assertIsNone(policy.body_requirement(body))
+        for sample in ('[sample](target "first\n<span>\nlast")', '[id]: target "first\n<span>\nlast"'):
+            body = "<details>\n\n" + sample + "\n\nCloses #7\n\n" + NO_AGENT + "\n</details>"
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+            self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_started_link_destinations_cannot_cross_a_line_ending(self):
+        for sample in ("[sample](target\nmore)", "[sample](<target\nmore>)", "[id]: <target\nmore>",
+                       "[sample](target(\nmore))", "[id]: target(\nmore)"):
+            with self.subTest(sample=sample):
+                with self.assertRaises(policy.PolicyError):
+                    policy.plain_lines(sample)
+
+    def test_link_targets_refuse_extra_text_after_destination_or_title(self):
+        samples = (
+            '[sample](target extra)', '[sample](target "title" extra)', '[sample](<target>extra)',
+            '[id]: target extra', '[id]: target "title" extra', '[sample](target "title"\n"extra")',
+            "[sample](target(</details>))", r"[sample](target\(</details>\))",
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                with self.assertRaises(policy.PolicyError):
+                    policy.plain_lines(sample)
+
+    def test_link_target_guards_preserve_urls_angles_and_titles(self):
+        samples = (
+            '[sample](https://example.test/path?a=1&b=2)', '[sample](<https://example.test/a path>)',
+            '[sample](target(nested))', r'[sample](target\(escaped\))',
+            '[sample](target "title")', "[sample](target 'title')", '[id]: <target> "title"',
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_link_suffix_markup_is_still_scanned_after_target_closes(self):
+        body = '[sample](target "title")<!--\nCloses #7\n\n' + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+        with self.assertRaises(policy.PolicyError):
+            policy.plain_lines('[id]: target\n  "title"<!--\n\n')
+
+    def test_incomplete_or_deep_link_targets_refuse_unknown_markup(self):
+        samples = (
+            "[sample](target", '[sample](target "title', "[id]:", "[sample](<target", "[sample](" + "(" * 33,
+        )
+        for sample in samples:
+            with self.subTest(sample=sample):
+                with self.assertRaises(policy.PolicyError):
+                    policy.plain_lines(sample)
+
+    def test_html_heading_levels_end_ai_without_accepting_html_ai_heading(self):
+        for level in range(1, 7):
+            for disclosure in ("No AI agent used", "Harness: Codex\nModel: test-model\nWork: Test"):
+                body = f"## AI agent use\n\n<h{level} title='Other'>Other</h{level}>\n\n" + disclosure
+                body += "\n\n" + TEST_CONFIRMATION
+                self.assertIsNotNone(policy.body_requirement(body))
+            body = f"<h{level}>AI agent use</h{level}>\n\nNo AI agent used\n\n" + TEST_CONFIRMATION
+            self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_fake_html_headings_do_not_end_the_ai_section(self):
+        for sample in ("`<h2>Other</h2>`", "```\n<h2>Other</h2>\n```", "    <h2>Other</h2>",
+                       "<!-- <h2>Other</h2> -->", "<pre>\n<h2>Other</h2>\n</pre>",
+                       '<span title="<h2>Other</h2>">text</span>', '[sample](target "<h2>Other</h2>")'):
+            with self.subTest(sample=sample):
+                body = "## AI agent use\n\n" + sample + "\n\nNo AI agent used\n\n" + TEST_CONFIRMATION
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_placeholder_punctuation_normalization_keeps_real_values(self):
+        for field in ("Harness", "Model", "Work"):
+            for value in ("(TODO.)", "unknown!", "not run…", "“TODO.”"):
+                with self.subTest(field=field, value=value):
+                    body = re.sub(rf"(?m)^{field}:.*$", f"{field}: {value}", AGENT_USE)
+                    self.assertIsNotNone(policy.body_requirement(body))
+            for value in ("Codex.", "gpt-6.1-sol", "C++", "Test: parser behavior."):
+                body = re.sub(rf"(?m)^{field}:.*$", f"{field}: {value}", AGENT_USE)
+                self.assertIsNone(policy.body_requirement(body))
+
     def test_list_fence_close_does_not_open_a_top_level_fence(self):
         body = "- ```text\n  example\n  ```\n\nCloses #7\n\n" + NO_AGENT
         self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
