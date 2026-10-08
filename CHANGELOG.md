@@ -15,6 +15,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Added
 
+- MOA aggregator captures and optional reference handoffs, with separate physical routes, session checks, bounded captures, and per-role metadata. Native Codex MOA uses the new Hermes native auxiliary API when available. See [MOA support](docs/moa.md) for requirements and limits.
 - Warm request adapters for Responses and Anthropic Messages. Keep native input prefixes, cache controls, and verified encrypted or signed reasoning. Unsupported request shapes and authentication routes use the fallback. See [Provider support](docs/provider-support.md) for limits.
 - Native reply completion checks, token counters, and a synthetic real-Hermes provider integration check. Native replay blocks count in tail estimates and cannot be cut apart.
 - Native provider and conversation checks in CI against the minimum Hermes version and upstream `main`. The conversation checks cover manual and automatic compaction, tools, and saved-session reload.

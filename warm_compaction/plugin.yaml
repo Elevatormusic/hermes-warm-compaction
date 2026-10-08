@@ -11,6 +11,10 @@ provides_hooks:
   - post_api_request
   - on_session_finalize
   - on_session_reset
+  - pre_auxiliary_call
+  - post_auxiliary_call
+  - pre_auxiliary_native_request
+  - post_auxiliary_native_request
 config_schema:
   threshold:
     type: float
@@ -28,3 +32,11 @@ config_schema:
     type: bool
     default: true
     description: Use the warm request. Set false for comparison runs.
+  moa_routes:
+    type: list
+    default: []
+    description: Explicit replay destinations for MOA Chat Completions or native Codex calls. See the MOA guide for route fields.
+  moa_references:
+    type: bool
+    default: false
+    description: Ask captured MOA references for advisory handoffs before the aggregator handoff.

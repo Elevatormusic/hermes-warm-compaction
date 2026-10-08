@@ -1834,7 +1834,8 @@ class SettingsTest(unittest.TestCase):
         self.module = engine
 
     def test_valid_values(self):
-        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False}
+        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
+                  "moa_routes": [], "moa_references": False}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):

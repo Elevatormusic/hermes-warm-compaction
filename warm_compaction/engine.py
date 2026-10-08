@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import threading
 import time
@@ -18,7 +19,11 @@ from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, 
 logger = logging.getLogger(__name__)
 
 NAME = "warm_compaction"
-DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True}
+DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
+                            "moa_routes": [], "moa_references": False}
+MOA_WARM_SECONDS = 120.0
+REFERENCE_SECONDS = 20.0
+AGGREGATOR_RESERVE_SECONDS = 30.0
 THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
@@ -64,7 +69,9 @@ HERMES_DB_MARKER = "_db_persisted"
 
 
 def _valid(key: str, value: Any) -> bool:
-    if key == "warm":
+    if key == "moa_routes":
+        return isinstance(value, list)
+    if key in ("warm", "moa_references"):
         return isinstance(value, bool)
     if isinstance(value, bool):
         return False
@@ -75,7 +82,7 @@ def _valid(key: str, value: Any) -> bool:
 
 def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
     """Read the plugin settings. An invalid value logs a warning and uses the default."""
-    settings = dict(DEFAULTS)
+    settings = copy.deepcopy(DEFAULTS)
     if get_config is None:
         return settings
     for key, default in DEFAULTS.items():
@@ -86,7 +93,7 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
         if value is None:
             continue
         if _valid(key, value):
-            settings[key] = float(value) if key == "threshold" else value
+            settings[key] = float(value) if key == "threshold" else copy.deepcopy(value)
         else:
             logger.warning("Invalid warm_compaction setting %s; using the default %r", key, default)
     return settings
@@ -169,7 +176,7 @@ class WarmCompactionEngine(ContextEngine):
                  clock: Callable[[], float] = time.monotonic) -> None:
         self._store = store if store is not None else CaptureStore()
         self._llm = llm
-        self._settings = {**DEFAULTS, **(settings or {})}
+        self._settings = copy.deepcopy({**DEFAULTS, **(settings or {})})
         self._task = task
         self._post = post
         self._clock = clock
@@ -222,6 +229,7 @@ class WarmCompactionEngine(ContextEngine):
                 self._clear_warm_failures()
             self._wc_session_id = str(session_id or "")
         # The hooks do not get the key: the store asks the engine for the stamp of the key now.
+        self._store.open_session(self._wc_session_id)
         self._store.set_stamp(self._wc_session_id, self._key_stamp)
 
     def _key_stamp(self) -> str:
@@ -240,6 +248,7 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_route = (model, base_url, api_mode)
         self._wc_api_key = api_key
         self._wc_provider = provider
+        self._store.open_session(self._wc_session_id)
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         usage = usage or {}
@@ -295,7 +304,7 @@ class WarmCompactionEngine(ContextEngine):
     def get_status(self) -> dict[str, Any]:
         with self._wc_result_lock:
             status = super().get_status()
-            status["warm_last"] = dict(self.warm_last) if self.warm_last else None
+            status["warm_last"] = copy.deepcopy(self.warm_last)
             return status
 
     def compress(self, messages: list, current_tokens: int | None = None, focus_topic: str | None = None,
@@ -473,6 +482,20 @@ class WarmCompactionEngine(ContextEngine):
         capture = self._budget_capture(self._store.latest(self._wc_session_id), messages)
         body = capture.get("body") if capture else None
         mode = self._wc_route[2]
+        # A native reference cannot select the acting history policy.
+        observed = self._store.latest(self._wc_session_id)
+        acting = ((observed or {}).get("moa") or {}).get("aggregator") or {}
+        if (self._wc_provider == "moa" and observed is not None
+                and observed.get("session_id") == self._wc_session_id
+                and tuple(observed.get("route") or ()) == tuple(self._wc_route)
+                and ((observed.get("moa") or {}).get("code") is None)
+                and (acting.get("route_config") or {}).get("api_mode") == "codex_responses"):
+            try:
+                warm.split_history(observed, messages)
+            except warm.WarmRefusal:
+                pass
+            else:
+                mode = "codex_responses"
         if mode in ("codex_responses", "anthropic_messages"):
             return SendPolicy(details=True, signatures=False, echo=False, cut_reasoning=False, native_mode=mode)
         sent = [row for row in (body.get("messages") or []) if isinstance(row, dict) and row.get("role") == "assistant"
@@ -520,6 +543,8 @@ class WarmCompactionEngine(ContextEngine):
             key = warm.api_key_text(attempt[1])
             if capture.get("key_stamp") != key_stamp(key):
                 raise warm.WarmRefusal("credential_changed")
+            if attempt[2] == "moa" or str(attempt[0][1]).startswith("moa://"):
+                return self._moa_summary(capture, messages, focus_topic, memory, prefixes, record, attempt)
             instruction = handoff.build_instruction(focus_topic, memory)
             body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction,
                                       warm.native_details_type(attempt[2]))
@@ -541,9 +566,131 @@ class WarmCompactionEngine(ContextEngine):
         record.update(path="warm", reason="accepted")
         return text
 
+    def _moa_summary(self, capture: dict, messages: list, focus_topic: str | None, memory: str,
+                     prefixes: tuple[str, ...], record: dict, attempt: tuple) -> str:
+        """Replay each eligible request. Only the aggregator writes the checkpoint."""
+        from . import moa
+
+        native_record = (capture.get("moa") or {}).get("aggregator") or {}
+        native_route = (native_record.get("route_config") or {}).get("api_mode") == "codex_responses"
+        if native_route:
+            if not callable(getattr(self._llm, "complete_native", None)) or self._task is None:
+                raise warm.WarmRefusal("moa_native_api_unavailable")
+            if getattr(self._store._moa, "native_available", True) is False:
+                raise warm.WarmRefusal("moa_native_observer_unavailable")
+        deadline = self._clock() + MOA_WARM_SECONDS
+        instruction = base_instruction = handoff.build_instruction(focus_topic, memory)
+        body, route = moa.build_aggregator(capture, messages, attempt[0], attempt[4], instruction)
+        key = moa.resolve_key(route)
+        slots: list[dict] = []
+        record["moa_slots"] = slots
+        notes: list[dict] = []
+        if self._settings["moa_references"]:
+            for reference in (capture.get("moa") or {}).get("references", []):
+                if self._cancelled():
+                    raise warm.WarmRefusal("cancelled")
+                ref_route = reference.get("route_config") or {}
+                slot = {"role": "reference", "name": ref_route.get("name", "unknown"), "path": "skipped",
+                        "reason": None, "prompt_tokens": None, "cached_tokens": None, "elapsed_s": None,
+                        "included": False}
+                slots.append(slot)
+                try:
+                    remaining = deadline - self._clock() - AGGREGATOR_RESERVE_SECONDS
+                    if remaining <= 0:
+                        raise warm.WarmRefusal("moa_time_budget")
+                    ref_body, ref_route = moa.build_reference(reference, handoff.REFERENCE_INSTRUCTION)
+                    ref_key = moa.resolve_key(ref_route)
+                    reply = self._execute_moa(ref_body, handoff.REFERENCE_INSTRUCTION + "\n\n" + moa.REFERENCE_NOTE,
+                                              reference, ref_route, ref_key, attempt,
+                                              min(REFERENCE_SECONDS, remaining))
+                    slot.update({field: reply[field] for field in ("prompt_tokens", "cached_tokens", "elapsed_s")})
+                    text, reason = handoff.gate(reply, prefixes)
+                    if text is None:
+                        raise warm.WarmRefusal(f"gate:{reason}")
+                    slot.update(path="warm", reason="accepted")
+                    note = {"reference": ref_route["name"], "source_rows": len(reference.get("boundary_digests") or []),
+                            "scope": "Earlier advisory view; not current task authority.", "handoff": text}
+                    candidate_notes = [*notes, note]
+                    candidate_instruction = base_instruction + handoff.REFERENCE_NOTES_RULE + json.dumps(
+                        candidate_notes, ensure_ascii=False)
+                    candidate_body, _ = moa.build_aggregator(
+                        capture, messages, attempt[0], attempt[4], candidate_instruction)
+                    instruction = candidate_instruction
+                    body = candidate_body
+                    notes = candidate_notes
+                    slot["included"] = True
+                except warm.WarmRefusal as refusal:
+                    slot["reason"] = refusal.code
+                except Exception:
+                    slot["reason"] = "moa_reference_error"
+        if self._cancelled():
+            raise warm.WarmRefusal("cancelled")
+        remaining = deadline - self._clock()
+        if remaining <= 0:
+            raise warm.WarmRefusal("moa_time_budget")
+        slot = {"role": "aggregator", "name": route["name"], "path": "failed", "reason": None,
+                "prompt_tokens": None, "cached_tokens": None, "elapsed_s": None}
+        slots.append(slot)
+        try:
+            reply = self._execute_moa(body, instruction, capture["moa"]["aggregator"], route, key, attempt, remaining)
+            slot.update({field: reply[field] for field in ("prompt_tokens", "cached_tokens", "elapsed_s")})
+            record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
+            text, reason = handoff.gate(reply, prefixes)
+            if text is None:
+                raise warm.WarmRefusal(f"gate:{reason}")
+        except warm.WarmRefusal as refusal:
+            slot["reason"] = refusal.code
+            raise
+        slot.update(path="warm", reason="accepted")
+        record.update(path="warm", reason="accepted")
+        return text
+
+    def _execute_moa(self, body: dict, instruction: str, capture: dict, route: dict, key: str,
+                     attempt: tuple, timeout_s: float) -> dict:
+        """Send on one explicit physical route. Keep the outer attempt identity unchanged."""
+        from .moa import resolve_key
+        physical = (route["model"], route["base_url"], route["api_mode"])
+        native_call = None
+        if route["api_mode"] == "codex_responses":
+            def native_call(request):
+                return self._call_native_moa(request, capture, route, attempt, timeout_s)
+        field = protocol.history_key(route["api_mode"])
+        return self._execute(body, instruction, len(capture["body"][field]), attempt,
+                             capture.get("prompt_tokens"), key,
+                             execution_route=(physical, route["provider"]),
+                             context_length=min(attempt[4], route["context_length"]), timeout_s=timeout_s,
+                             key_check=(lambda: resolve_key(route) == key) if native_call is None else None,
+                             native_call=native_call)
+
+    def _call_native_moa(self, body: dict, capture: dict, route: dict, attempt: tuple, timeout_s: float) -> dict:
+        """Use the documented native API. Hermes keeps the key and checks the signed route."""
+        from .responses import parse_reply
+        complete = getattr(self._llm, "complete_native", None)
+        if not callable(complete) or self._task is None:
+            raise warm.WarmRefusal("moa_native_api_unavailable")
+        started = time.monotonic()
+        try:
+            result = complete(native_request=copy.deepcopy(body), route_context=copy.deepcopy(capture["route_context"]),
+                              expected_session_id=attempt[3], timeout=timeout_s, purpose=NAME, task=self._task)
+        except TimeoutError as error:
+            raise warm.WarmRefusal("timeout") from error
+        except Exception as error:
+            raise warm.WarmRefusal("moa_native_dispatch_refused") from error
+        audit = attr(result, "audit")
+        if (not isinstance(audit, dict) or audit.get("provider") != route["provider"]
+                or audit.get("model") != route["model"] or audit.get("task") != self._task
+                or not isinstance(audit.get("api_request_id"), str) or not audit["api_request_id"]):
+            raise warm.WarmRefusal("moa_native_audit_mismatch")
+        reply = parse_reply(attr(result, "native_response"))
+        reply["elapsed_s"] = round(time.monotonic() - started, 3)
+        return reply
+
     def _execute(self, body: dict[str, Any], instruction: str, captured: int, attempt: tuple,
                  measured: int | None = None, key: str | None = None,
-                 request_headers: dict[str, str] | None = None) -> dict[str, Any]:
+                 request_headers: dict[str, str] | None = None, *, execution_route: tuple | None = None,
+                 context_length: int | None = None, timeout_s: float = warm.TIMEOUT_S,
+                 key_check: Callable[[], bool] | None = None,
+                 native_call: Callable[[dict], dict] | None = None) -> dict[str, Any]:
         """Send the warm request through the Hermes llm_request and llm_execution middleware, as Hermes sends a
         main request. A request middleware can change the request, for example to redact the new rows. An
         execution middleware can audit, block, or replace the request. A block, a rewrite, or a replaced reply
@@ -555,10 +702,17 @@ class WarmCompactionEngine(ContextEngine):
             raise warm.WarmRefusal("middleware_unavailable") from error
         # Before any middleware sees the request: a route without its headers does not send it.
         route, api_key, provider, session_id = attempt[:4]
+        if execution_route is not None:
+            route, provider = execution_route
+        window = attempt[4] if context_length is None else context_length
         # The key that the capture check used (_warm_summary): a key function is not read again.
         key = warm.api_key_text(api_key) if key is None else key
-        headers = warm.route_headers(key, route[1], provider, api_mode=route[2])
-        tls = warm.route_tls(route[1])
+        if native_call is None:
+            headers = warm.route_headers(key, route[1], provider, api_mode=route[2])
+            tls = warm.route_tls(route[1])
+        else:
+            # The native API checks host-owned credentials and signed headers.
+            headers, tls = {}, None
         if request_headers:
             # Per-request headers override client defaults without regard to case. Both middleware chains
             # must see the option, and the rewrite checks below must protect the captured session value.
@@ -566,7 +720,8 @@ class WarmCompactionEngine(ContextEngine):
             headers = {name: value for name, value in headers.items() if name.lower() not in names}
             headers.update(request_headers)
             body = {**body, "extra_headers": dict(request_headers)}
-        headers = warm.native_headers(key, route[1], provider, route[2], headers)
+        if native_call is None:
+            headers = warm.native_headers(key, route[1], provider, route[2], headers)
         context = {"purpose": NAME, "api_request_id": None, "session_id": session_id,
                    "model": route[0], "base_url": route[1], "api_mode": route[2]}
         try:
@@ -588,7 +743,7 @@ class WarmCompactionEngine(ContextEngine):
             raise warm.WarmRefusal("middleware_rewrite")
         body = changed
         # A request middleware can add text to the new rows. Check the size again before the request is sent.
-        if not warm.fits(body, int(self.context_length or 0), measured, captured, api_mode=route[2]):
+        if not warm.fits(body, window, measured, captured, api_mode=route[2]):
             raise warm.WarmRefusal("capacity")
         # A copy that no middleware can change in place.
         base = copy.deepcopy(body)
@@ -613,12 +768,19 @@ class WarmCompactionEngine(ContextEngine):
                 raise warm.WarmRefusal("cancelled")
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
+            if key_check is not None and not key_check():
+                raise warm.WarmRefusal("credential_changed")
             started.append(True)
             # extra_headers is an SDK option, not part of the JSON body.
             wire_body = ({name: value for name, value in base.items() if name != "extra_headers"}
                          if request_headers else base)
-            result = warm.send(wire_body, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls,
-                               api_mode=route[2], provider=provider)
+            if native_call is not None:
+                result = native_call(wire_body)
+            else:
+                result = warm.send(wire_body, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls,
+                                   api_mode=route[2], provider=provider, timeout_s=timeout_s)
+            if key_check is not None and not key_check():
+                raise warm.WarmRefusal("credential_changed")
             # The send blocks on the network: a switch can occur before it returns.
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
@@ -738,6 +900,10 @@ class WarmCompactionEngine(ContextEngine):
             logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
                         record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
                         record["cached_tokens"])
+            for slot in record.get("moa_slots", []):
+                logger.info("warm_compaction: moa_role=%s route=%s path=%s reason=%s elapsed_s=%s "
+                            "prompt_tokens=%s cached_tokens=%s", slot["role"], slot["name"], slot["path"],
+                            slot["reason"], slot["elapsed_s"], slot["prompt_tokens"], slot["cached_tokens"])
 
     def _clear_warm_failures(self) -> None:
         self._warm_failures, self._warm_fixed = 0, 0
