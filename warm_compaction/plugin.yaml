@@ -28,3 +28,7 @@ config_schema:
     type: bool
     default: true
     description: Use the warm request. Set false for comparison runs.
+  warm_providers:
+    type: str
+    default: ""
+    description: Comma-separated provider names that may use the warm path. Empty means every provider.

@@ -1553,6 +1553,43 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "disabled"))
         self.assertEqual(self.post.calls, [])
 
+    def test_a_provider_outside_the_list_skips_the_warm_request(self):
+        # The route is kept out of the warm path: no warm request is sent, and the fallback summary runs.
+        engine = self.make(warm_providers="opencode-go,commandcode")
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                         ("fallback", "provider_not_allowed"))
+        self.assertEqual(self.post.calls, [])
+
+    def test_a_provider_inside_the_list_uses_the_warm_request(self):
+        engine = self.make(warm_providers="opencode-go, custom ")
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertNotEqual(self.post.calls, [])
+
+    def test_an_empty_provider_list_allows_every_provider(self):
+        engine = self.make(warm_providers="")
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+
+    def test_the_provider_names_match_without_case_or_spaces(self):
+        from warm_compaction.engine import provider_allowed
+        self.assertTrue(provider_allowed("", "nous"))
+        self.assertTrue(provider_allowed(None, "nous"))
+        self.assertTrue(provider_allowed(" Opencode-Go , commandcode ", "opencode-go"))
+        self.assertTrue(provider_allowed("opencode-go,commandcode", "COMMANDCODE"))
+        self.assertFalse(provider_allowed("opencode-go,commandcode", "nous"))
+        self.assertFalse(provider_allowed("opencode-go", ""))
+
     def test_cancelled_attempt_keeps_the_history(self):
         rows = old_turns()
         reply = assistant("final")
@@ -1834,15 +1871,17 @@ class SettingsTest(unittest.TestCase):
         self.module = engine
 
     def test_valid_values(self):
-        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False}
+        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
+                  "warm_providers": "opencode-go,commandcode"}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
-        values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no"}
+        values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
+                  "warm_providers": 7}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 4)
+        self.assertEqual(len(logs.output), 5)
 
     def test_tail_budget(self):
         self.assertEqual(self.module.tail_budget(0, 200_000), 10_000)

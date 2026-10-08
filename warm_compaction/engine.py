@@ -18,7 +18,8 @@ from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, 
 logger = logging.getLogger(__name__)
 
 NAME = "warm_compaction"
-DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True}
+DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
+                            "warm_providers": ""}
 THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
@@ -43,6 +44,7 @@ FAILURE_HINTS = {
     "provider_error": "the server refused the warm request (a provider error, or a gateway that needs a cookie)",
     "timeout": "the warm request took longer than its time limit",
     "api_mode_unsupported": "this API format has no supported warm path",
+    "provider_not_allowed": "this provider is not in the warm_providers list",
     "auth_unsupported": "the warm path cannot keep the authentication of this route",
     "settings_unsupported": "the main request uses a setting that the warm request cannot keep",
     "request_not_mapping": "the main request is not a mapping",
@@ -66,6 +68,8 @@ HERMES_DB_MARKER = "_db_persisted"
 def _valid(key: str, value: Any) -> bool:
     if key == "warm":
         return isinstance(value, bool)
+    if key == "warm_providers":
+        return isinstance(value, str)
     if isinstance(value, bool):
         return False
     if key == "threshold":
@@ -90,6 +94,15 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
         else:
             logger.warning("Invalid warm_compaction setting %s; using the default %r", key, default)
     return settings
+
+
+def provider_allowed(setting: Any, provider: Any) -> bool:
+    """True when the warm path may run for this provider. An empty setting allows every provider.
+    The names are comma-separated and matched without case."""
+    names = {part.strip().lower() for part in str(setting or "").split(",") if part.strip()}
+    if not names:
+        return True
+    return str(provider or "").strip().lower() in names
 
 
 def tail_budget(setting: int, context_length: int, threshold_tokens: int = 0) -> int:
@@ -515,6 +528,11 @@ class WarmCompactionEngine(ContextEngine):
                 raise warm.WarmRefusal("disabled")
             if capture is None:
                 raise warm.WarmRefusal("no_capture")
+            # A provider that is not in the list never sends a warm request. A route that rotates its upstream
+            # can miss the prefix cache, and the warm request would then pay for the whole prompt. The
+            # fallback summary, which sends a small transcript, runs in its place.
+            if not provider_allowed(self._settings.get("warm_providers"), attempt[2]):
+                raise warm.WarmRefusal("provider_not_allowed")
             # The capture belongs to the key that sent it. Hermes can give the key as a function whose value
             # changes (a token that refreshes or rotates): resolve it one time, for this check and the request.
             key = warm.api_key_text(attempt[1])
