@@ -221,6 +221,31 @@ class ParserTests(unittest.TestCase):
                     self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
                     self.assertIsNone(policy.body_requirement(public))
 
+    def test_quoted_html_attributes_cannot_end_code_or_start_comments(self):
+        examples = (
+            '<code><span title="</code>">', "<code><span title='</code>'>",
+            '<code><span\ntitle="\n</code>\n">', "<code><span\ntitle='\n</code>\n'>",
+            '<code><span title="</code><!--">',
+        )
+        for opening in examples:
+            with self.subTest(opening=opening):
+                hidden = opening + "\nCloses #7\n" + NO_AGENT + "\n</span></code>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_html_quote_and_list_containers_do_not_count(self):
+        for tag in ("blockquote", "ul", "ol", "li", "dl"):
+            with self.subTest(tag=tag):
+                hidden = f"<{tag}>\nCloses #7\n{NO_AGENT}\n</{tag}>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
     def test_list_and_quote_continuations_do_not_count(self):
         for prefix in ("- Example:", "1. Example:", "> Example:", "  - Example:", "  > Example:"):
             for indent in ("", "  "):

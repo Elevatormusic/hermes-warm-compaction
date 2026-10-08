@@ -82,34 +82,63 @@ def plain_lines(body: str) -> list[str]:
     fence = None
     comment = False
     inline_code = None
-    html_code = []
+    html_blocks = []
+    tag_parts = []
+    tag_quote = None
     nested = False
-    markup = re.compile(
-        r"<!--|--!?>|<(/?)(pre|code|script|style|textarea)(?=[ \t/>]|$)[^>]*(?:>|$)", re.IGNORECASE
-    )
+    comment_end = re.compile(r"--!?>")
+    tag_start = re.compile(r"</?[A-Za-z]")
+    hidden_tags = {"pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "li", "dl", "dt", "dd"}
 
     def scan_markup(line: str) -> bool:
-        nonlocal comment
-        hidden = comment or bool(html_code)
-        for marker in markup.finditer(line):
-            if marker[0] == "<!--" and not comment:
+        nonlocal comment, tag_quote
+        hidden = comment or bool(html_blocks) or bool(tag_parts)
+        index = 0
+        while index < len(line):
+            if comment:
+                end = comment_end.search(line, index)
+                if not end:
+                    break
+                comment = False
+                index = end.end()
+                continue
+            if tag_parts:
+                char = line[index]
+                tag_parts.append(char)
+                if tag_quote:
+                    if char == tag_quote:
+                        tag_quote = None
+                elif char in ("'", '"'):
+                    tag_quote = char
+                elif char == ">":
+                    tag = re.match(r"<(/?)([A-Za-z][A-Za-z0-9:-]*)(?=[\s/>])", "".join(tag_parts))
+                    if tag and tag[2].lower() in hidden_tags:
+                        name = tag[2].lower()
+                        if not tag[1]:
+                            html_blocks.append(name)
+                        elif html_blocks and html_blocks[-1] == name:
+                            html_blocks.pop()
+                    tag_parts.clear()
+                index += 1
+                continue
+            if line.startswith("<!--", index):
                 comment = True
                 hidden = True
-            elif marker[0] in ("-->", "--!>") and comment:
-                comment = False
-            elif marker[2] and not comment:
+                index += 4
+            elif tag_start.match(line, index):
+                tag_parts.append("<")
                 hidden = True
-                tag = marker[2].lower()
-                if not marker[1]:
-                    html_code.append(tag)
-                elif html_code and html_code[-1] == tag and marker[0].endswith(">"):
-                    html_code.pop()
+                index += 1
+            else:
+                index += 1
+        if tag_parts:
+            tag_parts.append("\n")
         return hidden
 
     for line in body.splitlines():
         if not line.strip():
             nested = False
-        if html_code:
+        if html_blocks or tag_parts:
             scan_markup(line)
             continue
         if inline_code:
