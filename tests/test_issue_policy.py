@@ -316,6 +316,108 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_list_fence_close_does_not_open_a_top_level_fence(self):
+        body = "- ```text\n  example\n  ```\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_malformed_literal_closes_do_not_release_policy_lines(self):
+        for tag, closing in (("script", "</script/>"), ("pre", "</pre bogus>")):
+            with self.subTest(tag=tag):
+                body = f"<{tag}>\n{closing}\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_setext_other_section_cannot_supply_missing_ai_disclosure(self):
+        for disclosure in ("No AI agent used", "Harness: Codex\nModel: test-model\nWork: Test"):
+            with self.subTest(disclosure=disclosure):
+                body = "## AI agent use\n\nOther section\n-------------\n" + disclosure + "\n\n" + TEST_CONFIRMATION
+                self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_top_level_indented_code_cannot_open_markup_state(self):
+        for sample in ("    <!--", "    <pre>"):
+            with self.subTest(sample=sample):
+                body = sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_list_fences_keep_nested_fields_hidden_and_restore_public_lines(self):
+        for prefix in ("- ", "+ ", "* ", "1. ", "123) ", "  - "):
+            for marker in ("```", "~~~"):
+                with self.subTest(prefix=prefix, marker=marker):
+                    indent = " " * len(prefix)
+                    nested_body = "Closes #7\n" + NO_AGENT
+                    sample = prefix + marker + "text\n" + "\n".join(indent + line for line in nested_body.split("\n"))
+                    sample += "\n" + indent + marker
+                    self.assertEqual(policy.issue_references(sample, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(sample))
+                    public = sample + "\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+        body = "- ```text\n  <!--\n  </details>\n  <pre>\n  ```\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_unclosed_list_fence_ends_when_the_list_container_ends(self):
+        body = "- ```text\n  example\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+        hidden = "- ```text\n  Closes #7\n  " + NO_AGENT.replace("\n", "\n  ")
+        self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(hidden))
+
+    def test_literal_raw_ends_need_exact_tag_and_recover_after_real_end(self):
+        for tag in ("pre", "script", "style", "textarea"):
+            for ending in (f"</{tag}/>", f"</{tag} bogus>", f"</{tag} >", f"</{tag}\n>"):
+                with self.subTest(tag=tag, ending=ending):
+                    body = f"<{tag}>\n{ending}\n\nCloses #7\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(body))
+                    public = body + f"\n</{tag.upper()}>\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+        body = "<code>\n</code >\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_setext_heading_paragraph_cannot_supply_plain_policy_fields(self):
+        for underline in ("===", "---"):
+            for text in ("No AI agent used", "Harness: Codex\nModel: test-model\nWork: Test"):
+                with self.subTest(underline=underline, text=text):
+                    body = "## AI agent use\n\n" + text + "\n" + underline + "\n\n" + TEST_CONFIRMATION
+                    self.assertIsNotNone(policy.body_requirement(body))
+            body = "Closes #7\n" + underline + "\n\n" + NO_AGENT
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+            body = "AI agent use\n" + underline + "\nNo AI agent used\n\n" + TEST_CONFIRMATION
+            self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_setext_boundaries_preserve_disclosure_in_the_correct_section(self):
+        for underline in ("===", "---"):
+            body = NO_AGENT.replace(TEST_CONFIRMATION, "Other section\n" + underline + "\n\n" + TEST_CONFIRMATION)
+            self.assertIsNone(policy.body_requirement(body))
+        for sample in ("```text\nOther section\n---\n```", "    Other section\n    ---", "<pre>\nOther\n---\n</pre>"):
+            body = "## AI agent use\n\n" + sample + "\n\nNo AI agent used\n\n" + TEST_CONFIRMATION
+            self.assertIsNone(policy.body_requirement(body))
+
+    def test_indented_code_markup_variants_restore_public_lines(self):
+        for indent in ("    ", "\t", " \t", "   \t"):
+            for sample in ("<!--", "<pre>", "<?example", "<![CDATA[", "</details>", "$$"):
+                with self.subTest(indent=repr(indent), sample=sample):
+                    body = indent + sample + "\n" + indent + "Closes #7\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(body))
+
+    def test_indentation_does_not_override_raw_html_or_paragraph_continuations(self):
+        for prefix in ("<div>\n", "Prose\n"):
+            with self.subTest(prefix=prefix):
+                body = prefix + "    <!--\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+        body = "<pre>\n    </pre>\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+
     def test_disclosure_values_need_a_letter_or_number(self):
         for field in ("Harness", "Model", "Work"):
             for value in ("-", "?", "!", "@#$", "☀", "&amp;"):

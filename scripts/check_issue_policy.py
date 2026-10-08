@@ -108,6 +108,7 @@ def plain_lines(body: str) -> list[str]:
     tag_quote = None
     nested = False
     paragraph = False
+    paragraph_start = 0
     comment_end = re.compile(r"--!?>")
     tag_start = re.compile(r"</?[A-Za-z]")
     declaration_start = re.compile(r"<![A-Z]")
@@ -118,6 +119,7 @@ def plain_lines(body: str) -> list[str]:
     }
     list_parents = {"ul", "ol", "menu"}
     literal_tags = {"pre", "code", "script", "style", "textarea"}
+    raw_literal_tags = literal_tags - {"code"}
     block_tags = (
         "address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div "
         "dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe "
@@ -197,7 +199,15 @@ def plain_lines(body: str) -> list[str]:
                 elif char in ("'", '"'):
                     tag_quote = char
                 elif char == ">":
-                    tag = re.match(r"<(/?)([A-Za-z][A-Za-z0-9:-]*)(?=[\s/>])", "".join(tag_parts))
+                    text = "".join(tag_parts)
+                    tag = re.match(r"<(/?)([A-Za-z][A-Za-z0-9:-]*)(?=[\s/>])", text)
+                    if tag and tag[1]:
+                        name = tag[2].lower()
+                        if (
+                            (name in raw_literal_tags and text.lower() != f"</{name}>")
+                            or not re.fullmatch(r"</[A-Za-z][A-Za-z0-9:-]*[ \t\n]*>", text)
+                        ):
+                            tag = None
                     if tag and tag[2].lower() in hidden_tags:
                         name = tag[2].lower()
                         if (
@@ -267,6 +277,8 @@ def plain_lines(body: str) -> list[str]:
 
     for _line_number, line in enumerate(body_lines):
         was_paragraph = paragraph
+        if not was_paragraph:
+            paragraph_start = len(lines)
         paragraph = bool(line.strip(" \t"))
         if not line.strip(" \t"):
             nested = False
@@ -287,19 +299,33 @@ def plain_lines(body: str) -> list[str]:
             continue
         if fence:
             paragraph = False
-            if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", line):
+            content = line.expandtabs(4)
+            if fence[2] and content.strip(" \t") and not content.startswith(" " * fence[2]):
                 fence = None
-            continue
+            else:
+                if fence[2] and content.strip(" \t"):
+                    nested = True
+                content = content[fence[2]:]
+                if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", content):
+                    fence = None
+                continue
         mark = fence_start(line)
+        list_start = re.match(r" {0,3}(?:[-+*]|[0-9]{1,9}[.)])[ \t]+", line)
+        list_mark = fence_start(line[list_start.end():]) if list_start else None
         literal_html = any(tag in literal_tags for tag in html_blocks)
         if (
-            html_blocks and not literal_html and not tag_parts and not markup_end and not comment
+            (html_blocks or not was_paragraph) and not literal_html and not tag_parts and not markup_end and not comment
             and re.match(r"(?: {4}| {0,3}\t)", line)
         ):
-            continue
-        if mark and not comment and not literal_html and not tag_parts and not markup_end:
             paragraph = False
-            fence = (mark[1][0], len(mark[1]))
+            continue
+        if (mark or list_mark) and not comment and not literal_html and not tag_parts and not markup_end:
+            paragraph = False
+            if list_mark:
+                nested = True
+                fence = (list_mark[1][0], len(list_mark[1]), len(list_start[0].expandtabs(4)))
+            else:
+                fence = (mark[1][0], len(mark[1]), 0)
             continue
         if (
             not comment and not literal_html and not tag_parts and not markup_end
@@ -338,6 +364,10 @@ def plain_lines(body: str) -> list[str]:
                 continue
         # A comment must not change a code fence or join parts of a plain line.
         if not comment and (thematic_break.fullmatch(line) or (was_paragraph and setext_underline.fullmatch(line))):
+            if was_paragraph and setext_underline.fullmatch(line):
+                # Keep a boundary without accepting a Setext AI heading.
+                del lines[paragraph_start:]
+                lines.append("#")
             paragraph = False
             nested = False
             continue
