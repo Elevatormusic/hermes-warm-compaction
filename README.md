@@ -335,7 +335,7 @@ For native provider edits, run both `scripts/check_provider_apis.py` and `script
 
 ## Contributing
 
-Bug reports, server results, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+Bug reports, server results, and pull requests are welcome. Each author can have at most five open PRs, including drafts. Each new PR must link an earlier issue, such as `Closes #123`; PRs authored by `Elevatormusic` are exempt from the issue rule. Issues and PRs must declare the AI harness and model used, or state that no AI agent was used. Each new PR must also confirm that all tests passed. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules and checks, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License and credit
 
