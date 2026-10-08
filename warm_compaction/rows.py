@@ -118,6 +118,7 @@ class SendPolicy(NamedTuple):
     echo: bool = True
     cut_reasoning: bool = True
     native_type: str | None = None
+    native_mode: str = ""
 
 
 def reasoning_policy(source: dict, wire: dict, needs_pad: bool) -> None:
@@ -197,6 +198,11 @@ def sent_rows(messages: list, policy: SendPolicy = SendPolicy()) -> list:
                 details = replay_details(row.get("reasoning_details"), policy.native_type)
                 if details is not None:
                     sent["reasoning_details"] = details
+            if policy.native_mode in ("codex_responses", "anthropic_messages"):
+                # Count opaque replay too. Canonical text is also counted, which gives a safe upper estimate.
+                for field in ("codex_message_items", "codex_reasoning_items", "anthropic_content_blocks"):
+                    if row.get(field):
+                        sent[field] = row[field]
             reasoning(row, sent, policy.echo)
             out.append(sent)
         else:
@@ -266,6 +272,11 @@ def row_digest(row: Any) -> str:
         "tool_calls": [list(call) for call in tool_calls_of(row)],
         # The text that the provider saw, when Hermes keeps it in the api_content sidecar.
         "api_content": api_content(row) if api_content(row) is not attr(row, "content") else None,
+        # Native replay fields can change the provider input without changing the visible text.
+        "native": {name: attr(row, name) for name in (
+            "reasoning_content", "reasoning_details", "codex_message_items", "codex_reasoning_items",
+            "codex_checkpoint_items", "codex_reasoning_trimmed", "phase", "anthropic_content_blocks",
+            "_anthropic_content_blocks", "call_id", "response_item_id")},
     }
     text = json.dumps(canonical, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("ascii")).hexdigest()

@@ -13,6 +13,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Added
 
+- Warm request adapters for Responses and Anthropic Messages. Keep native input prefixes, cache controls, and verified encrypted or signed reasoning. Unsupported request shapes and authentication routes use the fallback. See [Provider support](docs/provider-support.md) for limits.
+- Native reply completion checks, token counters, and a synthetic real-Hermes provider integration check. Native replay blocks count in tail estimates and cannot be cut apart.
 - A WARNING for each saved compaction that Hermes confirms without the warm path, with its reason (Hermes copies it to `errors.log`).
 - After 3 confirmed compactions in a row without the warm path, one notice with a hint for each distinct reason, in the logs and at the next automatic compaction when engine status is enabled. The notice has no routine progress text. Later confirmed failures update the pending notice and its fixed-summary count until Hermes shows it.
 

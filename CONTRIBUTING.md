@@ -73,6 +73,14 @@ For changes to Hermes interaction, also run the integration check. It runs real 
 
 The integration check covers install, request, compaction, and history behavior on that Hermes version. It does not call a real model or prove live cache reuse or a performance gain. Keep evidence small and metadata only.
 
+For changes to Responses or Anthropic Messages routes, also run the native provider check. It uses real Hermes transports and synthetic loopback replies. The isolated interpreter needs the Hermes dependencies for both API formats. Use `--dependency-path <dependency-folder>` if those dependencies are in a separate local folder.
+
+```bash
+<hermes-venv-python> -B scripts/check_provider_apis.py --hermes-source <clean-hermes-checkout> --report .work/provider-api-report.json
+```
+
+See [provider support](docs/provider-support.md) for the supported request and authentication limits. A passing local check does not qualify a live provider.
+
 For document or form changes, check local Markdown links and run `git diff --check`. For issue forms, parse the YAML and check its fields against the [GitHub form schema](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema). No live model check is needed for these changes.
 
 CI runs the unit tests on Python 3.10 to 3.13 (Linux) and on Python 3.12 (Windows and macOS), and the lint. A pull request must pass both.
