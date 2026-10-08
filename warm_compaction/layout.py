@@ -282,10 +282,12 @@ def _tail_row(row: Any, marker: str) -> Any:
 
 
 def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple, Any]]:
-    """Return the sent payloads of a tail row that a cut can make smaller, as (key, value): the content (text, or
-    each part of a list), the arguments of each tool call, and the reasoning text that the route sends for an
-    assistant row (sent_reasoning_key). Reasoning that the route does not send is not a payload: a cut would give
-    it to the fallback model and the fixed summary."""
+    """Return sent payloads that can be cut without breaking native replay."""
+    if policy.native_mode in ("codex_responses", "anthropic_messages") and any(
+            attr(row, key) for key in ("codex_message_items", "codex_reasoning_items", "reasoning_details",
+                                      "anthropic_content_blocks")):
+        # The canonical text and tool calls must still agree with their signed or encrypted replay blocks.
+        return []
     if not isinstance(row, dict):
         return []
     role = row.get("role")

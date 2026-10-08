@@ -13,6 +13,7 @@ import urllib.request
 from typing import Any
 from collections.abc import Callable
 
+from . import protocol
 from .rows import (
     api_content, attr, compact_json, estimate_tokens, has_thought_signature, hermes_value, plain_text,
     reasoning_policy as _reasoning_policy, replay_details, reply_text, row_digest, tool_calls_of,
@@ -362,13 +363,14 @@ def _join_user_rows(rows: list, instruction: str) -> list:
 def reply_reserve(body: Any) -> int:
     """The reply reserve of a request: the larger positive max_tokens or max_completion_tokens (a server can
     honor either), else DEFAULT_RESERVE."""
-    values = [body.get(key) for key in ("max_tokens", "max_completion_tokens")] if isinstance(body, dict) else []
+    values = [body.get(key) for key in ("max_tokens", "max_completion_tokens", "max_output_tokens")
+              ] if isinstance(body, dict) else []
     values = [value for value in values if type(value) is int and value > 0]
     return max(values) if values else DEFAULT_RESERVE
 
 
 def fits(body: dict[str, Any], context_length: int, measured_tokens: int | None = None,
-         measured_rows: int = 0) -> bool:
+         measured_rows: int = 0, api_mode: str = "chat_completions") -> bool:
     """Return True when the request size plus the reply reserve fits in the context window.
 
     When the server measured the prompt of the first measured_rows messages, use that count and estimate only
@@ -377,11 +379,16 @@ def fits(body: dict[str, Any], context_length: int, measured_tokens: int | None 
     if context_length <= 0:
         return True
     reserve = reply_reserve(body)
-    messages = body.get("messages") or []
+    field = protocol.history_key(api_mode)
+    messages = body.get(field) or []
     if type(measured_tokens) is int and measured_tokens > 0 and 0 < measured_rows <= len(messages):
-        size = measured_tokens + estimate_tokens({"messages": messages[measured_rows:]}) * SAFETY
+        size = measured_tokens + estimate_tokens({field: messages[measured_rows:]}) * SAFETY
     else:
-        size = estimate_tokens({"messages": messages, "tools": body.get("tools")}) * SAFETY
+        size = estimate_tokens({key: value for key, value in body.items()
+                                if key == field or isinstance(value, (str, list, dict))}) * SAFETY
+    if api_mode == "codex_responses" and not any(
+            type(body.get(key)) is int and body[key] > 0 for key in ("max_output_tokens", "max_tokens")):
+        reserve = max(DEFAULT_RESERVE, min(context_length // 4, 65_536))
     return size + int(reserve) <= context_length
 
 
@@ -389,6 +396,12 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
                   instruction: str, native_type: str | None = None) -> dict[str, Any]:
     """Return the warm request body. Raise WarmRefusal when a condition is not true. native_type: the native
     reasoning carrier type of the provider profile (native_details_type)."""
+    if route[2] == "codex_responses":
+        from .responses import build_request as build_native
+        return build_native(capture, messages, route, context_length, instruction, native_type)
+    if route[2] == "anthropic_messages":
+        from .anthropic import build_request as build_native
+        return build_native(capture, messages, route, context_length, instruction, native_type)
     if route[2] != "chat_completions":
         raise WarmRefusal("api_mode_unsupported")
     if tuple(capture["route"]) != tuple(route):
@@ -482,7 +495,8 @@ def _normalize_finish_reason(raw: Any) -> Any:
     return _FINISH_ALIASES.get(lowered, lowered)
 
 
-def route_headers(api_key: Any, base_url: Any, provider: Any) -> dict[str, str]:
+def route_headers(api_key: Any, base_url: Any, provider: Any,
+                  api_mode: str = "chat_completions") -> dict[str, str]:
     """Return the default headers that the Hermes OpenAI client sends on this route, in the order of Hermes
     45871e10 (agent.agent_init): the host headers or the provider profile headers, then model.default_headers,
     then providers.<name>.extra_headers. Provider headers go with every request (attribution, a User-Agent for a
@@ -490,6 +504,13 @@ def route_headers(api_key: Any, base_url: Any, provider: Any) -> dict[str, str]:
     without them can be refused or go to another cache. The engine adds supported per-request session headers
     from the capture after this step. The values can be credentials: never log them."""
     url = str(base_url or "")
+    if api_mode == "anthropic_messages":
+        try:
+            from hermes_cli.config_providers import get_custom_provider_extra_headers
+            headers = get_custom_provider_extra_headers(url) or {}
+        except Exception as error:
+            raise WarmRefusal("headers_unknown") from error
+        return native_headers(api_key_text(api_key), url, provider, api_mode, dict(headers))
     try:
         from agent.agent_init import _host_default_headers_factory
         from agent.auxiliary_client import _apply_user_default_headers
@@ -539,25 +560,54 @@ def _optional_int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def native_headers(key: str, base_url: str, provider: str, api_mode: str, headers: dict) -> dict:
+    """Resolve native authentication before the middleware sees a warm request."""
+    if api_mode == "anthropic_messages":
+        from .anthropic import route_headers as messages_headers
+        return messages_headers(key, base_url, headers, provider)
+    if api_mode == "codex_responses" and urllib.parse.urlsplit(base_url).hostname == "chatgpt.com":
+        try:
+            from agent.codex_headers import codex_cloudflare_headers
+            required = codex_cloudflare_headers(key, base_url=base_url)
+            names = {name.lower() for name in required}
+            headers = {name: value for name, value in headers.items() if name.lower() not in names}
+            return {**headers, **required}
+        except Exception as error:
+            raise WarmRefusal("headers_unknown") from error
+    return headers
+
+
 def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = TIMEOUT_S,
          post: Post | None = None, extra_headers: dict[str, str] | None = None,
-         ssl_context: ssl.SSLContext | None = None) -> dict[str, Any]:
+         ssl_context: ssl.SSLContext | None = None, api_mode: str = "chat_completions",
+         provider: str = "") -> dict[str, Any]:
     """Send the warm request one time. Return the reply fields and the usage, or raise WarmRefusal.
     extra_headers are the client default headers of the route (route_headers); they win, as in the SDK."""
     if not base_url:
         raise WarmRefusal("provider_error")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     key = api_key_text(api_key)
-    if key:
+    if key and api_mode != "anthropic_messages":
         headers["Authorization"] = f"Bearer {key}"
     headers.update(extra_headers or {})
+    headers = native_headers(key, base_url, provider, api_mode, headers)
+    if api_mode == "codex_responses" and body.get("stream"):
+        headers["Accept"] = "text/event-stream"
     data = json.dumps(body).encode("utf-8")
     started = time.monotonic()
     try:
         # The query of the route URL stays after the path: Hermes sends it as the client's default_query (the
         # api-version of an Azure route, for example).
         parts = urllib.parse.urlsplit(str(base_url))
-        url = urllib.parse.urlunsplit(parts._replace(path=parts.path.rstrip("/") + "/chat/completions"))
+        path = parts.path.rstrip("/")
+        endpoint = "/chat/completions"
+        if api_mode == "codex_responses":
+            endpoint = "/responses"
+        elif api_mode == "anthropic_messages":
+            endpoint = "/messages" if path.endswith("/v1") else "/v1/messages"
+        elif api_mode != "chat_completions":
+            raise WarmRefusal("api_mode_unsupported")
+        url = urllib.parse.urlunsplit(parts._replace(path=path + endpoint))
         if ssl_context is None:
             status, raw = (post or urllib_post)(url, data, headers, timeout_s)
         else:
@@ -572,6 +622,11 @@ def send(body: dict[str, Any], base_url: str, api_key: Any, timeout_s: float = T
     if len(raw) > MAX_RESPONSE_BYTES:
         raise WarmRefusal("response_too_large")
     try:
+        if api_mode != "chat_completions":
+            from . import anthropic, responses
+            parser = responses.parse_reply if api_mode == "codex_responses" else anthropic.parse_reply
+            result = parser(protocol.envelope(raw, api_mode))
+            return {**result, "elapsed_s": round(elapsed, 3)}
         payload = json.loads(raw.decode("utf-8"))
         choice = payload["choices"][0]
         message = choice["message"]

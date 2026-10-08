@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from agent.context_engine import ContextEngine
 
-from . import fallback, handoff, layout, native, warm
+from . import fallback, handoff, layout, native, protocol, warm
 from .capture import CaptureStore, key_stamp
 from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
@@ -42,7 +42,8 @@ FAILURE_HINTS = {
     "no_capture": "no main-model request completed in this Hermes process before the compaction",
     "provider_error": "the server refused the warm request (a provider error, or a gateway that needs a cookie)",
     "timeout": "the warm request took longer than its time limit",
-    "api_mode_unsupported": "this API mode has no warm path; only chat_completions has one",
+    "api_mode_unsupported": "this API format has no supported warm path",
+    "auth_unsupported": "the warm path cannot keep the authentication of this route",
     "settings_unsupported": "the main request uses a setting that the warm request cannot keep",
     "request_not_mapping": "the main request is not a mapping",
     "request_options_unsupported": "the main request has unsupported extra headers, query options, or extra_body",
@@ -116,6 +117,15 @@ def request_overhead(capture: dict[str, Any] | None, messages: list | None = Non
     count less the history estimate is not used: the two do not use the same tokenizer, and a compressible
     history can have an estimate far above the server count, so the difference can be much too small."""
     body = (capture or {}).get("body")
+    mode = ((capture or {}).get("route") or (None, None, "chat_completions"))[2]
+    if isinstance(body, dict) and mode != "chat_completions":
+        field = protocol.history_key(mode)
+        if not isinstance(body.get(field), list):
+            return None
+        # Native routes keep system text outside history. Count all other structured controls too.
+        controls = {key: value for key, value in body.items() if key != field
+                    and isinstance(value, (str, dict, list))}
+        return estimate_tokens(controls)
     if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
         return None
     count = max(len(body["messages"]) - len(capture.get("digests") or ()), 0)
@@ -135,8 +145,10 @@ def request_reserve(capture: dict[str, Any] | None, context_length: int = 0) -> 
     captured limit, the reply limit of the next request is unknown (Hermes does not give it to a context engine):
     a quarter of the window, at most UNKNOWN_RESERVE_MAX, and at least the default."""
     body = (capture or {}).get("body")
-    if isinstance(body, dict) and isinstance(body.get("messages"), list) and any(
-            type(body.get(key)) is int and body[key] > 0 for key in warm.LIMIT_KEYS):
+    mode = ((capture or {}).get("route") or (None, None, "chat_completions"))[2]
+    if isinstance(body, dict) and isinstance(body.get(protocol.history_key(mode)), list) and any(
+            type(body.get(key)) is int and body[key] > 0
+            for key in (*warm.LIMIT_KEYS, "max_output_tokens")):
         return warm.reply_reserve(body)
     # Without a positive captured limit, the provider default applies to the next request: it is unknown too.
     return max(warm.DEFAULT_RESERVE, min(context_length // 4, UNKNOWN_RESERVE_MAX))
@@ -426,10 +438,24 @@ class WarmCompactionEngine(ContextEngine):
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
             copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy)
+        native_overflow = False
+        if policy.native_mode:
+            # An indivisible replay can exceed the tail cap. Check the complete candidate against the same
+            # free budget, including the conservative allowance for an unknown request overhead.
+            free = self._room([], "", overhead or 0, reserve)
+            if free is not None:
+                if overhead is None:
+                    free //= 2
+                native_overflow = estimate_tokens(sent_rows(new, policy)) > free
         # A stale worker must not change the counter or replace a newer candidate. No model call holds this lock.
         with self._wc_result_lock:
             if self._cancelled() or self._attempt() != attempt:
                 record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
+                self._finish(record, started, attempt[-1])
+                return messages
+            if native_overflow:
+                # An indivisible native replay block cannot be cut to make a valid signed request.
+                record.update(path="unchanged", reason="capacity")
                 self._finish(record, started, attempt[-1])
                 return messages
             self.compression_count += 1
@@ -446,6 +472,9 @@ class WarmCompactionEngine(ContextEngine):
         # Only a usable capture (_budget_capture: this route, and the stored rows) shows what the route sends.
         capture = self._budget_capture(self._store.latest(self._wc_session_id), messages)
         body = capture.get("body") if capture else None
+        mode = self._wc_route[2]
+        if mode in ("codex_responses", "anthropic_messages"):
+            return SendPolicy(details=True, signatures=False, echo=False, cut_reasoning=False, native_mode=mode)
         sent = [row for row in (body.get("messages") or []) if isinstance(row, dict) and row.get("role") == "assistant"
                 ] if isinstance(body, dict) else []
         if sent:
@@ -496,7 +525,8 @@ class WarmCompactionEngine(ContextEngine):
                                       warm.native_details_type(attempt[2]))
             if self._cancelled():
                 raise warm.WarmRefusal("cancelled")
-            reply = self._execute(body, instruction, len(capture["body"]["messages"]), attempt,
+            field = protocol.history_key(attempt[0][2])
+            reply = self._execute(body, instruction, len(capture["body"][field]), attempt,
                                   capture.get("prompt_tokens"), key, capture.get("request_headers"))
             record.update(prompt_tokens=reply["prompt_tokens"], cached_tokens=reply["cached_tokens"])
             text, reason = handoff.gate(reply, prefixes)
@@ -527,7 +557,7 @@ class WarmCompactionEngine(ContextEngine):
         route, api_key, provider, session_id = attempt[:4]
         # The key that the capture check used (_warm_summary): a key function is not read again.
         key = warm.api_key_text(api_key) if key is None else key
-        headers = warm.route_headers(key, route[1], provider)
+        headers = warm.route_headers(key, route[1], provider, api_mode=route[2])
         tls = warm.route_tls(route[1])
         if request_headers:
             # Per-request headers override client defaults without regard to case. Both middleware chains
@@ -536,6 +566,7 @@ class WarmCompactionEngine(ContextEngine):
             headers = {name: value for name, value in headers.items() if name.lower() not in names}
             headers.update(request_headers)
             body = {**body, "extra_headers": dict(request_headers)}
+        headers = warm.native_headers(key, route[1], provider, route[2], headers)
         context = {"purpose": NAME, "api_request_id": None, "session_id": session_id,
                    "model": route[0], "base_url": route[1], "api_mode": route[2]}
         try:
@@ -544,19 +575,20 @@ class WarmCompactionEngine(ContextEngine):
             changed = apply_llm_request_middleware(copy.deepcopy(body), **context).payload
         except Exception as error:
             raise warm.WarmRefusal("middleware_refused") from error
-        if not isinstance(changed, dict) or not isinstance(changed.get("messages"), list):
+        field = protocol.history_key(route[2])
+        if not isinstance(changed, dict) or not isinstance(changed.get(field), list):
             raise warm.WarmRefusal("middleware_refused")
         # The captured part went through the request middleware already. A middleware that changes it again (for
         # example, adds a system row) would apply twice and change the cached prefix. It can change the new rows.
-        if ({k: v for k, v in changed.items() if k != "messages"} != {k: v for k, v in body.items() if k != "messages"}
-                or changed["messages"][:captured] != body["messages"][:captured]
+        if ({k: v for k, v in changed.items() if k != field} != {k: v for k, v in body.items() if k != field}
+                or changed[field][:captured] != body[field][:captured]
                 # The host instruction must stay the last block of the last row: without it, the reply is not a
                 # handoff. The user text in front of it (a trailing user row) can change, as the other new rows.
-                or not changed["messages"] or not warm.ends_with_instruction(changed["messages"][-1], instruction)):
+                or not changed[field] or not protocol.ends_with_instruction(changed[field][-1], instruction)):
             raise warm.WarmRefusal("middleware_rewrite")
         body = changed
         # A request middleware can add text to the new rows. Check the size again before the request is sent.
-        if not warm.fits(body, int(self.context_length or 0), measured, captured):
+        if not warm.fits(body, int(self.context_length or 0), measured, captured, api_mode=route[2]):
             raise warm.WarmRefusal("capacity")
         # A copy that no middleware can change in place.
         base = copy.deepcopy(body)
@@ -585,7 +617,8 @@ class WarmCompactionEngine(ContextEngine):
             # extra_headers is an SDK option, not part of the JSON body.
             wire_body = ({name: value for name, value in base.items() if name != "extra_headers"}
                          if request_headers else base)
-            result = warm.send(wire_body, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls)
+            result = warm.send(wire_body, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls,
+                               api_mode=route[2], provider=provider)
             # The send blocks on the network: a switch can occur before it returns.
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")
@@ -667,12 +700,12 @@ class WarmCompactionEngine(ContextEngine):
         if capture is None or tuple(capture.get("route") or ()) != tuple(self._wc_route):
             return None
         body = capture.get("body")
-        if not isinstance(body, dict) or not isinstance(body.get("messages"), list):
+        if not isinstance(body, dict) or not isinstance(body.get(protocol.history_key(self._wc_route[2])), list):
             return None
         try:
             warm.split_history(capture, messages)
-            warm.check_source(body, messages[: len(capture["digests"])], self._wc_route[1],
-                              warm.native_details_type(self._wc_provider))
+            protocol.check_source(body, messages[: len(capture["digests"])], self._wc_route,
+                                  warm.native_details_type(self._wc_provider))
         except Exception:
             return None
         return capture

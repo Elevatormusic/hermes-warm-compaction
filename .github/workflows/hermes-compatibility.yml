@@ -54,7 +54,7 @@ jobs:
       - name: Install the Hermes locked runtime
         run: |
           python -m pip install uv==0.12.17
-          uv sync --project .work/hermes --frozen --no-dev --python 3.14
+          uv sync --project .work/hermes --frozen --no-dev --extra anthropic --python 3.14
       - name: Check real middleware and capture behavior
         run: |
           .work/hermes/.venv/bin/python -B scripts/check_hermes_compatibility.py \
@@ -63,7 +63,17 @@ jobs:
         run: |
           .work/hermes/.venv/bin/python -B scripts/check_plugin_hermes.py \
             --hermes-source .work/hermes --report .work/hermes-integration.json
-      - name: Save the metadata report
+      - name: Check native provider requests and replies
+        if: ${{ !cancelled() }}
+        run: |
+          .work/hermes/.venv/bin/python -B scripts/check_provider_apis.py \
+            --hermes-source .work/hermes --report .work/provider-api.json
+      - name: Check native conversation and saved-session behavior
+        if: ${{ !cancelled() }}
+        run: |
+          .work/hermes/.venv/bin/python -B scripts/check_native_conversations.py \
+            --hermes-source .work/hermes --report .work/native-conversations.json
+      - name: Save the metadata reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -71,5 +81,7 @@ jobs:
           path: |
             .work/hermes-compatibility.json
             .work/hermes-integration.json
+            .work/provider-api.json
+            .work/native-conversations.json
           if-no-files-found: warn
           retention-days: 14

@@ -35,8 +35,8 @@ class UnsupportedRequest(ValueError):
     """The request body cannot become a warm request. The message is the reason code."""
 
 
-def request_headers(request: Any) -> dict[str, str]:
-    """Copy only the known session header. Refuse other headers and unsafe HTTP values.
+def request_headers(request: Any, api_mode: str = "chat_completions") -> dict[str, str]:
+    """Copy known session and API headers. Refuse other headers and unsafe HTTP values.
 
     Hermes 1d6b2786 adds x-opencode-session for OpenCode routes. Keep the captured value: a new session id
     need not select the same server. Header values stay in memory and never go to status or logs.
@@ -46,20 +46,27 @@ def request_headers(request: Any) -> dict[str, str]:
     headers = request.get("extra_headers")
     if headers is None:
         return {}
-    if not isinstance(headers, dict) or len(headers) > 1:
+    allowed = {"x-opencode-session"}
+    if api_mode == "codex_responses":
+        allowed.update(("session_id", "x-client-request-id", "x-grok-conv-id", "x-initiator"))
+    elif api_mode == "anthropic_messages":
+        allowed.update(("anthropic-beta", "anthropic-version", "x-initiator"))
+    if not isinstance(headers, dict) or len(headers) > len(allowed):
         raise UnsupportedRequest("request_options_unsupported")
+    seen: set[str] = set()
     for name, value in headers.items():
-        if (type(name) is not str or name.lower() != "x-opencode-session" or type(value) is not str
+        if (type(name) is not str or name.lower() not in allowed or name.lower() in seen or type(value) is not str
                 or not value or value != value.strip() or any(ord(char) < 32 or ord(char) > 126 for char in value)):
             raise UnsupportedRequest("request_options_unsupported")
+        seen.add(name.lower())
     return dict(headers)
 
 
-def final_body(request: Any) -> dict[str, Any]:
-    """Return the JSON body that the OpenAI client sends: a copy with extra_body merged in."""
+def final_body(request: Any, api_mode: str = "chat_completions") -> dict[str, Any]:
+    """Return a JSON body with extra_body merged in and SDK options removed."""
     if not isinstance(request, dict):
         raise UnsupportedRequest("request_not_mapping")
-    headers = request_headers(request)
+    headers = request_headers(request, api_mode)
     if request.get("extra_query"):
         raise UnsupportedRequest("request_options_unsupported")
     extra = request.get("extra_body") or {}
@@ -154,13 +161,13 @@ class CaptureStore:
     def _keep_body(self, api_request_id: Any, request: Any) -> None:
         with self._lock:
             entry = self._open.get(str(api_request_id or ""))
-        if entry is None or entry["route"][2] != "chat_completions":
+        if entry is None or entry["route"][2] not in ("chat_completions", "codex_responses", "anthropic_messages"):
             return
         refusal = None
         headers: dict[str, str] = {}
         try:
-            body = final_body(request)
-            headers = request_headers(request)
+            body = final_body(request, entry["route"][2])
+            headers = request_headers(request, entry["route"][2])
         except UnsupportedRequest as error:
             body = None
             # Keep only fixed codes. Exception data must not reach the status or logs.

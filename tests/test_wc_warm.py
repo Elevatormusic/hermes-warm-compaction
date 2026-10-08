@@ -271,7 +271,7 @@ class BuildRequestTest(unittest.TestCase):
     def test_refusal_codes(self):
         good = capture_for(self.rows, self.reply)
         cases = [
-            ("api_mode_unsupported", good, (ROUTE[0], ROUTE[1], "codex_responses")),
+            ("api_mode_unsupported", good, (ROUTE[0], ROUTE[1], "bedrock_converse")),
             ("route_changed", good, ("other-model", ROUTE[1], ROUTE[2])),
             ("settings_unsupported", dict(good, body=None), ROUTE),
             ("settings_unsupported", capture_for(self.rows, self.reply, body_extra={"n": 3}), ROUTE),

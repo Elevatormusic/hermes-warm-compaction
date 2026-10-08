@@ -220,7 +220,7 @@ class CaptureStoreTest(unittest.TestCase):
         self.assertEqual(self.store.latest("s1")["reply"]["tool_calls"], [["c1", "read"]])
 
     def test_other_api_mode_keeps_no_body(self):
-        self.run_request(api_mode="codex_responses")
+        self.run_request(api_mode="bedrock_converse")
         self.assertIsNone(self.store.latest("s1")["body"])
 
     def test_unusable_finish_reason_keeps_no_capture(self):
