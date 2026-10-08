@@ -438,8 +438,15 @@ class WarmCompactionEngine(ContextEngine):
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
             copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy)
-        native_overflow = bool(policy.native_mode and int(self.context_length or 0) > 0 and (
-            estimate_tokens(sent_rows(new, policy)) + (overhead or 0) + reserve > int(self.context_length)))
+        native_overflow = False
+        if policy.native_mode:
+            # An indivisible replay can exceed the tail cap. Check the complete candidate against the same
+            # free budget, including the conservative allowance for an unknown request overhead.
+            free = self._room([], "", overhead or 0, reserve)
+            if free is not None:
+                if overhead is None:
+                    free //= 2
+                native_overflow = estimate_tokens(sent_rows(new, policy)) > free
         # A stale worker must not change the counter or replace a newer candidate. No model call holds this lock.
         with self._wc_result_lock:
             if self._cancelled() or self._attempt() != attempt:

@@ -6,6 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
+- Keep the original history when an indivisible native replay block exceeds the compaction budget. Check the threshold, reply reserve, and unknown request overhead before accepting the new history.
 - Match Copilot hostnames at a domain boundary. A lookalike hostname no longer gets Copilot replay handling.
 - Accept trailing whitespace removal by Hermes from complete text strings, including `api_content`, without a false `source_transform_unsupported` fallback. Keep the captured request prefix unchanged.
 - Keep safe request refusal codes in status and logs, instead of the generic `settings_unsupported`.

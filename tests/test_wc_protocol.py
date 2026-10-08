@@ -3,6 +3,7 @@
 import copy
 import json
 import unittest
+from unittest.mock import patch
 
 from warm_compaction.capture import UnsupportedRequest, final_body, request_headers
 from warm_compaction.protocol import MAX_DONE_ITEMS, envelope
@@ -227,6 +228,82 @@ class NativeSendTest(unittest.TestCase):
 
 
 class NativeTailTest(unittest.TestCase):
+    def native_history(self, mode, replay_chars):
+        """Make a fresh engine and synthetic replay history with no captured request."""
+        from test_wc_engine import EngineTest, old_turns
+        fixture = EngineTest("test_threshold_comes_from_the_setting")
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        engine = fixture.make(warm=False)
+        engine.update_model(model="fake", context_length=16384, base_url="http://127.0.0.1:9/v1",
+                            api_key="fake", provider="custom", api_mode=mode)
+        replay = ({"codex_reasoning_items": [{"type": "reasoning", "encrypted_content": "x" * replay_chars}]}
+                  if mode == "codex_responses" else {"anthropic_content_blocks": [
+                      {"type": "redacted_thinking", "data": "x" * replay_chars},
+                      {"type": "text", "text": "synthetic"}]})
+        rows = [*old_turns(3), {"role": "user", "content": "synthetic last request"},
+                {"role": "assistant", "content": "synthetic", **replay}]
+        return fixture, engine, rows
+
+    def test_native_replay_above_threshold_without_capture_keeps_history(self):
+        for mode in ("codex_responses", "anthropic_messages"):
+            with self.subTest(mode=mode):
+                _fixture, engine, rows = self.native_history(mode, 36000)
+                self.assertIsNone(engine._store.latest(engine._wc_session_id))
+                self.assertGreater(sent_tokens(rows[-1], engine._policy(rows)), engine.threshold_tokens)
+                self.assertLess(sent_tokens(rows[-1], engine._policy(rows)) + 4096, engine.context_length)
+                self.assertTrue(engine.compress(rows) is rows, "Oversized native replay must keep the original history")
+                self.assertEqual(engine.compression_count, 0)
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("unchanged", "capacity"))
+
+    def test_native_replay_above_unknown_overhead_budget_keeps_history(self):
+        for mode in ("codex_responses", "anthropic_messages"):
+            with self.subTest(mode=mode):
+                _fixture, engine, rows = self.native_history(mode, 20000)
+                replay_tokens = sent_tokens(rows[-1], engine._policy(rows))
+                self.assertGreater(replay_tokens, engine.threshold_tokens // 2)
+                self.assertLess(replay_tokens, engine.threshold_tokens)
+                self.assertTrue(engine.compress(rows) is rows, "Oversized native replay must keep the original history")
+                self.assertEqual(engine.compression_count, 0)
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("unchanged", "capacity"))
+
+    def test_native_replay_with_known_overhead_must_fit_below_threshold(self):
+        from warm_compaction import anthropic, responses
+        for mode in ("codex_responses", "anthropic_messages"):
+            with self.subTest(mode=mode):
+                fixture, engine, rows = self.native_history(mode, 30000)
+                from warm_compaction.engine import request_overhead
+                system = "synthetic system " + "s" * 4000
+                body = ({"model": "fake", "instructions": system, "store": False,
+                         "input": responses.wire_rows(rows[:-1]), "max_output_tokens": 4096}
+                        if mode == "codex_responses" else {"model": "fake", "system": system,
+                            "messages": anthropic._rows(rows[:-1]), "max_tokens": 4096})
+                capture = {"route": engine._wc_route, "digests": [row_digest(row) for row in rows[:-1]], "body": body,
+                           "reply": {"content": rows[-1]["content"], "tool_calls": []}}
+                with patch.object(fixture.store, "latest", return_value=capture):
+                    self.assertIs(engine._budget_capture(capture, rows), capture)
+                    total = sent_tokens(rows[-1], engine._policy(rows)) + request_overhead(capture, rows)
+                    self.assertGreater(total, engine.threshold_tokens)
+                    self.assertLess(total + 4096, engine.context_length)
+                    self.assertTrue(engine.compress(rows) is rows,
+                                    "Oversized native replay must keep the original history")
+                self.assertEqual(engine.compression_count, 0)
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("unchanged", "capacity"))
+
+    def test_small_native_replay_without_capture_can_compact(self):
+        from warm_compaction.rows import estimate_tokens, sent_rows
+        for mode in ("codex_responses", "anthropic_messages"):
+            with self.subTest(mode=mode):
+                _fixture, engine, rows = self.native_history(mode, 5000)
+                before = copy.deepcopy(rows)
+                result = engine.compress(rows)
+                self.assertIsNot(result, rows)
+                self.assertEqual(rows, before)
+                self.assertEqual(result[-1], rows[-1])
+                self.assertLess(estimate_tokens(sent_rows(result, engine._policy(rows))), engine.threshold_tokens // 2)
+                self.assertEqual(engine.compression_count, 1)
+                self.assertEqual(engine.warm_last["path"], "fallback")
+
     def test_transformed_native_settings_cannot_supply_a_budget_capture(self):
         from test_wc_engine import EngineTest
         from warm_compaction.responses import wire_rows

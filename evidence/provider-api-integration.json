@@ -446,7 +446,7 @@
     "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
     "warm_compaction/anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
     "warm_compaction/capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
-    "warm_compaction/engine.py": "97a5ca7b779d4cfbaf4f4b2c9cd9d8e4616985d19578551d9c76679011204a12",
+    "warm_compaction/engine.py": "368b4ec95f31d0f6fc868f6184730d513e02f61764be60a1fabdb00cdececfd6",
     "warm_compaction/fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
     "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
     "warm_compaction/layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
