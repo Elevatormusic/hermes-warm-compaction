@@ -133,10 +133,38 @@ class RegisterTest(unittest.TestCase):
         self.plugin.register(ctx)
         self.assertEqual(engine_of(ctx).threshold_percent, 0.7)
 
+    def test_missing_auxiliary_hooks_keeps_the_base_engine(self):
+        ctx = FakeContext(config={"moa_routes": [{"name": "synthetic"}]})
+        with self.assertLogs("warm_compaction", level="WARNING"):
+            self.plugin.register(ctx)
+        self.assertIsNone(engine_of(ctx)._store._moa)
+        self.assertNotIn("pre_auxiliary_call", [call[1] for call in ctx.calls if call[0] == "hook"])
+
+    def test_moa_hooks_share_the_engine_store(self):
+        route = {"name": "aggregator", "provider": "custom", "model": "fake-model",
+                 "base_url": "http://127.0.0.1:9/v1", "context_length": 200000}
+        ctx = FakeContext(config={"moa_routes": [route], "moa_references": True})
+        with patch.object(wc_hermes_stub.PLUGINS, "VALID_HOOKS",
+                          wc_hermes_stub.PLUGINS.VALID_HOOKS | set(self.plugin.MOA_HOOKS)):
+            self.plugin.register(ctx)
+        tracker = engine_of(ctx)._store._moa
+        self.assertIsNotNone(tracker)
+        for call in ctx.calls:
+            if call[0] == "hook" and call[1] in self.plugin.MOA_HOOKS:
+                self.assertIs(call[2].__self__, tracker)
+
+    def test_invalid_moa_routes_keep_the_base_engine(self):
+        ctx = FakeContext(config={"moa_routes": [{"name": "invalid"}]})
+        with patch.object(wc_hermes_stub.PLUGINS, "VALID_HOOKS",
+                          wc_hermes_stub.PLUGINS.VALID_HOOKS | set(self.plugin.MOA_HOOKS)):
+            with self.assertLogs("warm_compaction", level="WARNING"):
+                self.plugin.register(ctx)
+        self.assertIsNone(engine_of(ctx)._store._moa)
+
     def test_manifest_declares_the_settings(self):
         text = (ROOT / "warm_compaction" / "plugin.yaml").read_text(encoding="utf-8")
         for line in ("manifest_version: 2", "name: warm_compaction", "config_schema:", "  threshold:",
-                     "  tail_tokens:", "  user_copy_chars:", "  warm:"):
+                     "  tail_tokens:", "  user_copy_chars:", "  warm:", "  moa_routes:", "  moa_references:"):
             self.assertIn(line + "\n", text)
 
     def test_the_alpha_files_are_gone(self):

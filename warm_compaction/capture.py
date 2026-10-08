@@ -101,7 +101,7 @@ class CaptureStore:
     """Keeps the latest usable main-model request of each session, in memory only."""
 
     def __init__(self, max_open: int = MAX_OPEN, max_sessions: int = MAX_SESSIONS,
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time, moa: Any = None) -> None:
         self._lock = threading.Lock()
         self._open: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._sessions: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -109,6 +109,9 @@ class CaptureStore:
         self._max_open = max_open
         self._max_sessions = max_sessions
         self._clock = clock
+        self._moa = moa
+        self._versions: OrderedDict[str, tuple[int, bool]] = OrderedDict()
+        self._version = 0
 
     def set_stamp(self, session_id: Any, stamp: Callable[[], Any]) -> None:
         """Keep the function that gives the key stamp (key_stamp) of a session now. Hermes can give the key as a
@@ -130,23 +133,82 @@ class CaptureStore:
             return None
         return value if isinstance(value, str) else None
 
+    def _drop_locked(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+        for request_id in [rid for rid, entry in self._open.items() if entry["session_id"] == session_id]:
+            del self._open[request_id]
+
+    def _bound_versions_locked(self) -> None:
+        while len(self._versions) > self._max_sessions:
+            oldest, _ = self._versions.popitem(last=False)
+            self._drop_locked(oldest)
+
+    def _token_locked(self, session_id: str) -> int | None:
+        if session_id not in self._versions:
+            self._version += 1
+            self._versions[session_id] = (self._version, True)
+            self._bound_versions_locked()
+        state = self._versions.get(session_id)
+        if session_id in self._versions:
+            self._versions.move_to_end(session_id)
+        return state[0] if state is not None and state[1] else None
+
+    def _live_locked(self, session_id: str, token: int | None) -> bool:
+        return token is not None and self._versions.get(session_id) == (token, True)
+
+    def _live(self, session_id: str, token: int | None) -> bool:
+        with self._lock:
+            return self._live_locked(session_id, token)
+
+    def _closed(self, session_id: str, generation: int) -> bool:
+        with self._lock:
+            return session_id not in self._versions or self._versions[session_id] == (generation, False)
+
+    def open_session(self, session_id: Any) -> None:
+        """Let the engine session-start call reopen a cleared session."""
+        key = str(session_id or "")
+        if not key:
+            return
+        with self._lock:
+            if key in self._versions and not self._versions[key][1]:
+                self._version += 1
+                self._versions[key] = (self._version, True)
+            token = self._token_locked(key)
+        if self._moa is not None:
+            self._moa.open_session(key, session_check=lambda: self._live(key, token), session_generation=token)
+
     def on_pre_api_request(self, api_request_id: Any = None, session_id: Any = None,
                            conversation_history: Any = None, model: Any = None, base_url: Any = None,
-                           api_mode: Any = None, **_: Any) -> None:
+                           api_mode: Any = None, provider: Any = None, turn_id: Any = None, **_: Any) -> None:
         """Hook pre_api_request: keep the route and one digest for each stored history row."""
         if not api_request_id or not session_id or not isinstance(conversation_history, list):
+            return None
+        key = str(session_id)
+        with self._lock:
+            token = self._token_locked(key)
+        if token is None:
             return None
         try:
             digests = [row_digest(row) for row in conversation_history]
         except Exception:
             return None
         entry = {"session_id": str(session_id), "route": (model, base_url, api_mode), "digests": digests, "body": None,
-                 "refusal": None, "key_stamp": self._stamp(session_id)}
+                 "refusal": None, "key_stamp": self._stamp(session_id), "_token": token}
         with self._lock:
+            if not self._live_locked(key, token):
+                return None
             self._open[str(api_request_id)] = entry
             self._open.move_to_end(str(api_request_id))
             while len(self._open) > self._max_open:
                 self._open.popitem(last=False)
+        if self._moa is not None:
+            try:
+                self._moa.pre_main(api_request_id=api_request_id, session_id=session_id, turn_id=turn_id,
+                                   provider=provider, conversation_history=conversation_history,
+                                   model=model, base_url=base_url, api_mode=api_mode,
+                                   session_check=lambda: self._live(key, token), session_generation=token)
+            except Exception:
+                pass
         return None
 
     def on_llm_execution(self, request: Any = None, next_call: Any = None, api_request_id: Any = None,
@@ -156,6 +218,8 @@ class CaptureStore:
             self._keep_body(api_request_id, request)
         except Exception:
             pass
+        if self._moa is not None:
+            return self._moa.run_main(api_request_id, next_call)
         return next_call()
 
     def _keep_body(self, api_request_id: Any, request: Any) -> None:
@@ -181,9 +245,10 @@ class CaptureStore:
                 body = None
                 headers = {}
         with self._lock:
-            entry["body"] = body
-            entry["request_headers"] = headers
-            entry["refusal"] = refusal
+            if self._live_locked(entry["session_id"], entry["_token"]):
+                entry["body"] = body
+                entry["request_headers"] = headers
+                entry["refusal"] = refusal
 
     def _middleware_order_refusal(self) -> str | None:
         """Return None when this capture is the last llm_execution middleware. The chain order is in the Hermes
@@ -209,6 +274,8 @@ class CaptureStore:
         """
         with self._lock:
             entry = self._open.pop(str(api_request_id or ""), None)
+            if entry is not None and not self._live_locked(entry["session_id"], entry["_token"]):
+                return None
         if entry is None or str(session_id or "") != entry["session_id"]:
             return None
         if finish_reason not in CAPTURE_FINISH or assistant_message is None:
@@ -228,9 +295,17 @@ class CaptureStore:
         measured = usage.get("prompt_tokens") if isinstance(usage, dict) else None
         if type(measured) is not int or measured <= 0:
             measured = None
-        capture = {**entry, "reply": reply, "finish_reason": finish_reason, "prompt_tokens": measured,
+        capture = {**{key: value for key, value in entry.items() if key != "_token"},
+                   "reply": reply, "finish_reason": finish_reason, "prompt_tokens": measured,
                    "captured_at": self._clock()}
+        if self._moa is not None:
+            try:
+                capture["moa"] = self._moa.finish_main(api_request_id, capture)
+            except Exception:
+                capture["moa"] = {"code": "moa_capture_error", "aggregator": None, "references": []}
         with self._lock:
+            if not self._live_locked(entry["session_id"], entry["_token"]):
+                return None
             self._sessions[entry["session_id"]] = capture
             self._sessions.move_to_end(entry["session_id"])
             while len(self._sessions) > self._max_sessions:
@@ -251,7 +326,13 @@ class CaptureStore:
         """Hooks on_session_finalize and on_session_reset: remove the data of a session."""
         key = str(session_id or "")
         with self._lock:
-            self._sessions.pop(key, None)
-            for request_id in [rid for rid, entry in self._open.items() if entry["session_id"] == key]:
-                del self._open[request_id]
+            self._drop_locked(key)
+            if key:
+                self._version += 1
+                generation = self._version
+                self._versions[key] = (generation, False)
+                self._versions.move_to_end(key)
+                self._bound_versions_locked()
+        if self._moa is not None:
+            self._moa.forget(session_id=key, session_check=lambda: self._closed(key, generation) if key else True)
         return None

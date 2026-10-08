@@ -1,0 +1,1511 @@
+{
+  "protocol_id": "native-moa-integration-01",
+  "synthetic": true,
+  "live_provider": true,
+  "privacy": "Allowlisted metadata only. No request, summary, profile, header value, or credential.",
+  "plugin_commit": "7c221dcb987494a335c73a39a24278eede751e3d",
+  "plugin_base": "c4103189ed8bfa3f3a2663ca21ea741e9b5c46c6",
+  "hermes_commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+  "platform": "Windows",
+  "python": "3.11.14",
+  "dependencies": {
+    "openai": "2.24.0",
+    "httpx": "0.28.1",
+    "pydantic": "2.13.4",
+    "PyYAML": "6.0.3",
+    "ruamel.yaml": "0.18.17"
+  },
+  "routes": {
+    "luna": {
+      "provider": "openai-codex",
+      "model": "gpt-6-luna",
+      "api_mode": "codex_responses",
+      "context_length": 272000,
+      "reasoning_effort": "low"
+    },
+    "dgx": {
+      "provider": "custom",
+      "model_alias": "dgx-model",
+      "api_mode": "chat_completions",
+      "context_length": 262144,
+      "server_build_and_deployed_weights": "unknown"
+    }
+  },
+  "method": {
+    "sessions": 2,
+    "fresh_profile_per_topology": true,
+    "estimated_seed_tokens": 12000,
+    "sequence": [
+      "normal_before_1",
+      "normal_before_2",
+      "normal_before_3",
+      "manual_compaction",
+      "normal_after_1",
+      "normal_after_2"
+    ],
+    "max_requests_per_session": 12,
+    "max_total_requests": 24,
+    "worker_wall_timeout_s": 600,
+    "concurrent_workers": 1,
+    "requested_main_output_limit": 2048,
+    "actual_output_limit": "Observed on each wire request; not forced on native Codex.",
+    "reference_handoffs": true,
+    "retries": false,
+    "reruns": false,
+    "matched_stock_control": false,
+    "cache_initial_state": "unknown_shared_cache",
+    "concurrent_server_load": "unknown",
+    "task": "Synthetic state correction: export the approved target GREEN-9 without asking again.",
+    "local_harness_source_hashes": {
+      "run_native_moa.py": "2eb63f929e67c005de26ccf95b22b0263e8d5f34a292cba33a9c5808b141a17f",
+      "run_moa_live.py": "53343d243205a97e1de98e59de1a0d6b2d773595738ae7f4ddd3e9b1078509cf",
+      "controller.py": "9d1af99f549a8e59830304293250bf9a5c57153d83f958fe03669cd2c565be9e",
+      "protocol.json": "b76ee9436f7d91c7c7c7a3e1b15c35cc2dae612c37f90c53261e6d579b275d35"
+    },
+    "harness_offline_tests_passed": 11
+  },
+  "topologies": [
+    {
+      "status": "completed",
+      "error": null,
+      "checks": {
+        "normal_before_1": true,
+        "normal_before_2": true,
+        "normal_before_3": true,
+        "manual_compaction": true,
+        "action_retained": true,
+        "normal_after_1": true,
+        "normal_after_2": true,
+        "one_compaction": true,
+        "no_admission_failure": true,
+        "nominal_requests": true,
+        "wire_responses_complete": true,
+        "two_summary_requests": true,
+        "both_warm_prefix_settings": true,
+        "expected_plugin_path": true
+      },
+      "seconds": {
+        "normal_before_1": 13.114059,
+        "normal_before_2": 7.503835,
+        "normal_before_3": 2.176536,
+        "manual_compaction": 11.462477,
+        "normal_after_1": 7.839181,
+        "normal_after_2": 10.697472,
+        "workflow": 19.301658
+      },
+      "warm_last": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 11.328,
+        "prompt_tokens": 13139,
+        "cached_tokens": 12224,
+        "moa_slots": [
+          {
+            "role": "reference",
+            "name": "luna",
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 12173,
+            "cached_tokens": 11008,
+            "elapsed_s": 2.922,
+            "included": true
+          },
+          {
+            "role": "aggregator",
+            "name": "dgx",
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 13139,
+            "cached_tokens": 12224,
+            "elapsed_s": 8.391
+          }
+        ]
+      },
+      "next_action": "passed",
+      "engine_context_length": 262144,
+      "first_prompt_tokens": 12348,
+      "final_history_rows": 20,
+      "admission_error": null,
+      "fence_denied": {
+        "child_process_blocked": 5,
+        "network_host_blocked": 2
+      },
+      "ignored_metadata_gets": {
+        "setup": 5,
+        "normal_before_1": 3
+      },
+      "topology": "luna_reference",
+      "result_sha256": "dd7b8763a9ce19145284700c6dc4a9d12f52fd4d01f6d60b31d61ffcf6ebe7e3",
+      "fixture_sha256": "878a1d81e8cef4343be741d72585ad4df5988c245c1b16f3d5bf4ff237bb7dee",
+      "source_guards_verified_after_run": true,
+      "scoped_auth_removed": true,
+      "consumed_marker_kept": true,
+      "requests": [
+        {
+          "seq": 0,
+          "stage": "normal_before_1",
+          "route": "luna",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 11558,
+          "cached_tokens": 0,
+          "completion_tokens": 6,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": null,
+          "settings_equal": null,
+          "cache_key_equal": null,
+          "input_comparison": null,
+          "instructions_comparison": null,
+          "tools_comparison": null,
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 0.949826,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 1,
+          "stage": "normal_before_1",
+          "route": "dgx",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 12348,
+          "cached_tokens": 0,
+          "completion_tokens": 4,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": null,
+          "settings_equal": null,
+          "cache_key_equal": null,
+          "input_comparison": null,
+          "instructions_comparison": null,
+          "tools_comparison": null,
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 8.183706,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 2,
+          "stage": "normal_before_2",
+          "route": "luna",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 11575,
+          "cached_tokens": 0,
+          "completion_tokens": 6,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 8.556262,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 13,
+            "common_prefix_chars": 50025,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 1809,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 0.963002,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 3,
+          "stage": "normal_before_2",
+          "route": "dgx",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 12359,
+          "cached_tokens": 2944,
+          "completion_tokens": 4,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 1.180985,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 14,
+            "common_prefix_chars": 54144,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 6.369445,
+          "reported_cache_fraction": 0.238207
+        },
+        {
+          "seq": 4,
+          "stage": "normal_before_3",
+          "route": "luna",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 11592,
+          "cached_tokens": 0,
+          "completion_tokens": 6,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 6.526947,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 15,
+            "common_prefix_chars": 50209,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 1809,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 1.463604,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 5,
+          "stage": "normal_before_3",
+          "route": "dgx",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 12370,
+          "cached_tokens": 12224,
+          "completion_tokens": 4,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 1.61556,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 16,
+            "common_prefix_chars": 54231,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 0.561215,
+          "reported_cache_fraction": 0.988197
+        },
+        {
+          "seq": 6,
+          "stage": "manual_compaction",
+          "route": "luna",
+          "role": "reference",
+          "kind": "warm",
+          "status": 200,
+          "prompt_tokens": 12173,
+          "cached_tokens": 11008,
+          "completion_tokens": 172,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 0.75758,
+          "prefix_kept": true,
+          "settings_kept": true,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 17,
+            "common_prefix_chars": 50393,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 1809,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "request_seconds": 2.86785,
+          "reported_cache_fraction": 0.904296
+        },
+        {
+          "seq": 7,
+          "stage": "manual_compaction",
+          "route": "dgx",
+          "role": "aggregator",
+          "kind": "warm",
+          "status": 200,
+          "prompt_tokens": 13139,
+          "cached_tokens": 12224,
+          "completion_tokens": 370,
+          "terminal_complete": true,
+          "gap_since_prior_completed_s": 3.0687,
+          "prefix_kept": true,
+          "settings_kept": true,
+          "settings_equal": false,
+          "changed_setting_names": [
+            "max_tokens"
+          ],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 19,
+            "common_prefix_chars": 54711,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": 8192,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": false,
+          "api_mode": "chat_completions",
+          "request_seconds": 8.383082,
+          "reported_cache_fraction": 0.93036
+        },
+        {
+          "seq": 8,
+          "stage": "normal_after_1",
+          "route": "luna",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 8716,
+          "cached_tokens": 0,
+          "completion_tokens": 17,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 8.547257,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 0,
+            "common_prefix_chars": 73,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 1809,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 0.868027,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 9,
+          "stage": "normal_after_1",
+          "route": "dgx",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 9481,
+          "cached_tokens": 0,
+          "completion_tokens": 13,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 1.033966,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 0,
+            "common_prefix_chars": 2108,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 6.803785,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 10,
+          "stage": "normal_after_2",
+          "route": "luna",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 8783,
+          "cached_tokens": 7936,
+          "completion_tokens": 194,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 6.974885,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 17,
+            "common_prefix_chars": 37895,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 1809,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 6.144494,
+          "reported_cache_fraction": 0.903564
+        },
+        {
+          "seq": 11,
+          "stage": "normal_after_2",
+          "route": "dgx",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 9540,
+          "cached_tokens": 3712,
+          "completion_tokens": 13,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 6.316664,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 18,
+            "common_prefix_chars": 41724,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 4.383067,
+          "reported_cache_fraction": 0.389099
+        }
+      ],
+      "request_count": 12
+    },
+    {
+      "status": "stopped",
+      "error": "action_not_retained",
+      "checks": {
+        "normal_before_1": true,
+        "normal_before_2": true,
+        "normal_before_3": true,
+        "manual_compaction": true,
+        "action_retained": false,
+        "no_admission_failure": true,
+        "nominal_requests": false,
+        "wire_responses_complete": true,
+        "two_summary_requests": true,
+        "both_warm_prefix_settings": true,
+        "expected_plugin_path": true
+      },
+      "seconds": {
+        "normal_before_1": 12.312825,
+        "normal_before_2": 2.385799,
+        "normal_before_3": 1.377091,
+        "manual_compaction": 11.245508
+      },
+      "warm_last": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 10.828,
+        "prompt_tokens": 13386,
+        "cached_tokens": 0,
+        "moa_slots": [
+          {
+            "role": "reference",
+            "name": "dgx",
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 12124,
+            "cached_tokens": 11520,
+            "elapsed_s": 7.672,
+            "included": true
+          },
+          {
+            "role": "aggregator",
+            "name": "luna",
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 13386,
+            "cached_tokens": 0,
+            "elapsed_s": 3.109
+          }
+        ]
+      },
+      "next_action": "wrong_action",
+      "engine_context_length": 272000,
+      "first_prompt_tokens": 12388,
+      "final_history_rows": null,
+      "admission_error": null,
+      "fence_denied": {
+        "child_process_blocked": 5,
+        "network_host_blocked": 2
+      },
+      "ignored_metadata_gets": {
+        "setup": 5,
+        "normal_before_1": 1,
+        "manual_compaction": 1
+      },
+      "topology": "luna_aggregator",
+      "result_sha256": "0c573714364463909c2ae056057f7ec4aa7c46fc7fef3d99f356c675f6d81766",
+      "fixture_sha256": "878a1d81e8cef4343be741d72585ad4df5988c245c1b16f3d5bf4ff237bb7dee",
+      "source_guards_verified_after_run": true,
+      "scoped_auth_removed": true,
+      "consumed_marker_kept": true,
+      "requests": [
+        {
+          "seq": 0,
+          "stage": "normal_before_1",
+          "route": "dgx",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 11528,
+          "cached_tokens": 0,
+          "completion_tokens": 4,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": null,
+          "settings_equal": null,
+          "cache_key_equal": null,
+          "input_comparison": null,
+          "instructions_comparison": null,
+          "tools_comparison": null,
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 7.590095,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 1,
+          "stage": "normal_before_1",
+          "route": "luna",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 12388,
+          "cached_tokens": 0,
+          "completion_tokens": 6,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": null,
+          "settings_equal": null,
+          "cache_key_equal": null,
+          "input_comparison": null,
+          "instructions_comparison": null,
+          "tools_comparison": null,
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 0.948088,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 2,
+          "stage": "normal_before_2",
+          "route": "dgx",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 11539,
+          "cached_tokens": 11520,
+          "completion_tokens": 4,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 1.41598,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 14,
+            "common_prefix_chars": 51259,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 0.249691,
+          "reported_cache_fraction": 0.998353
+        },
+        {
+          "seq": 3,
+          "stage": "normal_before_2",
+          "route": "luna",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 12405,
+          "cached_tokens": 0,
+          "completion_tokens": 6,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 0.438307,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 13,
+            "common_prefix_chars": 50052,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 4653,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 1.970549,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 4,
+          "stage": "normal_before_3",
+          "route": "dgx",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 11550,
+          "cached_tokens": 11520,
+          "completion_tokens": 4,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 2.124559,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 16,
+            "common_prefix_chars": 51346,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 0.247214,
+          "reported_cache_fraction": 0.997403
+        },
+        {
+          "seq": 5,
+          "stage": "normal_before_3",
+          "route": "luna",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 12422,
+          "cached_tokens": 0,
+          "completion_tokens": 6,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 0.402261,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 15,
+            "common_prefix_chars": 50236,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 4653,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 0.97428,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 6,
+          "stage": "manual_compaction",
+          "route": "dgx",
+          "role": "reference",
+          "kind": "warm",
+          "status": 200,
+          "prompt_tokens": 12124,
+          "cached_tokens": 11520,
+          "completion_tokens": 358,
+          "terminal_complete": true,
+          "gap_since_prior_completed_s": 1.464888,
+          "prefix_kept": true,
+          "settings_kept": true,
+          "settings_equal": false,
+          "changed_setting_names": [
+            "max_tokens"
+          ],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 18,
+            "common_prefix_chars": 51433,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": 8192,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": false,
+          "api_mode": "chat_completions",
+          "request_seconds": 7.666521,
+          "reported_cache_fraction": 0.950181
+        },
+        {
+          "seq": 7,
+          "stage": "manual_compaction",
+          "route": "luna",
+          "role": "aggregator",
+          "kind": "warm",
+          "status": 200,
+          "prompt_tokens": 13386,
+          "cached_tokens": 0,
+          "completion_tokens": 118,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 8.163021,
+          "prefix_kept": true,
+          "settings_kept": true,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": 18,
+            "common_prefix_chars": 50834,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": true,
+            "common_prefix_items": null,
+            "common_prefix_chars": 4653,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "request_seconds": 3.041309,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 8,
+          "stage": "normal_after_1",
+          "route": "dgx",
+          "role": "reference",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 8459,
+          "cached_tokens": 0,
+          "completion_tokens": 91,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 3.244867,
+          "settings_equal": true,
+          "changed_setting_names": [],
+          "cache_key_equal": true,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 1,
+            "common_prefix_chars": 1891,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": null,
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": null,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "prompt_tokens_details.cached_tokens",
+          "finish_reason": "stop",
+          "stream": true,
+          "api_mode": "chat_completions",
+          "retry_count": 0,
+          "request_seconds": 8.434421,
+          "reported_cache_fraction": 0.0
+        },
+        {
+          "seq": 9,
+          "stage": "normal_after_1",
+          "route": "luna",
+          "role": "aggregator",
+          "kind": "normal",
+          "status": 200,
+          "prompt_tokens": 9332,
+          "cached_tokens": 0,
+          "completion_tokens": 17,
+          "terminal_complete": true,
+          "closed_early": false,
+          "gap_since_prior_completed_s": 8.629179,
+          "settings_equal": false,
+          "changed_setting_names": [
+            "instructions",
+            "prompt_cache_key"
+          ],
+          "cache_key_equal": false,
+          "affinity_headers_equal": true,
+          "input_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": 0,
+            "common_prefix_chars": 73,
+            "equal": false
+          },
+          "instructions_comparison": {
+            "prefix_equal": false,
+            "common_prefix_items": null,
+            "common_prefix_chars": 2067,
+            "equal": false
+          },
+          "tools_comparison": {
+            "prefix_equal": null,
+            "common_prefix_items": null,
+            "common_prefix_chars": null,
+            "equal": true
+          },
+          "cache_write_counters": {
+            "input_tokens_details.cache_write_tokens": 0
+          },
+          "cache_options": {
+            "prompt_cache_retention": null,
+            "retention_present": false,
+            "store": false,
+            "options_present": false,
+            "mode": null,
+            "ttl": null,
+            "prewarm": null
+          },
+          "wire_output_bounds": {
+            "max_tokens": null,
+            "max_completion_tokens": null,
+            "max_output_tokens": null
+          },
+          "cache_counter_reported": true,
+          "cache_counter_field": "input_tokens_details.cached_tokens",
+          "finish_reason": "completed",
+          "stream": true,
+          "api_mode": "codex_responses",
+          "retry_count": 0,
+          "request_seconds": 1.15082,
+          "reported_cache_fraction": 0.0
+        }
+      ],
+      "request_count": 10
+    }
+  ],
+  "limits": [
+    "One attempted session per topology. No matched stock timing or action-retention control.",
+    "Reported cached tokens prove reuse only on that request. Missing counters remain null.",
+    "Exact decoded prefixes and settings do not prove identical server-rendered tokens or cache residency.",
+    "Zero cached tokens do not establish cache expiry, a disabled cache, or a Hermes defect.",
+    "The Luna-aggregator continuation failed. This does not establish that compaction caused the failure.",
+    "Local harness hashes identify the runs; the full local runner and private profiles are not published.",
+    "No qualified speed gain, general summary-quality result, deployed compatibility, or release qualification."
+  ],
+  "total_requests": 22,
+  "plugin_files_sha256": {
+    "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "capture.py": "85e4727f39ee3d85d5c2c7bc6b921d0e79affbde0ee3f33f12535270b8cc4c7a",
+    "engine.py": "57bc1f0b9dccab64b96a7d09642d440d0e61d8d677fdb6eaddd69b7379324fd0",
+    "fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "handoff.py": "1c1b3eb2d70b25571b8d8241685141e9bf0b164b8fff25f5ba1ba032678b6d5c",
+    "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "moa.py": "b4880206afebbb876a9a75a02dc97f860751e02af8df182465cf9e9a6c435790",
+    "moa_native.py": "70b7c82502d11dc94572c057bc99164963123ffba613b045bbe096ff869e3571",
+    "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "plugin.yaml": "6fbece6d586a6037c30d98916c77ae080568788c967f125a728c5d86514b93b9",
+    "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "rows.py": "2f5d9bd1e1d72c620354c4ec317526b4bca56033e9f080dde9967feff4bdb50c",
+    "warm.py": "6b5cacd003acfa5027b871a73d3ca34ec1612ac70b7497e24cd8ecb74e9025d2",
+    "__init__.py": "0b50df27220aa82164c8392ac4947f8f1dd0158f6c3134150c05102f2ab29021"
+  },
+  "source_identity_note": "Clean pinned Git checkouts were tested with the recorded working-file bytes. Some plugin files use CRLF on Windows; the loopback evidence also records normalized Git blob hashes."
+}

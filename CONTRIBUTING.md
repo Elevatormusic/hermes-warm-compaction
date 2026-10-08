@@ -95,6 +95,19 @@ The [Hermes compatibility workflow](.github/workflows/hermes-compatibility.yml) 
 
 See [provider support](docs/provider-support.md) for the supported request and authentication limits. A passing local check does not qualify a live provider.
 
+For MOA changes, also run the [MOA check](docs/moa.md) against the selected clean
+Hermes source:
+
+```bash
+<hermes-venv-python> -B scripts/check_moa_hermes.py --hermes-source <clean-hermes-checkout> --native --report .work/moa-report.json
+```
+
+Record host API availability. Native MOA and complete tool-schema observations
+need the separate Hermes auxiliary API extension. Keep a missing API distinct
+from a failed request or a failed history check.
+The command requires five Chat MOA cases and four native MOA cases. Without
+`--native`, it runs only the five Chat cases.
+
 For document or form changes, check local Markdown links and run `git diff --check`. For issue forms, parse the YAML and check its fields against the [GitHub form schema](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema). No live model check is needed for these changes.
 
 CI runs unit and property tests on Python 3.10 to 3.13 (Linux) and on Python 3.12 (Windows and macOS). It saves branch coverage reports for each job and runs lint. A pull request must pass the test and lint checks. The Hermes compatibility workflow also runs on pull requests, pushes to `main`, each day, and by manual dispatch.

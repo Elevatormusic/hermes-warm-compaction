@@ -279,6 +279,160 @@ class CaptureStoreTest(unittest.TestCase):
         self.run_request()
         self.store.latest("s1")["body"]["messages"].clear()
         self.assertEqual(len(self.store.latest("s1")["body"]["messages"]), 2)
+    def test_forget_during_digest_work_cannot_restore_an_open_request(self):
+        def digest(row):
+            self.store.forget("s1")
+            return row_digest(row)
+        with patch("warm_compaction.capture.row_digest", side_effect=digest):
+            self.run_request()
+        self.assertIsNone(self.store.latest("s1"))
+        self.assertEqual(len(self.store._open), 0)
+
+    def test_forget_and_reopen_during_digest_work_refuses_the_old_token(self):
+        def digest(row):
+            self.store.forget("s1")
+            self.store.open_session("s1")
+            return row_digest(row)
+        with patch("warm_compaction.capture.row_digest", side_effect=digest):
+            self.run_request()
+        self.assertIsNone(self.store.latest("s1"))
+        self.run_request(request_id="r2")
+        self.assertIsNotNone(self.store.latest("s1"))
+
+    def test_forget_during_moa_finish_cannot_publish_the_old_capture(self):
+        store = self.store
+        class Moa:
+            def pre_main(self, **kwargs):
+                pass
+            def run_main(self, request_id, next_call):
+                return next_call()
+            def finish_main(self, request_id, capture):
+                result = {"code": None, "aggregator": {"synthetic": True}, "references": []}
+                store.forget("s1")
+                return result
+            def forget(self, **kwargs):
+                pass
+        self.store._moa = Moa()
+        self.run_request()
+        self.assertIsNone(self.store.latest("s1"))
+
+    def test_forget_and_reopen_during_post_refuses_the_old_capture(self):
+        store = self.store
+        class Moa:
+            first = True
+            def pre_main(self, **kwargs):
+                pass
+            def run_main(self, request_id, next_call):
+                return next_call()
+            def finish_main(self, request_id, capture):
+                if self.first:
+                    self.first = False
+                    store.forget("s1")
+                    store.open_session("s1")
+                return {"code": None, "aggregator": None, "references": []}
+            def forget(self, **kwargs):
+                pass
+            def open_session(self, *args, **kwargs):
+                pass
+        self.store._moa = Moa()
+        self.run_request()
+        self.assertIsNone(self.store.latest("s1"))
+        self.run_request(request_id="r2")
+        self.assertIsNotNone(self.store.latest("s1"))
+
+    def test_callbacks_cannot_reopen_a_forgotten_session(self):
+        self.run_request()
+        self.store.forget("s1")
+        result, calls = self.run_request(request_id="r2")
+        self.assertEqual((result, calls), ("response", [1]))
+        self.assertIsNone(self.store.latest("s1"))
+        self.store.open_session("s1")
+        self.run_request(request_id="r3")
+        self.assertIsNotNone(self.store.latest("s1"))
+
+    def test_token_eviction_invalidates_digest_work_in_progress(self):
+        self.store = CaptureStore(max_sessions=1)
+        def digest(row):
+            self.store.open_session("other")
+            return row_digest(row)
+        with patch("warm_compaction.capture.row_digest", side_effect=digest):
+            self.run_request()
+        self.assertIsNone(self.store.latest("s1"))
+        self.assertEqual(len(self.store._open), 0)
+        self.assertEqual(len(self.store._versions), 1)
+
+    def test_moa_gets_virtual_route_and_an_old_epoch_guard(self):
+        from warm_compaction.moa import MoaStore
+        tracker = MoaStore([])
+        self.store._moa = tracker
+        original = tracker.pre_main
+        received = []
+        def delayed(**kwargs):
+            received.append(kwargs)
+            self.store.forget("s1")
+            self.store.open_session("s1")
+            original(**kwargs)
+        tracker.pre_main = delayed
+        self.store.on_pre_api_request(api_request_id="r1", session_id="s1", turn_id="t1", provider="moa",
+                                      conversation_history=self.history, model="preset", base_url="moa://local",
+                                      api_mode="chat_completions")
+        self.assertEqual((received[0]["model"], received[0]["base_url"], received[0]["api_mode"]),
+                         ("preset", "moa://local", "chat_completions"))
+        self.assertFalse(received[0]["session_check"]())
+        self.assertEqual(len(tracker._mains), 0)
+        self.assertEqual(len(self.store._open), 0)
+
+    def test_lifecycle_tokens_do_not_leave_the_capture_store(self):
+        self.run_request()
+        self.assertNotIn("_token", self.store.latest("s1"))
+        for index in range(20):
+            self.store.forget(f"closed-{index}")
+        self.assertLessEqual(len(self.store._versions), self.store._max_sessions)
+
+    def test_delayed_moa_forget_cannot_close_an_explicit_reopen(self):
+        from warm_compaction.moa import MoaStore
+        tracker = MoaStore([])
+        self.store._moa = tracker
+        self.store.open_session("s1")
+        original = tracker.forget
+        def delayed(**kwargs):
+            self.store.open_session("s1")
+            original(**kwargs)
+        tracker.forget = delayed
+        self.store.forget("s1")
+        self.assertIsNotNone(tracker._versions["s1"])
+        self.run_request(request_id="r2")
+        self.assertIsNotNone(self.store.latest("s1"))
+
+    def test_cross_store_reopen_invalidates_an_old_aux_copy(self):
+        from warm_compaction.moa import MoaStore, _body
+        from test_wc_moa import REF_ROUTE, ROUTE, event
+        tracker = MoaStore([ROUTE, REF_ROUTE], include_references=True)
+        self.store._moa = tracker
+        self.store.open_session("s1")
+        original = tracker.forget
+        def delayed(**kwargs):
+            self.store.open_session("s1")
+            original(**kwargs)
+        tracker.forget = delayed
+        def body(*args):
+            result = _body(*args)
+            self.store.forget("s1")
+            return result
+        with patch("warm_compaction.moa._body", side_effect=body):
+            tracker.on_pre_auxiliary_call(**event(REF_ROUTE, task="moa_reference", request_id="r1"))
+        self.assertEqual(len(tracker._references), 0)
+        self.assertEqual(len(tracker._pending), 0)
+
+    def test_explicit_reopens_keep_both_token_maps_bounded(self):
+        from warm_compaction.moa import MAX_SESSIONS, MoaStore
+        tracker = MoaStore([])
+        self.store._moa = tracker
+        for index in range(MAX_SESSIONS + 4):
+            self.store.open_session(f"s{index}")
+        self.assertLessEqual(len(self.store._versions), self.store._max_sessions)
+        self.assertLessEqual(len(tracker._versions), MAX_SESSIONS)
+        self.assertLessEqual(len(tracker._capture_versions), MAX_SESSIONS)
 
 
 if __name__ == "__main__":
