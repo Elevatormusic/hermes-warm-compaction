@@ -82,20 +82,35 @@ def plain_lines(body: str) -> list[str]:
     fence = None
     comment = False
     inline_code = None
-    html_code = None
+    html_code = []
     nested = False
+    markup = re.compile(
+        r"<!--|--!?>|<(/?)(pre|code|script|style|textarea)(?=[ \t/>]|$)[^>]*(?:>|$)", re.IGNORECASE
+    )
+
+    def scan_markup(line: str) -> bool:
+        nonlocal comment
+        hidden = comment or bool(html_code)
+        for marker in markup.finditer(line):
+            if marker[0] == "<!--" and not comment:
+                comment = True
+                hidden = True
+            elif marker[0] in ("-->", "--!>") and comment:
+                comment = False
+            elif marker[2] and not comment:
+                hidden = True
+                tag = marker[2].lower()
+                if not marker[1]:
+                    html_code.append(tag)
+                elif html_code and html_code[-1] == tag and marker[0].endswith(">"):
+                    html_code.pop()
+        return hidden
+
     for line in body.splitlines():
-        html_tags = list(re.finditer(
-            r"<(/?)(pre|code|script|style|textarea)(?=[ \t/>]|$)[^>]*(?:>|$)", line, re.IGNORECASE
-        ))
         if not line.strip():
             nested = False
         if html_code:
-            for tag in html_tags:
-                if not tag[1] and html_code is None:
-                    html_code = tag[2].lower()
-                elif tag[1] and tag[2].lower() == html_code and tag[0].endswith(">"):
-                    html_code = None
+            scan_markup(line)
             continue
         if inline_code:
             for marker in re.finditer(r"`+", line):
@@ -112,22 +127,8 @@ def plain_lines(body: str) -> list[str]:
         if mark and not comment:
             fence = (mark[1][0], len(mark[1]))
             continue
-        hidden = comment
-        for marker in re.finditer(r"<!--|--!?>", line):
-            if marker[0] == "<!--" and not comment:
-                comment = True
-                hidden = True
-            elif marker[0] in ("-->", "--!>") and comment:
-                comment = False
         # A comment must not change a code fence or join parts of a plain line.
-        if hidden:
-            continue
-        if html_tags:
-            for tag in html_tags:
-                if not tag[1] and html_code is None:
-                    html_code = tag[2].lower()
-                elif tag[1] and tag[2].lower() == html_code and tag[0].endswith(">"):
-                    html_code = None
+        if scan_markup(line):
             continue
         ticks = list(re.finditer(r"(?<!\\)`+", line))
         if ticks:

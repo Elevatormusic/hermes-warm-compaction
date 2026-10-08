@@ -200,6 +200,27 @@ class ParserTests(unittest.TestCase):
         self.assertIsNotNone(policy.body_requirement("<pre>\n</pre><pre>\n" + NO_AGENT + "\n</pre>"))
         self.assertIsNotNone(policy.body_requirement("<pre\n>\n" + NO_AGENT + "\n</pre>"))
 
+    def test_nested_html_code_stays_hidden_until_the_outer_close(self):
+        for outer, inner in (("code", "code"), ("code", "pre"), ("pre", "code")):
+            with self.subTest(outer=outer, inner=inner):
+                hidden = f"<{outer}><{inner}>\nexample\n</{inner}>\nCloses #7\n{NO_AGENT}\n</{outer}>"
+                self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(hidden))
+                public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_comment_tags_cannot_close_or_hide_an_html_code_block(self):
+        for end in ("-->", "--!>"):
+            for opening in (f"<code>\n<!--\n</code>\n{end}", f"<code><!-- </code> {end}"):
+                with self.subTest(end=end, opening=opening):
+                    hidden = opening + "\nCloses #7\n" + NO_AGENT + "\n</code>"
+                    self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(hidden))
+                    public = hidden + "\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+
     def test_list_and_quote_continuations_do_not_count(self):
         for prefix in ("- Example:", "1. Example:", "> Example:", "  - Example:", "  > Example:"):
             for indent in ("", "  "):
