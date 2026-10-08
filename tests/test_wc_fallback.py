@@ -156,6 +156,15 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
 
+    def test_the_fallback_instruction_asks_for_the_set_word_count(self):
+        llm = FakeLlm()
+        llm_summary(llm, [user("hi"), assistant("ok")], PREFIXES, summary_words=1200)
+        content = llm.calls[0][0][0]["content"]
+        self.assertIn("Use at most 1200 words.", content)
+        self.assertNotIn("600 words", content)
+        # The default stays the long-standing text.
+        self.assertIn("Use at most 600 words.", FALLBACK_INSTRUCTION)
+
     def test_the_memory_context_counts_against_the_transcript_budget(self):
         # A memory provider can give a very large context. The fallback request must stay inside its budget.
         from warm_compaction.fallback import EXTRAS_CHARS

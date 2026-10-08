@@ -167,6 +167,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | `tail_tokens` | int, 0 or more | 0: 2.5% of the context window, from 10,000 to 25,000 | Size of the verbatim tail, at most half of the compaction threshold |
 | `user_copy_chars` | int, 0 or more | 24,000 | Total characters of user messages that the summary copies |
 | `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
+| `summary_words` | int, 1 or more | 600 | Word count the handoff instruction asks for. It applies to the warm request and the fallback summary. A larger value records more of a long session. The task, not this value, controls the final reply size |
 
 ```yaml
 plugins:

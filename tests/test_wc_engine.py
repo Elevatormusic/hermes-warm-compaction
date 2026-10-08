@@ -1553,6 +1553,17 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "disabled"))
         self.assertEqual(self.post.calls, [])
 
+    def test_the_word_count_setting_reaches_the_warm_request(self):
+        engine = self.make(summary_words=1200)
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        sent = " ".join(str(row.get("content")) for row in self.post.calls[0]["body"]["messages"])
+        self.assertIn("Use at most 1200 words.", sent)
+        self.assertNotIn("600 words", sent)
+
     def test_cancelled_attempt_keeps_the_history(self):
         rows = old_turns()
         reply = assistant("final")
@@ -1834,15 +1845,28 @@ class SettingsTest(unittest.TestCase):
         self.module = engine
 
     def test_valid_values(self):
-        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False}
+        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
+                  "summary_words": 1200}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
-        values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no"}
+        values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
+                  "summary_words": 0}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 4)
+        self.assertEqual(len(logs.output), 5)
+
+    def test_a_word_count_below_one_uses_the_default(self):
+        def reader(values):
+            return lambda key, default: values.get(key, default)
+
+        for bad in (0, -5, "big", True):
+            with self.subTest(bad=bad):
+                with self.assertLogs("warm_compaction.engine", level="WARNING"):
+                    settings = self.module.read_settings(reader({"summary_words": bad}))
+                self.assertEqual(settings["summary_words"], self.module.DEFAULTS["summary_words"])
+                self.assertEqual(self.module.DEFAULTS["summary_words"], 600)
 
     def test_tail_budget(self):
         self.assertEqual(self.module.tail_budget(0, 200_000), 10_000)
