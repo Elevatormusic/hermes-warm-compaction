@@ -315,6 +315,130 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_inline_tick_match_stops_at_setext_and_thematic_boundaries(self):
+        for marker in ("---", "===", "***", "=", "--", "_ _ _", "- - -", "   *\t* * "):
+            with self.subTest(marker=marker):
+                body = "Prose `\n" + marker + "\nCloses #7\nanother `\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_setext_and_thematic_end_the_prose_paragraph_before_type_seven_html(self):
+        for marker in ("---", "===", "***", "_ _ _"):
+            with self.subTest(marker=marker):
+                body = "Prose\n" + marker + "\n<span>\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_non_boundaries_keep_matched_inline_spans_and_fences(self):
+        for marker in ("    ---", "a ===", "* - *", "== text", "\\---"):
+            with self.subTest(marker=marker):
+                body = "Prose `\n" + marker + "\nCloses #7\nanother `\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNone(policy.body_requirement(body))
+        body = "```text\n---\n===\n***\nCloses #7\n```\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_unmatched_inline_ticks_do_not_hide_public_policy_fields(self):
+        body = "An unmatched ` example.\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_inline_tick_match_stops_at_heading_boundary(self):
+        body = "Prose `\n## AI agent use\nNo AI agent used\nAnother marker `\n\n" + TEST_CONFIRMATION
+        self.assertIsNone(policy.body_requirement(body))
+        body = "Closes #7\n\n" + AGENT_USE.replace("Work: Write policy tests.", "Work: Check the ` option.")
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_invalid_backtick_fence_info_does_not_hide_public_policy_fields(self):
+        body = "```language`\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_escaped_details_close_cannot_release_hidden_policy_fields(self):
+        body = "<details><summary>Example</summary>\n\n\\</details>\n\nCloses #7\n\n" + NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_unmatched_tick_lengths_are_literal_on_agent_work_line(self):
+        for text in ("Use the ` option.", "Use ` and `` markers.", "Use `` and ``` markers."):
+            with self.subTest(text=text):
+                body = "Closes #7\n\n" + AGENT_USE.replace("Write policy tests.", text)
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_unmatched_ticks_do_not_disable_comments_or_literal_html(self):
+        for opening, closing in (("<!--", "-->"), ("<pre>", "</pre>")):
+            with self.subTest(opening=opening):
+                body = "Example `" + opening + "\nCloses #7\n" + NO_AGENT + "\n" + closing
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+                public = body + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+
+    def test_tick_match_stops_at_fence_html_quote_and_list_boundaries(self):
+        samples = [
+            "```text\n`\n```", "~~~text\n`\n~~~", "<pre>`\n</pre>", "<div>`\n</div>",
+            "<!-- ` -->", "<?example `?>", "<![CDATA[`]]>", "<!DOCTYPE example `>",
+            "> Another ` marker", "- Another ` marker", "1. Another ` marker",
+        ]
+        for sample in samples:
+            with self.subTest(sample=sample):
+                body = "Prose `\n" + sample + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_type_seven_html_does_not_interrupt_matched_inline_span(self):
+        body = "`\n<span>\nexample`\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_type_seven_html_does_not_interrupt_prose_paragraph(self):
+        body = "Prose\n<span>\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
+    def test_fence_info_rules_keep_valid_fences_and_literal_invalid_lines(self):
+        for indent in ("", "   "):
+            for opening in ("```text`", "````text`", r"```text\`", "```text```"):
+                with self.subTest(indent=indent, opening=opening):
+                    body = indent + opening + "\n\nCloses #7\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                    self.assertIsNone(policy.body_requirement(body))
+            for opening, close in (("```text", "```"), ("````text", "````"), ("~~~text`", "~~~")):
+                with self.subTest(indent=indent, opening=opening):
+                    hidden = indent + opening + "\nCloses #7\n" + NO_AGENT + "\n" + close
+                    self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(hidden))
+                    self.assertIsNone(policy.body_requirement(hidden + "\n\n" + NO_AGENT))
+
+    def test_markdown_html_escape_parity_preserves_real_container_close(self):
+        for tag in ("details", "blockquote", "ul"):
+            for count in (1, 2, 3, 4):
+                with self.subTest(tag=tag, count=count):
+                    body = f"<{tag}>\n\n" + "\\" * count + f"</{tag}>\n\nCloses #7\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [] if count % 2 else [7])
+                    self.assertEqual(policy.body_requirement(body) is None, count % 2 == 0)
+                    body += f"\n</{tag}>\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [8] if count % 2 else [7, 8])
+
+    def test_html_escape_rules_stay_literal_in_raw_blocks_and_attributes(self):
+        for tag in ("details", "pre", "code", "script", "style", "textarea"):
+            with self.subTest(tag=tag):
+                body = f"<{tag}>\n\\</{tag}>\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+        body = "<details><summary title='\\</details>'>Example</summary>\n\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_escaped_html_starts_in_markdown_do_not_open_hidden_contexts(self):
+        for opening in ("<details>", "<pre>", "<!--", "<?example", "<![CDATA[", "<!DOCTYPE example"):
+            with self.subTest(opening=opening):
+                body = "\\" + opening + "\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
     def test_optional_description_item_ends_recover_public_policy_lines(self):
         sample = "<dl>\n<dt>Term\n<dd>Definition\n</dl>"
         body = sample + "\n\nCloses #7\n\n" + NO_AGENT
@@ -474,7 +598,8 @@ class ReviewRegressionTests(unittest.TestCase):
                     self.assertIsNone(policy.body_requirement(public))
 
     def test_multiline_container_code_span_ignores_fake_tags_and_comments(self):
-        hidden = "<details>\n<summary>Example</summary>\n\n``\n</details>\n<!--\n<pre>\n``\n\nCloses #7\n"
+        hidden = "<details>\n<summary>Example</summary>\n\n``\nexample </details>\nexample <!--\nexample <pre>\n``\n\n"
+        hidden += "Closes #7\n"
         hidden += NO_AGENT + "\n</details>"
         self.assertEqual(policy.issue_references(hidden, REPOSITORY), [])
         self.assertIsNotNone(policy.body_requirement(hidden))
@@ -569,7 +694,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_special_markup_inside_code_or_quoted_attributes_has_no_effect(self):
         for text in ("<?example", "<![CDATA[", "<!DOCTYPE example"):
             with self.subTest(text=text):
-                body = "``\n" + text + "``\nCloses #7\n\n" + NO_AGENT
+                body = "``\nexample " + text + "``\nCloses #7\n\n" + NO_AGENT
                 self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
                 self.assertIsNone(policy.body_requirement(body))
                 body = "`\nexample`<span title='" + text + "'>\nCloses #7\n\n" + NO_AGENT
@@ -712,7 +837,7 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_inline_code_does_not_interpret_markup_until_it_closes(self):
         for text in ("<!--", "<pre>", "<div>"):
             with self.subTest(text=text):
-                body = "``\n" + text + "``\nCloses #7\n\n" + NO_AGENT
+                body = "``\nexample " + text + "``\nCloses #7\n\n" + NO_AGENT
                 self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
                 self.assertIsNone(policy.body_requirement(body))
         body = "`\nexample`<span title='<!--'>\nCloses #7\n\n" + NO_AGENT
@@ -916,7 +1041,7 @@ class ParserTests(unittest.TestCase):
         for marker in ("`", "``"):
             with self.subTest(marker=marker):
                 self.assertEqual(policy.issue_references(marker + "\nCloses #7\n" + marker, REPOSITORY), [])
-                self.assertIsNotNone(policy.body_requirement(marker + "\n" + NO_AGENT + "\n" + marker))
+                self.assertIsNone(policy.body_requirement(marker + "\n" + NO_AGENT + "\n" + marker))
                 visible = marker + "\nexample\n" + marker + "\n\n" + NO_AGENT
                 self.assertIsNone(policy.body_requirement(visible))
         self.assertEqual(policy.issue_references("`\n` text `\nCloses #7\n`", REPOSITORY), [])

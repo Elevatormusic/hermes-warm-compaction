@@ -10,6 +10,8 @@ Complete each bug report section. Give exact versions when you have them. Write 
 
 Every issue and PR must declare AI agent use. If an AI agent helped diagnose the problem or write code, list every harness, exact model, and task. A harness is the app or tool that ran the agent. Use plain `Harness:`, `Model:`, and `Work:` lines for each agent. Start these lines at the left margin, with no leading spaces. If no AI agent was used, write exactly `No AI agent used`. Do not guess a model or use a default disclosure. Keep private paths, configs, credentials, and conversations out of this statement.
 
+GitHub requires nonempty disclosure text in the issue forms. It does not check the text format. Maintainers review issue disclosures. The `issue-first` workflow validates disclosures in new PRs; it does not validate or close issues.
+
 Include:
 
 - The installed plugin version, source commit or install ref, install method, and local edits. Give the running Hermes version and commit, and any local Hermes edits.

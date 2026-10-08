@@ -105,6 +105,7 @@ def plain_lines(body: str) -> list[str]:
     tag_parts = []
     tag_quote = None
     nested = False
+    paragraph = False
     comment_end = re.compile(r"--!?>")
     tag_start = re.compile(r"</?[A-Za-z]")
     declaration_start = re.compile(r"<![A-Z]")
@@ -127,6 +128,44 @@ def plain_lines(body: str) -> list[str]:
         r" {0,3}(?:<[A-Za-z][A-Za-z0-9-]*(?:" + attribute + r")*[ \t]*/?>|</[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$"
     )
     math_marker = re.compile(r"(?<!\\)(?:\\\\)*\$\$")
+    setext_underline = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
+    thematic_break = re.compile(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})")
+
+    def fence_start(line: str):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if marker and marker[1][0] == "`" and "`" in line[marker.end():]:
+            return None
+        return marker
+
+    body_lines = body.splitlines()
+    matched_ticks = set()
+    later_ticks = set()
+    for line_number in range(len(body_lines) - 1, -1, -1):
+        line = body_lines[line_number]
+        # Code spans cannot match across these paragraph boundaries.
+        boundary = (
+            not line.strip() or fence_start(line) or raw_block_tag.match(line)
+            or setext_underline.fullmatch(line) or thematic_break.fullmatch(line)
+            or re.match(r" {0,3}<(?:script|pre|style|textarea)(?=[ \t>]|$)", line, re.IGNORECASE)
+            or re.match(
+                r" {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*][ \t]+|[0-9]+[.)][ \t]+|<!--|<\?|<![A-Z]|<!\[CDATA\[)", line,
+            )
+        )
+        if boundary:
+            later_ticks.clear()
+        for marker in reversed(list(tick_run.finditer(line))):
+            size = len(marker[0])
+            if size in later_ticks:
+                matched_ticks.add((line_number, marker.start()))
+            later_ticks.add(size)
+        if boundary:
+            later_ticks.clear()
+
+    def escaped(line: str, index: int) -> bool:
+        start = index
+        while start and line[start - 1] == "\\":
+            start -= 1
+        return (index - start) % 2 == 1
 
     def scan_markup(line: str, allow_inline: bool = True) -> bool:
         nonlocal comment, tag_quote, inline_code, markup_end
@@ -189,7 +228,10 @@ def plain_lines(body: str) -> list[str]:
                 if len(marker[0]) == inline_code:
                     inline_code = None
                 continue
-            if line.startswith("<!--", index):
+            markdown = allow_inline and not any(tag in literal_tags for tag in html_blocks)
+            if markdown and line[index] == "<" and escaped(line, index):
+                index += 1
+            elif line.startswith("<!--", index):
                 comment = True
                 hidden = True
                 index += 4
@@ -209,12 +251,9 @@ def plain_lines(body: str) -> list[str]:
                 tag_parts.append("<")
                 hidden = True
                 index += 1
-            elif allow_inline and not any(tag in literal_tags for tag in html_blocks) and line[index] == "`":
-                start = index
-                while start and line[start - 1] == "\\":
-                    start -= 1
+            elif markdown and line[index] == "`":
                 marker = tick_run.match(line, index)
-                if (index - start) % 2 == 0:
+                if not escaped(line, index) and (_line_number, index) in matched_ticks:
                     inline_code = len(marker[0])
                     hidden = True
                 index = marker.end()
@@ -224,15 +263,20 @@ def plain_lines(body: str) -> list[str]:
             tag_parts.append("\n")
         return hidden
 
-    for line in body.splitlines():
+    for _line_number, line in enumerate(body_lines):
+        was_paragraph = paragraph
+        paragraph = bool(line.strip())
         if not line.strip():
             nested = False
+            inline_code = None
             if raw_html == "blank":
                 raw_html = None
         if raw_html:
+            paragraph = False
             scan_markup(line, allow_inline=False)
             continue
         if math_block:
+            paragraph = False
             if math_marker.search(line):
                 math_block = False
             continue
@@ -240,10 +284,11 @@ def plain_lines(body: str) -> list[str]:
             scan_markup(line)
             continue
         if fence:
+            paragraph = False
             if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", line):
                 fence = None
             continue
-        mark = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        mark = fence_start(line)
         literal_html = any(tag in literal_tags for tag in html_blocks)
         if (
             html_blocks and not literal_html and not tag_parts and not markup_end and not comment
@@ -251,6 +296,7 @@ def plain_lines(body: str) -> list[str]:
         ):
             continue
         if mark and not comment and not literal_html and not tag_parts and not markup_end:
+            paragraph = False
             fence = (mark[1][0], len(mark[1]))
             continue
         if html_blocks or tag_parts or markup_end:
@@ -259,6 +305,8 @@ def plain_lines(body: str) -> list[str]:
                 and re.match(r" {0,3}</", line) is not None and raw_block_tag.match(line) is not None
             )
             scan_markup(line, allow_inline=markup_end is None and not literal_html and not starts_raw_close)
+            if literal_html or starts_raw_close or comment or tag_parts or markup_end:
+                paragraph = False
             if starts_raw_close:
                 # A block HTML close keeps the following lines raw until a blank.
                 raw_html = "blank"
@@ -266,26 +314,37 @@ def plain_lines(body: str) -> list[str]:
         if not comment:
             # Raw HTML blocks use their Markdown end rule, not a closing tag.
             if re.match(r" {0,3}(?:<\?|<![A-Z]|<!\[CDATA\[)", line):
+                paragraph = False
                 scan_markup(line, allow_inline=False)
                 continue
             if re.match(r" {0,3}<(?:script|pre|style|textarea)(?=[ \t>]|$)", line, re.IGNORECASE):
+                paragraph = False
                 scan_markup(line, allow_inline=False)
                 continue
-            if raw_block_tag.match(line) or complete_tag.fullmatch(line):
+            if raw_block_tag.match(line) or (not was_paragraph and complete_tag.fullmatch(line)):
+                paragraph = False
                 raw_html = "blank"
                 scan_markup(line, allow_inline=False)
                 continue
             if re.match(r" {0,3}\$\$", line):
+                paragraph = False
                 opening = math_marker.search(line)
                 math_block = math_marker.search(line, opening.end()) is None
                 continue
         # A comment must not change a code fence or join parts of a plain line.
+        if not comment and (thematic_break.fullmatch(line) or (was_paragraph and setext_underline.fullmatch(line))):
+            paragraph = False
+            nested = False
+            continue
         if scan_markup(line):
+            if comment or html_blocks or tag_parts or markup_end:
+                paragraph = False
             continue
         # Require column zero so list continuations cannot become policy lines.
         list_or_quote = re.match(r" {0,3}(?:[-+*][ \t]+|[0-9]+[.)][ \t]+|>)", line)
         was_nested = nested
         if list_or_quote:
+            paragraph = False
             nested = True
         if line.startswith((" ", "\t")):
             continue
@@ -295,6 +354,7 @@ def plain_lines(body: str) -> list[str]:
             ):
                 continue
         elif re.match(r"#{1,6}[ \t]", line):
+            paragraph = False
             nested = False
         elif nested:
             continue
