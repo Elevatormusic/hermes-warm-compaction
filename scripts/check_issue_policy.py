@@ -102,6 +102,7 @@ def plain_lines(body: str) -> list[str]:
     nested = False
     comment_end = re.compile(r"--!?>")
     tag_start = re.compile(r"</?[A-Za-z]")
+    tick_run = re.compile(r"`+")
     hidden_tags = {"pre", "code", "script", "style", "textarea", "blockquote", "ul", "ol", "li", "dl", "dt", "dd"}
     block_tags = (
         "address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div "
@@ -148,10 +149,10 @@ def plain_lines(body: str) -> list[str]:
                 index += 1
                 continue
             if inline_code is not None:
-                marker = re.search(r"`+", line[index:])
+                marker = tick_run.search(line, index)
                 if not marker:
                     break
-                index += marker.end()
+                index = marker.end()
                 if len(marker[0]) == inline_code:
                     inline_code = None
                 continue
@@ -167,11 +168,11 @@ def plain_lines(body: str) -> list[str]:
                 start = index
                 while start and line[start - 1] == "\\":
                     start -= 1
-                marker = re.match(r"`+", line[index:])
+                marker = tick_run.match(line, index)
                 if (index - start) % 2 == 0:
                     inline_code = len(marker[0])
                     hidden = True
-                index += len(marker[0])
+                index = marker.end()
             else:
                 index += 1
         if tag_parts:
@@ -385,7 +386,12 @@ def author_open_pulls(api, repository: str, author: str, number: int) -> frozens
 def pull_policy_fields(pull: dict) -> tuple:
     """Compare policy inputs without mutable repository and profile metadata."""
     try:
-        values = [pull.get(field) for field in ("number", "body", "created_at", "state", "merged")]
+        values = [pull[field] for field in ("number", "body", "created_at", "state", "merged")]
+        if (
+            not isinstance(pull["number"], int) or isinstance(pull["number"], bool)
+            or not isinstance(pull["merged"], bool)
+        ):
+            raise TypeError
         user = pull["user"]
         values.extend((user["login"].casefold(), user.get("id")))
         for name in ("head", "base"):

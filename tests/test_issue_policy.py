@@ -411,7 +411,10 @@ class ReviewRegressionTests(unittest.TestCase):
                         policy.check_policy(api, REPOSITORY, 23, ACTIVATED_AT)
 
     def test_malformed_recheck_data_fails_closed(self):
-        for path, value in (("user", None), ("user", {}), ("head", []), ("base", "bad"), ("head.repo", [])):
+        for path, value in (
+            ("user", None), ("user", {}), ("head", []), ("base", "bad"), ("head.repo", []),
+            ("number", 23.0), ("merged", 0),
+        ):
             with self.subTest(path=path):
                 last = pull()
                 parts = path.split(".")
