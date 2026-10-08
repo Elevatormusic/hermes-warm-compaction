@@ -6,6 +6,7 @@ import copy
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -315,6 +316,99 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_entity_only_disclosure_values_do_not_supply_visible_content(self):
+        body = "## AI agent use\nHarness: &nbsp;\nModel: &#x20;\nWork: &ZeroWidthSpace;\n\n" + TEST_CONFIRMATION
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_math_tags_cannot_close_markdown_details(self):
+        body = "<details><summary>Example</summary>\n\n" + r"$$\text{</details>}$$"
+        body += "\n\nCloses #7\n\n" + NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_non_gfm_line_separators_do_not_create_policy_lines(self):
+        for separator in ("\u2028", "\u0085"):
+            with self.subTest(separator=repr(separator)):
+                body = ("Closes #7\n\n" + NO_AGENT).replace("\n", separator)
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_source_interrupts_prose_as_type_six_raw_html(self):
+        body = "Prose\n<source>\nCloses #7\n## AI agent use\nNo AI agent used\n\n" + TEST_CONFIRMATION
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_each_disclosure_field_rejects_entity_and_unicode_only_invisible_values(self):
+        values = ("&nbsp;", "&#32;", "&#x20;", "&ZeroWidthSpace;", "&#x2060;", "\u200b", "\u2060",
+                  "\ufeff", "\u00ad", "\u0301", "\ufe0f", "\u115f", "\u3164", "\u2800")
+        for field in ("Harness", "Model", "Work"):
+            for value in values:
+                with self.subTest(field=field, value=repr(value)):
+                    body = re.sub(rf"(?m)^{field}:.*$", f"{field}: {value}", AGENT_USE)
+                    self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_visible_decoded_and_unicode_disclosure_values_still_pass(self):
+        for value in ("C&#111;dex", "Codex&nbsp;Desktop", "模型", "e\u0301 test", "\u200bCodex", "&amp;nbsp;"):
+            with self.subTest(value=value):
+                body = AGENT_USE.replace("Harness: Codex", "Harness: " + value)
+                self.assertIsNone(policy.body_requirement(body))
+        for value in ("&#84;ODO", "&lt;harness&gt;", "\u200bTODO\u200b"):
+            with self.subTest(value=value):
+                body = AGENT_USE.replace("Harness: Codex", "Harness: " + value)
+                self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_same_line_and_multiline_math_leave_markdown_containers_hidden(self):
+        for tag in ("details", "blockquote", "ul"):
+            for expression in (rf"$$\text{{</{tag}>}}$$", "$$\n" + rf"\text{{</{tag}>}}" + "\n$$"):
+                with self.subTest(tag=tag, expression=expression):
+                    body = f"<{tag}>\n\n" + expression + "\n\nCloses #7\n\n" + NO_AGENT + f"\n</{tag}>"
+                    self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                    self.assertIsNotNone(policy.body_requirement(body))
+                    public = body + "\n\nCloses #8\n\n" + NO_AGENT
+                    self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                    self.assertIsNone(policy.body_requirement(public))
+
+    def test_math_delimiters_do_not_override_literal_html_tags_or_attributes(self):
+        for tag in ("pre", "code", "script", "style", "textarea"):
+            with self.subTest(tag=tag):
+                body = f"<{tag}>\n$$</{tag}>\n\nCloses #7\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+        body = "<details title='\n$$</details>\n'>\n\nCloses #7\n\n" + NO_AGENT + "\n</details>"
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+        self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_gfm_cr_lf_and_crlf_line_endings_still_pass(self):
+        for separator in ("\r", "\n", "\r\n"):
+            with self.subTest(separator=repr(separator)):
+                body = ("Closes #7\n\n" + NO_AGENT).replace("\n", separator)
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+                self.assertIsNone(policy.body_requirement(body))
+
+    def test_unicode_separators_cannot_end_raw_html_blocks_as_blank_lines(self):
+        for separator in ("\v", "\f", "\x1c", "\x1d", "\x1e", "\u0085", "\u2028", "\u2029", "\u00a0"):
+            with self.subTest(separator=repr(separator)):
+                body = "<div>\n" + separator + "\nCloses #7\n## AI agent use\nNo AI agent used\n" + TEST_CONFIRMATION
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+        for blank in ("", " ", "\t", " \t "):
+            body = "<div>\n" + blank + "\nCloses #7\n\n" + NO_AGENT
+            self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+            self.assertIsNone(policy.body_requirement(body))
+
+    def test_source_raw_blocks_keep_boundaries_and_recover_after_blank(self):
+        for source in ("<source>", "<SOURCE src='example'>", "   <source/>", "</source>"):
+            with self.subTest(source=source):
+                body = "Prose\n" + source + "\nCloses #7\n## AI agent use\nNo AI agent used\n" + TEST_CONFIRMATION
+                self.assertEqual(policy.issue_references(body, REPOSITORY), [])
+                self.assertIsNotNone(policy.body_requirement(body))
+                public = body + "\n\nCloses #8\n\n" + NO_AGENT
+                self.assertEqual(policy.issue_references(public, REPOSITORY), [8])
+                self.assertIsNone(policy.body_requirement(public))
+        body = "Prose\n<sources>\nCloses #7\n\n" + NO_AGENT
+        self.assertEqual(policy.issue_references(body, REPOSITORY), [7])
+        self.assertIsNone(policy.body_requirement(body))
+
     def test_inline_tick_match_stops_at_setext_and_thematic_boundaries(self):
         for marker in ("---", "===", "***", "=", "--", "_ _ _", "- - -", "   *\t* * "):
             with self.subTest(marker=marker):

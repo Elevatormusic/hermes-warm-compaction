@@ -11,7 +11,9 @@ import json
 import os
 import re
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
+from unicodedata import category
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -119,7 +121,7 @@ def plain_lines(body: str) -> list[str]:
     block_tags = (
         "address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div "
         "dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe "
-        "legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table "
+        "legend li link main menu menuitem nav noframes ol optgroup option p param search section source summary table "
         "tbody td tfoot th thead title tr track ul"
     )
     raw_block_tag = re.compile(r" {0,3}</?(?:" + "|".join(block_tags.split()) + r")(?=[ \t/>]|$)", re.IGNORECASE)
@@ -137,14 +139,14 @@ def plain_lines(body: str) -> list[str]:
             return None
         return marker
 
-    body_lines = body.splitlines()
+    body_lines = re.split(r"\r\n|\r|\n", body)
     matched_ticks = set()
     later_ticks = set()
     for line_number in range(len(body_lines) - 1, -1, -1):
         line = body_lines[line_number]
         # Code spans cannot match across these paragraph boundaries.
         boundary = (
-            not line.strip() or fence_start(line) or raw_block_tag.match(line)
+            not line.strip(" \t") or fence_start(line) or raw_block_tag.match(line)
             or setext_underline.fullmatch(line) or thematic_break.fullmatch(line)
             or re.match(r" {0,3}<(?:script|pre|style|textarea)(?=[ \t>]|$)", line, re.IGNORECASE)
             or re.match(
@@ -265,8 +267,8 @@ def plain_lines(body: str) -> list[str]:
 
     for _line_number, line in enumerate(body_lines):
         was_paragraph = paragraph
-        paragraph = bool(line.strip())
-        if not line.strip():
+        paragraph = bool(line.strip(" \t"))
+        if not line.strip(" \t"):
             nested = False
             inline_code = None
             if raw_html == "blank":
@@ -299,6 +301,14 @@ def plain_lines(body: str) -> list[str]:
             paragraph = False
             fence = (mark[1][0], len(mark[1]))
             continue
+        if (
+            not comment and not literal_html and not tag_parts and not markup_end
+            and re.match(r" {0,3}\$\$", line)
+        ):
+            paragraph = False
+            opening = math_marker.search(line)
+            math_block = math_marker.search(line, opening.end()) is None
+            continue
         if html_blocks or tag_parts or markup_end:
             starts_raw_close = (
                 not literal_html and not comment and not tag_parts and not markup_end
@@ -325,11 +335,6 @@ def plain_lines(body: str) -> list[str]:
                 paragraph = False
                 raw_html = "blank"
                 scan_markup(line, allow_inline=False)
-                continue
-            if re.match(r" {0,3}\$\$", line):
-                paragraph = False
-                opening = math_marker.search(line)
-                math_block = math_marker.search(line, opening.end()) is None
                 continue
         # A comment must not change a code fence or join parts of a plain line.
         if not comment and (thematic_break.fullmatch(line) or (was_paragraph and setext_underline.fullmatch(line))):
@@ -408,7 +413,11 @@ def ai_agent_requirement(lines: list[str]) -> str | None:
         field, value = record.groups()
         if field != expected[index % 3]:
             return "Each AI agent record must have Harness:, Model:, and Work: lines, in that order."
-        value = value.strip()
+        blank_fillers = "\u115f\u1160\u2800\u3164\uffa0"
+        value = "".join(
+            char for char in unescape(value) if category(char)[0] != "C" and char not in blank_fillers
+        ).strip()
+        visible = any(not char.isspace() and category(char)[0] in "LNPS" for char in value)
         normalized = value.strip("`*_ ").casefold()
         placeholders = {
             "...", "…", "todo", "tbd", "unknown", "none", "n/a", "not applicable", "not run",
@@ -418,11 +427,11 @@ def ai_agent_requirement(lines: list[str]) -> str | None:
             "describe what the agent did", "list every harness", "list every model",
         }
         if (
-            not value or normalized in placeholders or re.search(r"<[^>]*>", value)
+            not visible or normalized in placeholders or re.search(r"<[^>]*>", value)
             or re.fullmatch(r"\[[^]]*\]", value)
             or re.fullmatch(r"(?:replace|enter|insert)[ \t]+(?:value|here|your (?:harness|model|task))", normalized)
         ):
-            return f"Give a nonempty {field}: value. Template placeholders do not count."
+            return f"Give a visible {field}: value. Template placeholders do not count."
     if len(records) % 3:
         return f"Each AI agent record needs a {expected[len(records) % 3]}: line."
     return None
