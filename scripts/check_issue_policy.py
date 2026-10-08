@@ -417,7 +417,7 @@ def ai_agent_requirement(lines: list[str]) -> str | None:
         value = "".join(
             char for char in unescape(value) if category(char)[0] != "C" and char not in blank_fillers
         ).strip()
-        visible = any(not char.isspace() and category(char)[0] in "LNPS" for char in value)
+        visible = any(not char.isspace() and category(char)[0] in "LN" for char in value)
         normalized = value.strip("`*_ ").casefold()
         placeholders = {
             "...", "…", "todo", "tbd", "unknown", "none", "n/a", "not applicable", "not run",
@@ -431,7 +431,7 @@ def ai_agent_requirement(lines: list[str]) -> str | None:
             or re.fullmatch(r"\[[^]]*\]", value)
             or re.fullmatch(r"(?:replace|enter|insert)[ \t]+(?:value|here|your (?:harness|model|task))", normalized)
         ):
-            return f"Give a visible {field}: value. Template placeholders do not count."
+            return f"Give a {field}: value with a letter or number. Template placeholders do not count."
     if len(records) % 3:
         return f"Each AI agent record needs a {expected[len(records) % 3]}: line."
     return None

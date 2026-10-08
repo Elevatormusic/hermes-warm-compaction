@@ -316,6 +316,20 @@ class OpenPullLimitTests(unittest.TestCase):
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_disclosure_values_need_a_letter_or_number(self):
+        for field in ("Harness", "Model", "Work"):
+            for value in ("-", "?", "!", "@#$", "☀", "&amp;"):
+                with self.subTest(field=field, value=value):
+                    body = re.sub(rf"(?m)^{field}:.*$", f"{field}: {value}", AGENT_USE)
+                    self.assertIsNotNone(policy.body_requirement(body))
+
+    def test_disclosure_values_allow_unicode_letters_digits_and_model_punctuation(self):
+        for field in ("Harness", "Model", "Work"):
+            for value in ("模型", "Codex", "123", "١٢٣", "gpt-6.1-sol", "Model (v2): test!"):
+                with self.subTest(field=field, value=value):
+                    body = re.sub(rf"(?m)^{field}:.*$", f"{field}: {value}", AGENT_USE)
+                    self.assertIsNone(policy.body_requirement(body))
+
     def test_entity_only_disclosure_values_do_not_supply_visible_content(self):
         body = "## AI agent use\nHarness: &nbsp;\nModel: &#x20;\nWork: &ZeroWidthSpace;\n\n" + TEST_CONFIRMATION
         self.assertIsNotNone(policy.body_requirement(body))
