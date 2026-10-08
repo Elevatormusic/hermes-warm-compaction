@@ -1,0 +1,658 @@
+{
+  "check": "native full Hermes conversation loops",
+  "python": "3.14.7",
+  "hermes": {
+    "commit": "bc2e4d3773518f2129023383a29dc51133dc6048",
+    "clean": true
+  },
+  "synthetic": true,
+  "live_provider": false,
+  "cache_reuse_proved": false,
+  "privacy": "metadata only",
+  "cases": [
+    {
+      "case": "responses_manual",
+      "phases": [
+        {
+          "case": "responses_manual",
+          "phase": "run",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "responses_stream_added_by_host": true,
+            "real_hook_capture_exact_wire": true,
+            "real_post_hook_usage": true,
+            "real_hook_capture_no_refusal": true,
+            "manual_real_entry_result_valid": true,
+            "manual_real_entry_compression_count": true,
+            "manual_real_entry_summary_rows": true,
+            "manual_request_order": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+            "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+          ],
+          "request_counts": {
+            "main": 1,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 4,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5,
+            "network_host_blocked": 1
+          },
+          "blocked_host_network_attempts": 1,
+          "exit_ok": true
+        },
+        {
+          "case": "responses_manual",
+          "phase": "reload",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "reloaded_summary": true,
+            "reload_has_no_process_capture": true,
+            "saved_native_rows_exact_after_process_reload": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "responses_stream_added_by_host": true,
+            "real_hook_capture_exact_wire": true,
+            "real_post_hook_usage": true,
+            "real_hook_capture_no_refusal": true,
+            "manual_real_entry_result_valid": true,
+            "manual_real_entry_compression_count": true,
+            "manual_real_entry_summary_rows": true,
+            "manual_request_order": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of"
+          ],
+          "request_counts": {
+            "main": 1,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 6,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 6
+          },
+          "blocked_host_network_attempts": 0,
+          "exit_ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "case": "responses_auto_tool",
+      "phases": [
+        {
+          "case": "responses_auto_tool",
+          "phase": "run",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "tool_registered": true,
+            "automatic_summary_rows": true,
+            "actual_loop_request_order": true,
+            "tool_result_retained": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_tool_pair_once": true,
+            "real_tool_result_replayed": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+            "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+          ],
+          "request_counts": {
+            "main": 2,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 6,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5,
+            "network_host_blocked": 1
+          },
+          "blocked_host_network_attempts": 1,
+          "exit_ok": true
+        },
+        {
+          "case": "responses_auto_tool",
+          "phase": "reload",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "reloaded_summary": true,
+            "reload_has_no_process_capture": true,
+            "saved_native_rows_exact_after_process_reload": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "responses_stream_added_by_host": true,
+            "real_hook_capture_exact_wire": true,
+            "real_post_hook_usage": true,
+            "real_hook_capture_no_refusal": true,
+            "manual_real_entry_result_valid": true,
+            "manual_real_entry_compression_count": true,
+            "manual_real_entry_summary_rows": true,
+            "manual_request_order": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_tool_pair_once": true,
+            "real_tool_result_replayed": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of"
+          ],
+          "request_counts": {
+            "main": 1,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 8,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5
+          },
+          "blocked_host_network_attempts": 0,
+          "exit_ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "case": "anthropic_manual",
+      "phases": [
+        {
+          "case": "anthropic_manual",
+          "phase": "run",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "real_hook_capture_exact_wire": true,
+            "real_post_hook_usage": true,
+            "real_hook_capture_no_refusal": true,
+            "manual_real_entry_result_valid": true,
+            "manual_real_entry_compression_count": true,
+            "manual_real_entry_summary_rows": true,
+            "manual_request_order": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+            "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+          ],
+          "request_counts": {
+            "main": 1,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 4,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5,
+            "network_host_blocked": 1
+          },
+          "blocked_host_network_attempts": 1,
+          "exit_ok": true
+        },
+        {
+          "case": "anthropic_manual",
+          "phase": "reload",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "reloaded_summary": true,
+            "reload_has_no_process_capture": true,
+            "saved_native_rows_exact_after_process_reload": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "real_hook_capture_exact_wire": true,
+            "real_post_hook_usage": true,
+            "real_hook_capture_no_refusal": true,
+            "manual_real_entry_result_valid": true,
+            "manual_real_entry_compression_count": true,
+            "manual_real_entry_summary_rows": true,
+            "manual_request_order": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of"
+          ],
+          "request_counts": {
+            "main": 1,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 6,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5
+          },
+          "blocked_host_network_attempts": 0,
+          "exit_ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "case": "anthropic_auto_tool",
+      "phases": [
+        {
+          "case": "anthropic_auto_tool",
+          "phase": "run",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "tool_registered": true,
+            "automatic_summary_rows": true,
+            "actual_loop_request_order": true,
+            "tool_result_retained": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_tool_pair_once": true,
+            "real_tool_result_replayed": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of",
+            "network_host_blocked from hermes_cli/release_channels.py:read < hermes_cli/release_channels.py:read_bytes < hermes_cli/release_channels.py:read_record"
+          ],
+          "request_counts": {
+            "main": 2,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 6,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5,
+            "network_host_blocked": 1
+          },
+          "blocked_host_network_attempts": 1,
+          "exit_ok": true
+        },
+        {
+          "case": "anthropic_auto_tool",
+          "phase": "reload",
+          "status": "passed",
+          "checks": {
+            "agent_origin_is_pinned_source": true,
+            "plugin_selected": true,
+            "plugin_origin_is_temporary_install": true,
+            "reloaded_summary": true,
+            "reload_has_no_process_capture": true,
+            "saved_native_rows_exact_after_process_reload": true,
+            "real_conversation_final_reply": true,
+            "real_conversation_not_failed": true,
+            "real_hook_capture_exact_wire": true,
+            "real_post_hook_usage": true,
+            "real_hook_capture_no_refusal": true,
+            "manual_real_entry_result_valid": true,
+            "manual_real_entry_compression_count": true,
+            "manual_real_entry_summary_rows": true,
+            "manual_request_order": true,
+            "warm_accepted": true,
+            "synthetic_cached_counter": true,
+            "synthetic_summary_in_history": true,
+            "engine_session_follows_host": true,
+            "one_native_warm_request": true,
+            "native_warm_prefix_exact": true,
+            "native_warm_prompt_tools_exact": true,
+            "native_warm_endpoint_exact": true,
+            "native_auth_exact": true,
+            "no_json_headers": true,
+            "no_fallback": true,
+            "handoff_not_in_main_output": true,
+            "native_tool_pair_once": true,
+            "real_tool_result_replayed": true,
+            "native_history_saved_exact": true,
+            "plugin_made_no_blocked_call": true,
+            "no_private_profile_read": true
+          },
+          "error": null,
+          "tool_discovery": {
+            "registered": true,
+            "selected": true,
+            "same_scope": true,
+            "loaded": [
+              {
+                "name": "wc_test_tools",
+                "enabled": true,
+                "error_present": false
+              }
+            ]
+          },
+          "native_capability": "supported",
+          "outcome": {
+            "path": "warm",
+            "reason": "accepted",
+            "prompt_tokens": 200,
+            "cached_tokens": 120
+          },
+          "fence_callers": [
+            "child_process_blocked from hermes_cli/source_check.py:_git_run < hermes_cli/source_check.py:_git_stdout < hermes_cli/source_check.py:_read_checkout",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_pip_python_version",
+            "child_process_blocked from tools/env_probe.py:_run < tools/env_probe.py:_py_out < tools/env_probe.py:_python_version_of"
+          ],
+          "request_counts": {
+            "main": 1,
+            "warm": 1,
+            "fallback": 0
+          },
+          "history_rows": 8,
+          "compression_count": 1,
+          "fence_denied": {
+            "child_process_blocked": 5
+          },
+          "blocked_host_network_attempts": 0,
+          "exit_ok": true
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "error": null,
+  "plugin_sha256": {
+    "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
+    "warm_compaction/anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "warm_compaction/capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+    "warm_compaction/engine.py": "97a5ca7b779d4cfbaf4f4b2c9cd9d8e4616985d19578551d9c76679011204a12",
+    "warm_compaction/fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "warm_compaction/handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "warm_compaction/layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "warm_compaction/native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "warm_compaction/plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+    "warm_compaction/protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "warm_compaction/responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "warm_compaction/rows.py": "2f5d9bd1e1d72c620354c4ec317526b4bca56033e9f080dde9967feff4bdb50c",
+    "warm_compaction/warm.py": "6b5cacd003acfa5027b871a73d3ca34ec1612ac70b7497e24cd8ecb74e9025d2"
+  },
+  "helper_sha256": {
+    "check_provider_apis.py": "acae5d374986f4bca21f5bac2c8eefc6bac1c2e665fea58a3e11793eadc3d546",
+    "check_plugin_hermes.py": "47dd18b7a403c298eebbc1fbc5e6f0d41b926ac22b541da275f155c77d4485ec",
+    "check_hermes_compatibility.py": "641b1acb9a311ebad570c4a06800ff866030471db3b4d745148244b2e8ca75c0"
+  },
+  "script_sha256": "05c8eb9bf37ab1a322f4f3255946c9015614def0dea9372f8a732d0e18fa9828",
+  "hermes_source_unchanged": true,
+  "plugin_source_unchanged": true,
+  "helpers_unchanged": true,
+  "script_unchanged": true,
+  "passed": true
+}

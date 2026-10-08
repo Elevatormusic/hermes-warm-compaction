@@ -1,6 +1,6 @@
 {
   "check": "native provider transport and warm loopback check",
-  "python": "3.11.14",
+  "python": "3.14.7",
   "hermes": {
     "commit": "bc2e4d3773518f2129023383a29dc51133dc6048",
     "clean": true
@@ -441,7 +441,7 @@
     }
   ],
   "error": null,
-  "script_sha256": "e3c74c4e14de19bb2d799f279b100d247cc9fbc962bbb6f87ba3fe9ef9af1c67",
+  "script_sha256": "acae5d374986f4bca21f5bac2c8eefc6bac1c2e665fea58a3e11793eadc3d546",
   "plugin_sha256": {
     "warm_compaction/__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
     "warm_compaction/anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
@@ -453,7 +453,7 @@
     "warm_compaction/native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
     "warm_compaction/plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
     "warm_compaction/protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
-    "warm_compaction/responses.py": "1b9b85cd3821455d462dc4fb6f0d63b9a7f2ca65d450fcd5e9cdb320d3367104",
+    "warm_compaction/responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
     "warm_compaction/rows.py": "2f5d9bd1e1d72c620354c4ec317526b4bca56033e9f080dde9967feff4bdb50c",
     "warm_compaction/warm.py": "6b5cacd003acfa5027b871a73d3ca34ec1612ac70b7497e24cd8ecb74e9025d2"
   },

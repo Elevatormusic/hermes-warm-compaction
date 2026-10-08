@@ -32,12 +32,19 @@ Forced or server tools, media, structured output, unknown request controls, and 
 
 Native replay fields count in retained-tail estimates. A signed or encrypted assistant record stays whole, including the canonical text and tool data that its replay blocks describe. If an indivisible retained record exceeds the context budget, the attempt returns the original history with `path=unchanged reason=capacity`.
 
-The adapters are checked against Hermes `bc2e4d3773518f2129023383a29dc51133dc6048` with synthetic data and a loopback server. These checks prove local request and history behavior on that source. The native test driver calls real hooks and middleware explicitly; the full native conversation loop has not been tested. The checks do not prove every deployed provider, summary quality, cached-token reuse, or a speed gain. The plugin has no documented final-wire capture or raw provider-dispatch API; future host transforms still need review.
+The provider transport check uses synthetic data and a loopback server. It calls real Hermes transports, hooks, and middleware explicitly. A separate native conversation check runs the real Hermes agent loop. It covers manual and automatic compaction, native tool rounds, and saved-session reload in a fresh process. Both checks require a clean source checkout and keep source and plugin hashes unchanged.
+
+The [compatibility workflow](../.github/workflows/hermes-compatibility.yml) runs these checks against the minimum Hermes commit `45871e100feceb89769536c88e5e6e265226a409` and current upstream `main`. It installs the locked Hermes runtime with the `anthropic` extra. Native failures fail the job; upstream changes are not silently skipped. The jobs have read-only repository access, no stored checkout credentials, no secrets, and no Actions cache access. Their saved reports contain metadata only.
+
+A passing report proves synthetic request and history behavior on the exact source commit in that report. The checks do not prove every deployed provider, summary quality, cached-token reuse, or a speed gain. The plugin has no documented final-wire capture or raw provider-dispatch API; future host transforms still need review.
 
 Run the provider integration check with an isolated Hermes dependency interpreter:
 
 ```bash
 <hermes-venv-python> -B scripts/check_provider_apis.py --hermes-source <clean-hermes-checkout> --report .work/provider-api-report.json
+<hermes-venv-python> -B scripts/check_native_conversations.py --hermes-source <clean-hermes-checkout> --report .work/native-conversations-report.json
 ```
+
+Use `--dependency-path <dependency-folder>` if the native API dependencies are in a separate folder. The [property tests](../tests/property/test_native_properties.py) generate synthetic native records and request options for local checks. Branch coverage reports show untested plugin paths without imposing a percentage gate.
 
 The [contribution guide](../CONTRIBUTING.md#run-the-checks) gives the full regression checks.

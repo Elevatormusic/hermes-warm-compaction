@@ -303,7 +303,7 @@ The new history uses summary rows that Hermes recognizes. The [integration check
 
 A future Hermes update can change an API that this plugin uses. The plugin currently reads the private middleware registry to confirm that no execution middleware runs after its capture. A later middleware could send a different request, so removing this check would make the capture unsafe. If the order cannot be checked, the plugin refuses the warm path and uses a fallback. Fallback summaries can omit details; they are not a guarantee of complete retention.
 
-The [compatibility workflow](.github/workflows/hermes-compatibility.yml) tests the real Hermes middleware against the minimum supported revision and upstream `main`. It runs on pull requests, pushes to `main`, each day, and by manual dispatch. Each report records the exact Hermes commit and plugin file hashes. A failed workflow needs review; it does not update or change an installed Hermes. GitHub Actions notification settings control failure notifications.
+The [compatibility workflow](.github/workflows/hermes-compatibility.yml) tests the real Hermes middleware, plugin install, native provider requests, and native conversation loop against the minimum supported revision and upstream `main`. It runs on pull requests, pushes to `main`, each day, and by manual dispatch. Each report records the exact Hermes commit and plugin file hashes. The checks use synthetic data and a loopback server. Native failures fail the job; an upstream change is not skipped. A failed workflow needs review; it does not update or change an installed Hermes. GitHub Actions notification settings control failure notifications.
 
 The check uses synthetic requests and a fake provider callback. It checks capture ordering, request changes before and after capture, and refusal when ordering cannot be read. It does not call a model. Run it with a Hermes dependency interpreter and a clean, isolated source checkout:
 
@@ -311,7 +311,7 @@ The check uses synthetic requests and a fake provider callback. It checks captur
 <hermes-venv-python> -B scripts/check_hermes_compatibility.py --hermes-source <clean-hermes-checkout> --report .work/hermes-compatibility.json
 ```
 
-This check does not prove full conversation-loop compatibility or a cache benefit. Before adopting a Hermes update, also run `scripts/check_plugin_hermes.py` as described in [Contributing](CONTRIBUTING.md#run-the-checks). Check `path`, `reason`, and available token counters in an isolated synthetic session. Keep the last working Hermes version available until these checks pass.
+The middleware check alone does not prove full conversation-loop compatibility or a cache benefit. Before adopting a Hermes update, also run the plugin and native checks in [Contributing](CONTRIBUTING.md#run-the-checks). Check `path`, `reason`, and available token counters in an isolated synthetic session. Keep the last working Hermes version available until these checks pass.
 
 To remove the private ordering dependency, Hermes needs a documented execution-middleware contract that tells each callback whether another callback follows it. That information must come from the same chain snapshot that the request executes. It must not be inferred from a separate registry read or from request text. The current Hermes API does not provide it. This plugin does not patch Hermes or assume that this proposed API exists.
 
@@ -330,6 +330,8 @@ Run the integration check on a clean Hermes checkout with the Python of the Herm
 ```
 
 The integration check installs the plugin with the Hermes install command in a temporary Hermes home. It runs real Hermes conversation and compaction code against a loopback fake server, and it sends no request to a real model. An audit-hook fence blocks other network access, child processes, and writes outside the scenario folder. The report has metadata only.
+
+For native provider edits, run both `scripts/check_provider_apis.py` and `scripts/check_native_conversations.py`. The second check covers the real agent loop, manual and automatic compaction, native tool rounds, and saved-session reload. See [Provider support](docs/provider-support.md#retained-history-and-checks) for commands and limits. The [contribution guide](CONTRIBUTING.md#run-the-checks) also gives the Hypothesis property tests and branch coverage commands. Test tools are separate from the plugin's runtime dependencies.
 
 ## Contributing
 

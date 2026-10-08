@@ -1,0 +1,4 @@
+# Test and CI tools only. The plugin needs no third-party package.
+hypothesis==6.168.5
+sortedcontainers==2.4.0
+coverage==7.16.2

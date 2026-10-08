@@ -52,11 +52,22 @@ Agents must read [AGENTS.md](AGENTS.md) before work. [CLAUDE.md](CLAUDE.md) has 
 
 You need Python 3.10 or later and Git. The plugin has no third-party dependency.
 
-For Python changes, run the unit tests and lint. Unit tests check local behavior with fixtures; they do not prove deployed compatibility, summary quality, or cache reuse.
+For Python changes, run the unit tests, property tests, and lint. These checks use local fixtures. They do not prove deployed compatibility, summary quality, or cache reuse.
 
 ```bash
 python -m unittest discover -s tests -p "test_wc_*.py"
 ```
+
+Install the test tools in a separate test environment, then run the property tests and branch coverage:
+
+```bash
+python -m pip install -r requirements-test.txt
+python -m coverage run -m unittest discover -s tests -p "test_wc_*.py"
+python -m coverage run --append -m unittest discover -s tests/property -p "test_*.py"
+python -m coverage report -m
+```
+
+The [property tests](tests/property/test_native_properties.py) use Hypothesis to generate synthetic native records and request options. The [coverage settings](.coveragerc) measure branches in the plugin. Coverage reports show which paths need more checks; there is no minimum percentage gate. These tools are test dependencies only. The plugin still has no third-party dependency.
 
 Lint with [ruff](https://docs.astral.sh/ruff/) (the version that CI uses):
 
@@ -73,17 +84,20 @@ For changes to Hermes interaction, also run the integration check. It runs real 
 
 The integration check covers install, request, compaction, and history behavior on that Hermes version. It does not call a real model or prove live cache reuse or a performance gain. Keep evidence small and metadata only.
 
-For changes to Responses or Anthropic Messages routes, also run the native provider check. It uses real Hermes transports and synthetic loopback replies. The isolated interpreter needs the Hermes dependencies for both API formats. Use `--dependency-path <dependency-folder>` if those dependencies are in a separate local folder.
+For changes to Responses or Anthropic Messages routes, also run both native checks. The provider check uses real Hermes transports and synthetic loopback replies. The conversation check runs the real Hermes agent loop, manual and automatic compaction, native tools, and saved-session reload. Each case uses a fresh process and temporary home. The isolated interpreter needs the Hermes dependencies for both API formats. Use `--dependency-path <dependency-folder>` if those dependencies are in a separate local folder.
 
 ```bash
 <hermes-venv-python> -B scripts/check_provider_apis.py --hermes-source <clean-hermes-checkout> --report .work/provider-api-report.json
+<hermes-venv-python> -B scripts/check_native_conversations.py --hermes-source <clean-hermes-checkout> --report .work/native-conversations-report.json
 ```
+
+The [Hermes compatibility workflow](.github/workflows/hermes-compatibility.yml) uses the minimum Hermes commit `45871e100feceb89769536c88e5e6e265226a409` and current upstream `main`. It prepares a separate runtime from each checkout's `uv.lock`, with the `anthropic` extra. It does not change the plugin's runtime dependencies. Native check failures fail the job, including upstream changes; they are not treated as unsupported-version skips. The report records the exact Hermes commit and source hashes. The jobs have read-only repository access, no stored checkout credentials, no secrets, and no Actions cache access. Only metadata reports are saved.
 
 See [provider support](docs/provider-support.md) for the supported request and authentication limits. A passing local check does not qualify a live provider.
 
 For document or form changes, check local Markdown links and run `git diff --check`. For issue forms, parse the YAML and check its fields against the [GitHub form schema](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema). No live model check is needed for these changes.
 
-CI runs the unit tests on Python 3.10 to 3.13 (Linux) and on Python 3.12 (Windows and macOS), and the lint. A pull request must pass both.
+CI runs unit and property tests on Python 3.10 to 3.13 (Linux) and on Python 3.12 (Windows and macOS). It saves branch coverage reports for each job and runs lint. A pull request must pass the test and lint checks. The Hermes compatibility workflow also runs on pull requests, pushes to `main`, each day, and by manual dispatch.
 
 ## Style
 

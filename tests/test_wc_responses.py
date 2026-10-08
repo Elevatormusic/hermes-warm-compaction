@@ -65,6 +65,16 @@ class ResponsesSourceTest(unittest.TestCase):
         wire = responses.wire_rows(rows)
         self.assertEqual([item["call_id"] for item in wire], ["call_a", "call_a"])
 
+    def test_copilot_host_check_requires_a_domain_boundary(self):
+        row = assistant("a", codex_message_items=[{
+            "type": "message", "role": "assistant", "id": "msg_synthetic", "status": "completed",
+            "content": [{"type": "output_text", "text": "a"}]}])
+        for host, expected in (("githubcopilot.com", False), ("api.githubcopilot.com", False),
+                               ("evilgithubcopilot.com", True), ("githubcopilot.com.evil.test", True)):
+            with self.subTest(host=host):
+                wire = responses.wire_rows([row], "https://" + host + "/v1")
+                self.assertEqual("id" in wire[0], expected)
+
     def test_source_change_is_refused(self):
         rows = [user("original")]
         body = {"model": ROUTE[0], "instructions": "Synthetic system text.", "store": False,

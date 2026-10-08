@@ -122,11 +122,12 @@ class FakeServer:
                 if body.get("stream") and mode_for(owner.case) == "codex_responses":
                     event = "response.incomplete" if payload["status"] == "incomplete" else "response.completed"
                     parts = []
+                    # The real conversation loop reads completed items, not the terminal output list.
+                    for index, item in enumerate(payload["output"]):
+                        done = {"type": "response.output_item.done", "output_index": index, "item": item}
+                        parts.append("event: response.output_item.done\ndata: " + json.dumps(done) + "\n\n")
                     if owner.case == "responses_codex" and kind == "warm":
                         # The consumer route can send completed items before an empty terminal envelope.
-                        for index, item in enumerate(payload["output"]):
-                            done = {"type": "response.output_item.done", "output_index": index, "item": item}
-                            parts.append("event: response.output_item.done\ndata: " + json.dumps(done) + "\n\n")
                         payload = {**payload, "output": None}
                     parts.append(f"event: {event}\ndata: "
                                  + json.dumps({"type": event, "response": payload}) + "\n\n")

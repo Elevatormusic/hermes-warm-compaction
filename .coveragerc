@@ -1,0 +1,7 @@
+[run]
+branch = True
+source = warm_compaction
+data_file = .work/.coverage
+
+[report]
+show_missing = True

@@ -157,7 +157,8 @@ def _replay_messages(row: dict, content: str, base_url: Any) -> list:
         raise WarmRefusal("source_transform_unsupported")
     items, final_text = [], []
     linked = bool(row.get("codex_reasoning_items") or row.get("codex_reasoning_trimmed"))
-    copilot = (urlsplit(str(base_url or "")).hostname or "").endswith("githubcopilot.com")
+    host = urlsplit(str(base_url or "")).hostname or ""
+    copilot = host == "githubcopilot.com" or host.endswith(".githubcopilot.com")
     for raw in replay:
         if not isinstance(raw, dict) or raw.get("type") != "message" or raw.get("role") != "assistant":
             raise WarmRefusal("source_transform_unsupported")
