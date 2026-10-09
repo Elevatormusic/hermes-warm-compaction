@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "issue": 24,
+  "date": "2026-10-09",
+  "privacy": "metadata only",
+  "baseline_plugin_commit": "31d6448a5ea553091fed0e5826a3209c37f38551",
+  "synthetic": true,
+  "reproduction_scope": "Assembled capture rows and stored rows with the same effective content.",
+  "before_fix": [
+    {
+      "command": "python -B -m unittest discover -s tests -p test_wc_warm.py -k assembled",
+      "status": "failed",
+      "tests": 1,
+      "reason": "history_changed"
+    },
+    {
+      "command": "python -B -m unittest discover -s tests -p test_wc_engine.py -k assembled",
+      "status": "failed",
+      "tests": 1,
+      "path": "fallback",
+      "reason": "history_changed"
+    }
+  ],
+  "after_fix": [
+    {
+      "command": "python -B -m unittest discover -s tests -p test_wc_warm.py -k assembled",
+      "status": "passed",
+      "tests": 1
+    },
+    {
+      "command": "python -B -m unittest discover -s tests -p test_wc_engine.py -k assembled",
+      "status": "passed",
+      "tests": 1
+    }
+  ],
+  "local_checks": [
+    {
+      "command": "python -m coverage run -m unittest discover -s tests -p \"test_wc_*.py\"",
+      "status": "passed",
+      "tests": 385,
+      "python": "3.14.5"
+    },
+    {
+      "command": "python -m coverage run --append -m unittest discover -s tests/property -p \"test_*.py\"",
+      "status": "passed",
+      "tests": 12,
+      "hypothesis": "6.168.5"
+    },
+    {
+      "command": "python -B -m unittest discover -s tests -p \"test_issue_policy.py\"",
+      "status": "passed",
+      "tests": 193
+    },
+    {
+      "command": "python -m coverage report -m",
+      "status": "passed",
+      "coverage": "7.16.2",
+      "total_percent": 92,
+      "branches_measured": true
+    },
+    {
+      "command": "ruff check .",
+      "status": "passed",
+      "ruff": "0.16.10"
+    },
+    {
+      "check": "local Markdown links",
+      "status": "passed"
+    },
+    {
+      "check": "AGENTS.md and CLAUDE.md byte match",
+      "status": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "behavior_checks": {
+    "same_effective_text_matches": true,
+    "captured_prefix_kept": true,
+    "role_tool_and_native_fields_still_checked": true,
+    "non_string_or_empty_sidecar_ignored": true,
+    "capture_ahead_refused": true,
+    "capture_ahead_reason": "history_changed:capture_ahead",
+    "unmatched_future_rows_not_sent": true,
+    "history_refusal_codes_have_no_message_or_tool_id": true
+  },
+  "hermes_checks": [
+    {
+      "source": "minimum",
+      "commit": "45871e100feceb89769536c88e5e6e265226a409",
+      "clean": true,
+      "checks": [
+        {
+          "check": "middleware",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_hermes_compatibility.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 4,
+          "case_names": [
+            "capture_last",
+            "earlier_rewrite",
+            "later_rewrite",
+            "unknown_order"
+          ],
+          "script_sha256": "641b1acb9a311ebad570c4a06800ff866030471db3b4d745148244b2e8ca75c0"
+        },
+        {
+          "check": "plugin_integration",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_plugin_hermes.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 9,
+          "case_names": [
+            "enable_manual_warm",
+            "manual_context",
+            "manual_whitespace",
+            "manual_fallback",
+            "manual_fixed",
+            "auto_tool_loop",
+            "auto_context_tool",
+            "auto_warm_failures",
+            "rollback"
+          ],
+          "script_sha256": "e476408c2a3d7322cd008a9a612edc3f4eb4a3cd91f6af95ed06b299c15b7b85"
+        },
+        {
+          "check": "native_provider",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_provider_apis.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 9,
+          "case_names": [
+            "responses_text",
+            "responses_tool",
+            "responses_incomplete",
+            "responses_codex",
+            "responses_codex_reasoning",
+            "anthropic_text",
+            "anthropic_tool",
+            "anthropic_refusal",
+            "anthropic_signed"
+          ],
+          "script_sha256": "acae5d374986f4bca21f5bac2c8eefc6bac1c2e665fea58a3e11793eadc3d546"
+        },
+        {
+          "check": "native_conversations",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_native_conversations.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 4,
+          "case_names": [
+            "responses_manual",
+            "responses_auto_tool",
+            "anthropic_manual",
+            "anthropic_auto_tool"
+          ],
+          "script_sha256": "05c8eb9bf37ab1a322f4f3255946c9015614def0dea9372f8a732d0e18fa9828"
+        }
+      ]
+    },
+    {
+      "source": "current",
+      "commit": "46d7718a52ff33accb15dc0501736fbdb6833cab",
+      "clean": true,
+      "checks": [
+        {
+          "check": "middleware",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_hermes_compatibility.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 4,
+          "case_names": [
+            "capture_last",
+            "earlier_rewrite",
+            "later_rewrite",
+            "unknown_order"
+          ],
+          "script_sha256": "641b1acb9a311ebad570c4a06800ff866030471db3b4d745148244b2e8ca75c0"
+        },
+        {
+          "check": "plugin_integration",
+          "status": "passed",
+          "python": "3.14.5",
+          "command": "<hermes-python> -B scripts/check_plugin_hermes.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 9,
+          "case_names": [
+            "enable_manual_warm",
+            "manual_context",
+            "manual_whitespace",
+            "manual_fallback",
+            "manual_fixed",
+            "auto_tool_loop",
+            "auto_context_tool",
+            "auto_warm_failures",
+            "rollback"
+          ],
+          "script_sha256": "e476408c2a3d7322cd008a9a612edc3f4eb4a3cd91f6af95ed06b299c15b7b85"
+        },
+        {
+          "check": "native_provider",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_provider_apis.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 9,
+          "case_names": [
+            "responses_text",
+            "responses_tool",
+            "responses_incomplete",
+            "responses_codex",
+            "responses_codex_reasoning",
+            "anthropic_text",
+            "anthropic_tool",
+            "anthropic_refusal",
+            "anthropic_signed"
+          ],
+          "script_sha256": "acae5d374986f4bca21f5bac2c8eefc6bac1c2e665fea58a3e11793eadc3d546"
+        },
+        {
+          "check": "native_conversations",
+          "status": "passed",
+          "python": "3.14.7",
+          "command": "<hermes-python> -B scripts/check_native_conversations.py --hermes-source <clean-hermes> --report <metadata-report>",
+          "case_count": 4,
+          "case_names": [
+            "responses_manual",
+            "responses_auto_tool",
+            "anthropic_manual",
+            "anthropic_auto_tool"
+          ],
+          "script_sha256": "05c8eb9bf37ab1a322f4f3255946c9015614def0dea9372f8a732d0e18fa9828"
+        }
+      ]
+    }
+  ],
+  "reported_host": {
+    "commit": "d0288be5b3330d2442e3907185b8e9d0958297bb",
+    "clean": true,
+    "admission_status": "unavailable",
+    "available_validation_checks_passed": 13,
+    "missing_validation_check": "no core override",
+    "conversation_worker_ran": false,
+    "source_observation": "The inspected hook passes stored messages as conversation_history. It passes request_messages separately.",
+    "limit": "The reported assembled capture was reproduced with synthetic rows. Its exact running hook contract remains unknown."
+  },
+  "live_model_run_in_this_record": false,
+  "cache_reuse_proved": false,
+  "performance_qualification": false,
+  "limits": [
+    "Loopback replies use fake counters. They do not prove live cache reuse or a speed gain.",
+    "Live route checks have a separate receipt. These checks do not prove the reporter's deployment."
+  ],
+  "tested_plugin_sha256": {
+    "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef",
+    "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+    "engine.py": "368b4ec95f31d0f6fc868f6184730d513e02f61764be60a1fabdb00cdececfd6",
+    "fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+    "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+    "warm.py": "153ea2d3add81cec6abf2ca5e3873a6d83ed9d5772f711fb1aefb60fe3e11662"
+  },
+  "normalized_plugin_sha256": {
+    "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+    "engine.py": "368b4ec95f31d0f6fc868f6184730d513e02f61764be60a1fabdb00cdececfd6",
+    "fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+    "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+    "warm.py": "84c66a79dc6b3d4d5b641a8b48d1341e5e765d31f07126ff3fd6108ac01cb3b9",
+    "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+  },
+  "source_byte_relation": {
+    "file": "warm.py",
+    "change": "CRLF to LF only",
+    "compiled_code_identical": true,
+    "comparison_python": "3.14.5"
+  }
+}

@@ -53,11 +53,15 @@ def split_history(capture: dict[str, Any], messages: list) -> tuple[list, list]:
     """Return (new rows, trailing user rows) after the captured rows. Refuse a changed history."""
     digests = capture["digests"]
     count = len(digests)
-    if len(messages) <= count or [row_digest(row) for row in messages[:count]] != digests:
-        raise WarmRefusal("history_changed")
+    if len(messages) < count:
+        raise WarmRefusal("history_changed:capture_ahead")
+    if [row_digest(row) for row in messages[:count]] != digests:
+        raise WarmRefusal("history_changed:digest")
+    if len(messages) == count:
+        raise WarmRefusal("history_changed:reply_missing")
     rest = messages[count:]
     if not _matches_reply(rest[0], capture["reply"]):
-        raise WarmRefusal("history_changed")
+        raise WarmRefusal("history_changed:reply")
     # A multiset: one tool row for each tool call, also when an id repeats.
     expected = collections.Counter(call_id for call_id, _name in capture["reply"]["tool_calls"])
     answered: collections.Counter = collections.Counter()
@@ -65,14 +69,14 @@ def split_history(capture: dict[str, Any], messages: list) -> tuple[list, list]:
     while index < len(rest) and attr(rest[index], "role") == "tool":
         call_id = attr(rest[index], "tool_call_id")
         if answered[call_id] >= expected[call_id]:
-            raise WarmRefusal("history_changed")
+            raise WarmRefusal("history_changed:tool_extra")
         answered[call_id] += 1
         index += 1
     if answered != expected:
-        raise WarmRefusal("history_changed")
+        raise WarmRefusal("history_changed:tool_count")
     trailing = rest[index:]
     if any(attr(row, "role") != "user" for row in trailing):
-        raise WarmRefusal("history_changed")
+        raise WarmRefusal("history_changed:trailing")
     return rest[:index], trailing
 
 

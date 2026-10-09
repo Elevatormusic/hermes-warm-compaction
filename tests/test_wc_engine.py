@@ -149,6 +149,31 @@ class EngineTest(unittest.TestCase):
         self.assertEqual([row["role"] for row in new], ["user", "assistant", "user", "assistant", "tool"])
         self.assertEqual(new[2], {"role": "user", "content": "run the tool"})
 
+    def test_assembled_context_capture_keeps_the_warm_prefix(self):
+        rows = [*old_turns(), user("synthetic question", api_content="[synthetic context]\n\nsynthetic question")]
+        assembled = copy.deepcopy(rows)
+        assembled[-1]["content"] = assembled[-1].pop("api_content")
+        reply = assistant("synthetic answer")
+        self.seed(assembled, reply)
+        new = self.engine.compress([*rows, reply])
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]), ("warm", "accepted"))
+        self.assertEqual(self.post.calls[0]["body"]["messages"][:len(rows) + 1], [SYSTEM, *wire(assembled)])
+        self.assertEqual(new[-2:], [rows[-1], reply])
+        self.assertEqual(self.llm.calls, [])
+
+    def test_capture_ahead_uses_only_live_rows_for_fallback(self):
+        rows = [*old_turns(), user("synthetic live question")]
+        future = [assistant("synthetic unmatched future reply"), tool("future-call", "future result")]
+        self.seed([*rows, *future], assistant("captured answer"))
+        original = copy.deepcopy(rows)
+        new = self.engine.compress(rows)
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]),
+                         ("fallback", "history_changed:capture_ahead"))
+        self.assertEqual(self.post.calls, [])
+        self.assertNotIn("synthetic unmatched future reply", json.dumps(self.llm.calls))
+        self.assertNotIn("future result", json.dumps(new))
+        self.assertEqual(rows, original)
+
     def test_fallback_without_a_capture(self):
         new = self.engine.compress([*old_turns(), assistant("done")])
         self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]), ("fallback", "no_capture"))
