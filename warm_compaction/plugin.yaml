@@ -28,3 +28,7 @@ config_schema:
     type: bool
     default: true
     description: Use the warm request. Set false for comparison runs.
+  summary_words:
+    type: int
+    default: 600
+    description: Word count the handoff instruction asks for, for the warm request and the fallback summary.

@@ -22,6 +22,15 @@ class HandoffTest(unittest.TestCase):
         self.assertIn("\nAlso keep this context from the memory provider:\nremember X\n", text)
         self.assertEqual(build_instruction(None, ""), INSTRUCTION)
 
+    def test_the_instruction_asks_for_the_set_word_count(self):
+        # The default keeps the long-standing text.
+        self.assertIn("Use at most 600 words.", INSTRUCTION)
+        text = build_instruction(None, "", summary_words=1200)
+        self.assertIn("Use at most 1200 words.", text)
+        self.assertNotIn("600 words", text)
+        # The focus line and the memory block still follow the changed word count.
+        self.assertIn("\nGive more detail to this topic: db\n", build_instruction("db", "", summary_words=1200))
+
     def test_gate_accepts_a_complete_handoff_after_a_think_block(self):
         text, reason = gate(reply("<think>plan</think>\n" + HEADINGS_TEXT))
         self.assertIsNone(reason)
