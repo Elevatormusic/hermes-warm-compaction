@@ -43,7 +43,7 @@ Use a clean, isolated Hermes copy for further probes. Keep installed source and 
 1. Open an issue before you open a pull request. If an issue already covers the same change, use that issue. This rule also applies to small fixes, documents, draft PRs, and dependency updates. A PR authored by `Elevatormusic` is exempt from the issue requirement only; the name check is not case-sensitive. For a large change, agree on the design in the issue before implementation. Report security problems through the private route in [SECURITY.md](SECURITY.md).
 2. Fork the repository and make a branch from `main`.
 3. For a behavior fix, add a test that fails without your change. Then make the change. A document-only change does not need a new regression test, but it must pass the full test suite.
-4. Run all tests listed below and lint for every PR, including document and form changes. Run them locally, or let CI run after you open the PR. Record the exact commands, versions, and results, or link the complete passing CI results. Do not repeat the same suite locally if CI already ran it in full. All tests must pass before you mark the required test checkbox. Record a failed, skipped, or unavailable check with its reason; it does not satisfy this requirement.
+4. After a maintainer or reviewer requests or approves the run, run all tests listed below and lint for every PR, including document and form changes. Run them locally, or use the CI approval process below after you open the PR. Record the exact commands, versions, and results, or link the complete passing CI results. Do not repeat the same suite locally if CI already ran it in full. All tests must pass before you mark the required test checkbox. Record a failed, skipped, or unavailable check with its reason; it does not satisfy this requirement.
 5. Open a pull request. Complete the [PR template](.github/pull_request_template.md): link the earlier issue, declare AI agent use, state the concrete trigger and before/after behavior, explain the scope, and give check results and limits. Mark `I ran all tests listed in CONTRIBUTING.md and all passed.` only after you ran the full suite and it passed.
 
 ### Open pull request limit
@@ -91,6 +91,32 @@ Agents must read [AGENTS.md](AGENTS.md) before work. [CLAUDE.md](CLAUDE.md) has 
 You need Python 3.10 or later and Git. The plugin has no third-party dependency.
 
 Every PR must pass the full suite: unit tests, property tests, issue policy tests, and all four loopback Hermes checks below. Run lint too. This rule includes document and form changes. These checks use synthetic data. They do not prove deployed compatibility, summary quality, or cache reuse. No live model or performance test is required for this suite.
+
+### Manual approval for each run
+
+Code tests and lint need a manual maintainer or reviewer action for each run.
+Do not start or repeat them automatically after a change, review, or failure.
+An agent must wait for an explicit request to run local checks. CI uses the
+protected `ci-approval` environment for policy unit tests, unit and property
+tests, Ruff, syntax checks, and all Hermes suites.
+
+The repository owner must create `ci-approval` before these workflows are enabled.
+Set `Elevatormusic` as its required reviewer. Allow self-review so this reviewer
+can approve runs on their own PRs. Disable administrator bypass. Allow all branch
+and tag refs so fork and same-repository PR merge refs can reach the gate. Add no
+environment secrets or variables. GitHub creates an unprotected environment if
+a workflow names one that does not exist; the workflow name alone does not enable
+approval. See [GitHub environment setup](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
+PR, push, scheduled, and manual events create waiting jobs. For each run, the
+reviewer checks its exact commit, opens **Review deployments**, selects
+`ci-approval`, and selects **Approve and deploy**. These jobs run checks only.
+Reject a run that must not execute. A new commit or rerun needs a new approval;
+an earlier approval or PR label does not approve it. See [GitHub review steps](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments).
+
+The `issue-first` metadata check stays automatic. It reads trusted policy code
+and PR metadata. The test aggregate waits for the approved test jobs. Required
+check names and the rule to pass every check for the current PR commit stay in place.
 
 The full suite can run in CI. Link all passing test jobs for the current PR commit, including the Hermes checks, before marking the test checkbox. A running, failed, skipped, or unavailable job is not a passing result. The local commands below provide the same checks when you run them outside CI. You do not need to download a Hermes runtime only to repeat a complete passing CI suite.
 
