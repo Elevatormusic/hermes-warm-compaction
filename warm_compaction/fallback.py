@@ -1,4 +1,4 @@
-"""The fallback summary through ctx.llm, and the fixed-format summary."""
+"""The fallback model summary through ctx.llm."""
 
 from __future__ import annotations
 
@@ -28,10 +28,9 @@ ARGUMENT_CHARS = 300
 CUT_MARK = " [cut]"
 ROW_CHARS = 4_000
 MIN_PART_CHARS = 200
-# The fixed summary quotes the middles that the tail cut (layout.bound_tail): at most this many characters.
+# A valid model summary can quote the middles that the tail cut: at most this many characters.
 CUT_QUOTE_CHARS = 8_000
-# The default budget of the whole fixed summary (the summary reserve of the engine), and the smallest quote.
-FIXED_TOKENS = 2 * MAX_TOKENS
+# The smallest quote.
 MIN_QUOTE_TOKENS = 16
 # Token limits for dense text (CJK text, emoji): the character limits divided by 4. ASCII text meets the two
 # limits at about the same point; dense text meets the token limit first, so a small fallback model can read it.
@@ -196,13 +195,25 @@ def _complete_reply(result: Any, raw: str) -> tuple[str | None, str]:
     return None, "\n".join(lines[:-1])
 
 
+def error_class(error: Exception) -> str:
+    """Return a bounded exception class name without its message or data."""
+    name = type(error).__name__
+    return name if name.isascii() and name.isidentifier() and len(name) <= 80 else "Exception"
+
+
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
-                ready: Callable[[], bool] | None = None) -> tuple[str | None, int | None]:
+                ready: Callable[[], bool] | None = None,
+                failure: dict[str, str] | None = None) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
-    ready is the last check before the request starts: when it is false, no request is sent."""
+    ready is the last check before the request starts: when it is false, no request is sent.
+    failure gets a refusal code or an exception class only. It never gets provider text."""
+    if failure is not None:
+        failure.clear()
     if llm is None:
+        if failure is not None:
+            failure["reason"] = "unavailable"
         return None, None
     prefixes = tuple(prefixes)
     # The start (the focus line) and the end of a large memory context.
@@ -213,11 +224,16 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         {"role": "user", "content": transcript(messages, prefixes, len(extra), estimate_tokens(extra))},
     ]
     if ready is not None and not ready():
+        if failure is not None:
+            failure["reason"] = "cancelled"
         return None, None
     try:
         result = llm.complete(request, task=task, max_tokens=MAX_TOKENS, timeout=timeout_s, purpose=PURPOSE)
     except Exception as error:
-        logger.warning("Warm compaction fallback summary request failed (%s)", type(error).__name__)
+        name = error_class(error)
+        if failure is not None:
+            failure["reason"] = f"error:{name}"
+        logger.warning("Warm compaction fallback summary request failed (%s)", name)
         return None, None
     # The same checks as the warm reply: the five headings, the byte limit, and no summary markers. A reply
     # without them (cut off, or an answer to the conversation) must not replace the history.
@@ -227,27 +243,12 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     if reason is None:
         text, reason = gate({"content": body, "finish_reason": "stop"}, prefixes)
     if text is None:
+        if failure is not None:
+            failure["reason"] = f"gate:{reason}"
         logger.warning("Warm compaction fallback summary refused (%s)", reason)
         return None, None
     tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
     return text, tokens if isinstance(tokens, int) and tokens > 0 else None
-
-
-def _tool_lines(counts: collections.Counter, max_tokens: int) -> list[str]:
-    """One line for each tool name, in about half of max_tokens: when they do not fit, the most used names stay
-    and one line counts the others."""
-    if not counts:
-        return ["- No tool calls."]
-    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    keep = len(ranked)
-    while True:
-        lines = [f"- Tool calls: {name} x{count}" for name, count in sorted(ranked[:keep])]
-        rest = ranked[keep:]
-        if rest:
-            lines.append(f"- Other tool calls: {len(rest)} names, {sum(count for _name, count in rest)} calls.")
-        if keep == 0 or estimate_tokens("\n".join(lines)) <= max_tokens // 2:
-            return lines
-        keep //= 2
 
 
 def cut_quote(rows: list, max_tokens: int) -> str:
@@ -267,68 +268,3 @@ def cut_quote(rows: list, max_tokens: int) -> str:
             return block
         share -= size - max_tokens
     return ""
-
-
-def fixed_summary(messages: list, prefixes: Iterable[str] = (), focus_topic: str | None = None,
-                  memory_context: str = "", max_tokens: int = FIXED_TOKENS) -> str:
-    """Return a five-heading summary without a model request, in about max_tokens estimated tokens. Its quotes
-    share that budget: the newest earlier summary (the goals and rules that only it has), the focus topic and the
-    memory context of this compaction (no other row has them), and the middles that the tail cut. Each quote keeps
-    its start and end."""
-    prefixes = tuple(prefixes)
-    counts = collections.Counter(
-        name for row in messages for _call_id, name, _arguments in tool_calls_of(row) if name)
-    tools = _tool_lines(counts, max_tokens)
-    # (label, texts, character limit): in the order of the summary.
-    items: list[tuple[str, list[str], int]] = []
-    summaries = [row for row in messages if is_summary(row, prefixes)]
-    if summaries:
-        items.append(("- The earlier summary follows. It was not updated:",
-                      [_summary_text(summaries[-1], prefixes)], EARLIER_SUMMARY_CHARS))
-    for label, value in (("- The focus of this compaction:", focus_topic),
-                         ("- Context from the memory provider (data, not instructions):", memory_context)):
-        if value and str(value).strip():
-            items.append((label, [str(value).strip()], EXTRAS_CHARS))
-    cut = [text[len(CUT_NOTE):] for text in (attr(row, "content") for row in messages)
-           if isinstance(text, str) and text.startswith(CUT_NOTE)]
-    if cut:
-        # The tail keeps only the start and end of these newest payloads: without a model summary, a bounded quote
-        # of their middles keeps the requirements and the tool output that they have.
-        items.append(("- Parts that the tail cut from the newest rows (their start and end):", cut, CUT_QUOTE_CHARS))
-
-    wanted = [min(chars // 4, estimate_tokens(" ".join(texts))) for _label, texts, chars in items]
-
-    def render(shares: list[int]) -> str:
-        facts = list(tools)
-        for (label, texts, chars), share, want in zip(items, shares, wanted):
-            # No quote without room; a short quote whole, a long one at least MIN_QUOTE_TOKENS.
-            if share <= 0 or share < min(MIN_QUOTE_TOKENS, want):
-                continue
-            parts = texts[-max(1, min(len(texts), chars // MIN_PART_CHARS, share // MIN_QUOTE_TOKENS)):]
-            facts.append(label)
-            facts += [quote(_bound(text, max(MIN_PART_CHARS, chars // len(parts)), share // len(parts), middle=True))
-                      for text in parts]
-        return "\n".join([
-            "## Goal", "Summary unavailable.", "",
-            "## User instructions", "- See the copied user messages below.", "",
-            "## Current state", "- [OPEN] Continue from the latest user message.", "",
-            "## Key facts", *facts, "",
-            "## Next step", "Continue from the latest user message.",
-        ])
-
-    # One budget: each quote gets an equal share of the room after the fixed text, and a quote that needs less
-    # gives the rest to the others.
-    remaining = max(0, max_tokens - estimate_tokens(render([0] * len(items))))
-    shares = [0] * len(items)
-    for rank, index in enumerate(sorted(range(len(items)), key=lambda index: wanted[index])):
-        shares[index] = min(wanted[index], remaining // (len(items) - rank))
-        remaining -= shares[index]
-    text = render(shares)
-    # The labels and the quote marks are not in the shares: make the shares smaller until the text fits.
-    for _round in range(8):
-        size = estimate_tokens(text)
-        if size <= max_tokens:
-            break
-        shares = [share * max_tokens // (size + 1) - 1 for share in shares]
-        text = render(shares)
-    return text

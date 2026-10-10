@@ -248,24 +248,24 @@ class NativeTailTest(unittest.TestCase):
     def test_native_replay_above_threshold_without_capture_keeps_history(self):
         for mode in ("codex_responses", "anthropic_messages"):
             with self.subTest(mode=mode):
-                _fixture, engine, rows = self.native_history(mode, 36000)
+                fixture, engine, rows = self.native_history(mode, 36000)
                 self.assertIsNone(engine._store.latest(engine._wc_session_id))
                 self.assertGreater(sent_tokens(rows[-1], engine._policy(rows)), engine.threshold_tokens)
                 self.assertLess(sent_tokens(rows[-1], engine._policy(rows)) + 4096, engine.context_length)
-                self.assertTrue(engine.compress(rows) is rows, "Oversized native replay must keep the original history")
+                fixture.assert_aborted(engine, rows, "capacity")
                 self.assertEqual(engine.compression_count, 0)
-                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("unchanged", "capacity"))
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("aborted", "disabled"))
 
     def test_native_replay_above_unknown_overhead_budget_keeps_history(self):
         for mode in ("codex_responses", "anthropic_messages"):
             with self.subTest(mode=mode):
-                _fixture, engine, rows = self.native_history(mode, 20000)
+                fixture, engine, rows = self.native_history(mode, 20000)
                 replay_tokens = sent_tokens(rows[-1], engine._policy(rows))
                 self.assertGreater(replay_tokens, engine.threshold_tokens // 2)
                 self.assertLess(replay_tokens, engine.threshold_tokens)
-                self.assertTrue(engine.compress(rows) is rows, "Oversized native replay must keep the original history")
+                fixture.assert_aborted(engine, rows, "capacity")
                 self.assertEqual(engine.compression_count, 0)
-                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("unchanged", "capacity"))
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("aborted", "disabled"))
 
     def test_native_replay_with_known_overhead_must_fit_below_threshold(self):
         from warm_compaction import anthropic, responses
@@ -285,10 +285,9 @@ class NativeTailTest(unittest.TestCase):
                     total = sent_tokens(rows[-1], engine._policy(rows)) + request_overhead(capture, rows)
                     self.assertGreater(total, engine.threshold_tokens)
                     self.assertLess(total + 4096, engine.context_length)
-                    self.assertTrue(engine.compress(rows) is rows,
-                                    "Oversized native replay must keep the original history")
+                    fixture.assert_aborted(engine, rows, "capacity")
                 self.assertEqual(engine.compression_count, 0)
-                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("unchanged", "capacity"))
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("aborted", "disabled"))
 
     def test_small_native_replay_without_capture_can_compact(self):
         from warm_compaction.rows import estimate_tokens, sent_rows
@@ -348,10 +347,9 @@ class NativeTailTest(unittest.TestCase):
                             api_key="fake", provider="custom", api_mode="codex_responses")
         rows = [*old_turns(3), {"role": "user", "content": "synthetic last request"},
                 {"role": "assistant", "content": "synthetic", "codex_reasoning_items": [{"data": "x" * 100000}]}]
-        result = engine.compress(rows)
-        self.assertIs(result, rows)
+        fixture.assert_aborted(engine, rows, "capacity")
         self.assertEqual(engine.compression_count, 0)
-        self.assertEqual(engine.warm_last["reason"], "capacity")
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("aborted", "no_capture"))
 
 
 if __name__ == "__main__":
