@@ -180,6 +180,35 @@ class ResponsesSourceTest(unittest.TestCase):
 
 
 class ResponsesBuildTest(unittest.TestCase):
+    def test_capture_ahead_has_a_history_refusal(self):
+        for route in (ROUTE, CODEX):
+            with self.subTest(route=route):
+                rows = [user("First synthetic question."), assistant("First synthetic answer."),
+                        user("Next synthetic question.")]
+                saved = capture(rows, assistant("Captured synthetic answer."), route)
+                messages = rows[:-1]
+                original_capture, original_messages = copy.deepcopy(saved), copy.deepcopy(messages)
+                with self.assertRaises(WarmRefusal) as caught:
+                    responses.build_request(saved, messages, route, 100_000, INSTRUCTION)
+                self.assertEqual(caught.exception.args, ("history_changed:capture_ahead",))
+                self.assertEqual(caught.exception.code, "history_changed:capture_ahead")
+                self.assertEqual(saved, original_capture)
+                self.assertEqual(messages, original_messages)
+
+    def test_changed_digest_has_a_history_refusal(self):
+        for route in (ROUTE, CODEX):
+            with self.subTest(route=route):
+                rows, reply = [user("Original synthetic question.")], assistant("Synthetic answer.")
+                saved = capture(rows, reply, route)
+                messages = [user("Changed synthetic question."), reply]
+                original_capture, original_messages = copy.deepcopy(saved), copy.deepcopy(messages)
+                with self.assertRaises(WarmRefusal) as caught:
+                    responses.build_request(saved, messages, route, 100_000, INSTRUCTION)
+                self.assertEqual(caught.exception.args, ("history_changed:digest",))
+                self.assertEqual(caught.exception.code, "history_changed:digest")
+                self.assertEqual(saved, original_capture)
+                self.assertEqual(messages, original_messages)
+
     def test_request_preserves_prefix_and_non_generation_controls(self):
         rows, reply = [user("question")], assistant("answer")
         controls = {"prompt_cache_key": "fake-cache", "prompt_cache_retention": "24h", "reasoning": {"effort": "low"},
