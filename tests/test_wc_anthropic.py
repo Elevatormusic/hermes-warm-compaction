@@ -110,7 +110,7 @@ class BuildTest(unittest.TestCase):
     def test_missing_tool_result_and_changed_route_are_refused(self):
         reply = assistant("call", [("c1", "read", "{}")])
         cap = capture(self.rows, reply)
-        self.refusal("history_changed", lambda: self.build(cap, [*self.rows, reply]))
+        self.refusal("history_changed:tool_count", lambda: self.build(cap, [*self.rows, reply]))
         cap["route"] = ("changed", *ROUTE[1:])
         self.refusal("route_changed", lambda: self.build(cap))
 

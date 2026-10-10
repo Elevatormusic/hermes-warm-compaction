@@ -62,6 +62,38 @@ class RowsTest(unittest.TestCase):
         self.assertNotEqual(row_digest(base), row_digest(other))
         self.assertEqual(len(row_digest(base)), 64)
 
+    def test_digest_uses_effective_content_without_string_identity(self):
+        for role in ("user", "assistant"):
+            with self.subTest(role=role):
+                base = {"role": role, "content": "synthetic sent text"}
+                sidecar = "".join(("synthetic sent", " text"))
+                self.assertEqual(row_digest(base), row_digest(dict(base, api_content=sidecar)))
+                self.assertEqual(row_digest(base), row_digest(dict(base, content="display text", api_content=sidecar)))
+                for unused in (None, "", 42, ["synthetic sent text"]):
+                    self.assertEqual(row_digest(base), row_digest(dict(base, api_content=unused)))
+
+    def test_effective_content_does_not_hide_checked_field_changes(self):
+        base = {"role": "assistant", "content": "display text", "api_content": "synthetic sent text"}
+        changes = {"role": "user", "content": "changed", "api_content": "changed", "name": "synthetic-name",
+                   "tool_call_id": "synthetic-call", "tool_calls": [
+                       {"id": "c1", "function": {"name": "read", "arguments": "{}"}}]}
+        # Display text can change when the exact sent text stays. All checked fields must still match.
+        self.assertEqual(row_digest(base), row_digest(dict(base, content=changes.pop("content"))))
+        for field in ("reasoning_content", "reasoning_details", "codex_message_items", "codex_reasoning_items",
+                      "codex_checkpoint_items", "codex_reasoning_trimmed", "phase", "anthropic_content_blocks",
+                      "_anthropic_content_blocks", "call_id", "response_item_id"):
+            changes[field] = "synthetic-change"
+        for field, value in changes.items():
+            with self.subTest(field=field):
+                self.assertNotEqual(row_digest(base), row_digest(dict(base, **{field: value})))
+
+    def test_sidecars_do_not_replace_content_on_other_roles(self):
+        for role in ("system", "developer", "tool"):
+            with self.subTest(role=role):
+                base = {"role": role, "content": "synthetic text"}
+                self.assertEqual(row_digest(base), row_digest(dict(base, api_content="other text")))
+                self.assertNotEqual(row_digest(base), row_digest(dict(base, content="other text")))
+
 
 if __name__ == "__main__":
     unittest.main()

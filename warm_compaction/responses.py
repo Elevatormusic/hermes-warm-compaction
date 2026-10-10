@@ -332,9 +332,9 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     if not isinstance(body, dict):
         raise WarmRefusal(capture.get("refusal") or "no_capture")
     check_settings(body, route[1])
+    new_rows, trailing = split_history(capture, messages)
     count = len(capture["digests"])
     check_source(body, messages[:count], route[1])
-    new_rows, trailing = split_history(capture, messages)
     used_ids = {item["call_id"] for item in body["input"] if item.get("type") == "function_call"}
     reasoning_ids = {item.get("id") for row in messages[:count] for item in (row.get("codex_reasoning_items") or [])
                      if item.get("id")}

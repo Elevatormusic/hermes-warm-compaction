@@ -6,6 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
+- Match captured content with the stored `api_content` text for context-injected rows. Keep role, tool, and native replay checks. Report each history refusal stage and use the fallback when the capture is ahead of the live history.
 - Keep the original history when an indivisible native replay block exceeds the compaction budget. Check the threshold, reply reserve, and unknown request overhead before accepting the new history.
 - Match Copilot hostnames at a domain boundary. A lookalike hostname no longer gets Copilot replay handling.
 - Accept trailing whitespace removal by Hermes from complete text strings, including `api_content`, without a false `source_transform_unsupported` fallback. Keep the captured request prefix unchanged.
