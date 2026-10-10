@@ -22,7 +22,7 @@ concurrency:
 jobs:
   contract:
     name: Hermes contract (${{ matrix.hermes }})
-    environment: ci-approval
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main' || 'ci-approval' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
