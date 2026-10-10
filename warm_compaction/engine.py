@@ -769,14 +769,16 @@ class WarmCompactionEngine(ContextEngine):
         A host compatibility refusal starts the notice at the first failure. Other failures wait for
         WARM_FAILURE_STREAK. A first host refusal can update a pending notice or start one after a displayed
         generic notice. The next automatic compaction status shows each notice once. Until then, later failures
-        update it. A warm compaction ends the streak. A cancelled attempt and the warm setting off do not count."""
+        update it. A warm compaction ends the streak. A cancelled attempt and the warm setting off do not count.
+        A provider excluded by settings does not count when the fallback summary succeeds."""
         path, reason = record["path"], str(record["reason"])
         if path == "warm":
             if self._warm_notice_issued:
                 logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
             self._clear_warm_failures()
             return
-        if path not in ("fallback", "fixed") or reason == "disabled":
+        if (path not in ("fallback", "fixed") or reason == "disabled"
+                or (path == "fallback" and reason == "provider_not_allowed")):
             return
         logger.warning("Warm compaction skipped (%s); used the %s summary", reason, path)
         self._warm_failures += 1
