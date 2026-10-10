@@ -277,8 +277,7 @@ class BoundTailTest(unittest.TestCase):
         self.assertNotIn("SECRET", str(removed))
 
     def test_unsent_reasoning_is_not_cut_or_given_back(self):
-        # A route that does not send reasoning: the private reasoning must not go to the fallback model or into
-        # the fixed summary.
+        # A route that does not send reasoning: the private reasoning must not go to the fallback model.
         from warm_compaction.layout import bound_tail
         from warm_compaction.rows import SendPolicy
         for key in ("reasoning", "reasoning_content"):

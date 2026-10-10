@@ -122,7 +122,7 @@ body:
     id: log
     attributes:
       label: Redacted compaction diagnostics
-      description: Paste relevant warm_compaction lines from logs/agent.log and adjacent plugin warnings about capture, fallback, or fixed summaries. Keep path, reason, elapsed time, token counts, and error class when available. Do not attach the whole log. If absent, state no log line and why.
+      description: Paste relevant warm_compaction lines from logs/agent.log and adjacent plugin warnings about capture, fallback, or aborted compaction. Keep path, reason, elapsed time, token counts, and safe error codes when available. Do not attach the whole log. If absent, state no log line and why.
       render: text
     validations:
       required: true

@@ -13,6 +13,7 @@ processes, and writes outside the scenario folder. The report has metadata only.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import inspect
 import json
@@ -76,7 +77,7 @@ TOOL_PLUGIN = {
         '        "parameters": {"type": "object", "properties": {}, "required": []}})\n'
     ),
 }
-SCENARIOS = ("enable_manual_warm", "manual_context", "manual_whitespace", "manual_fallback", "manual_fixed",
+SCENARIOS = ("enable_manual_warm", "manual_context", "manual_whitespace", "manual_fallback", "manual_aborted",
              "auto_tool_loop", "auto_context_tool", "auto_warm_failures", "rollback")
 # The scenarios with automatic compaction in a tool loop.
 AUTO_SCENARIOS = ("auto_tool_loop", "auto_context_tool", "auto_warm_failures")
@@ -377,7 +378,7 @@ def plan_for(scenario):
         return {"main": [{"content": "The code word is BLUE-7."}, {"content": "Next: report BLUE-7."}]}
     if scenario == "manual_fallback":
         return {"warm_status": 500, "main": [{"content": "The code word is BLUE-7."}, {"content": "Next."}]}
-    if scenario == "manual_fixed":
+    if scenario == "manual_aborted":
         return {"warm_status": 500, "fallback_status": 500,
                 "main": [{"content": "The code word is BLUE-7."}, {"content": "Next."}]}
     if scenario == "auto_warm_failures":
@@ -561,7 +562,7 @@ def run_phase(spec, session_dir):
                                   _compress_session_history, finalize_context_engine_compression_notification)
         else:
             run_manual(agent, engine, db, history, server, result, checks, scenario,
-                       _compress_session_history, finalize_context_engine_compression_notification)
+                       _compress_session_history, finalize_context_engine_compression_notification, statuses)
         check_native_notice(agent, engine, db, server, result, checks, statuses, home, config_before)
         if scenario == "auto_warm_failures":
             # The boundary probe uses a second engine. Check the main engine's log count first.
@@ -776,7 +777,7 @@ def check_native_notice(agent, engine, db, server, result, checks, statuses, hom
     checks["native_notice_not_in_saved_history"] = NATIVE_NOTICE_MARK not in json.dumps(saved)
 
 
-def run_manual(agent, engine, db, history, server, result, checks, scenario, compress, finalize):
+def run_manual(agent, engine, db, history, server, result, checks, scenario, compress, finalize, statuses):
     question = CONTEXT_QUESTION if scenario == "manual_context" else SEED_QUESTION
     seed = agent.run_conversation(question, system_message=SYSTEM, conversation_history=history)
     messages = seed.get("messages") or []
@@ -790,12 +791,15 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
         check_injected_context(messages, seed_request, checks, "manual", question)
     checks["capture_keeps_reported_prompt_tokens"] = capture.get("prompt_tokens") == len(
         json.dumps(seed_request["body"]["messages"])) // 4
+    if scenario == "manual_aborted":
+        run_manual_aborted(agent, engine, db, session, capture, server, result, checks, compress, finalize, statuses)
+        return
     begin = time.perf_counter()
     failures_before = engine._warm_failures
     removed, _usage = compress(session, "")
     checks["failure_streak_waits_for_manual_commit"] = engine._warm_failures == failures_before
     finalize(agent, committed=True)
-    expected_failures = failures_before + (scenario in ("manual_fallback", "manual_fixed"))
+    expected_failures = failures_before + (scenario == "manual_fallback")
     checks["failure_streak_after_manual_commit"] = engine._warm_failures == expected_failures
     checks["manual_commit_notification_one_time"] = finalize(agent, committed=True) is False
     result["compress_seconds"] = round(time.perf_counter() - begin, 3)
@@ -803,7 +807,7 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     result["warm_last"] = warm_last
     expected = {"enable_manual_warm": ("warm", "accepted"), "manual_context": ("warm", "accepted"),
                 "manual_fallback": ("fallback", "provider_error"),
-                "manual_fixed": ("fixed", "provider_error"), "rollback": ("warm", "accepted")}[scenario]
+                "rollback": ("warm", "accepted")}[scenario]
     checks["path_and_reason"] = (warm_last.get("path"), warm_last.get("reason")) == expected
     checks["removed_rows"] = removed > 0
     after = session["history"]
@@ -817,8 +821,6 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     if scenario == "manual_fallback":
         checks["one_fallback_request"] = len(by_kind(server, "fallback")) == 1
         checks["fallback_in_summary"] = "(fallback)" in str(after[1].get("content"))
-    if scenario == "manual_fixed":
-        checks["fixed_in_summary"] = "Summary unavailable." in str(after[1].get("content"))
     saved = db.get_messages_as_conversation(agent.session_id)
     checks["history_saved"] = [row.get("content") for row in saved] == [row.get("content") for row in after]
     result["session_rotated"] = agent.session_id != f"wc-{scenario}"
@@ -833,6 +835,69 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     # Information only: Hermes rebuilds the system prompt during /compress. This is host behavior.
     result["continuation_keeps_custom_system_text"] = bool(later) and SYSTEM in str(
         later[0]["body"]["messages"][0].get("content") or "")
+
+
+def run_manual_aborted(agent, engine, db, session, capture, server, result, checks, compress, finalize, statuses):
+    """Two failed synthetic model requests must stop the real manual history transaction."""
+    module = sys.modules[type(engine).__module__]
+    abort_type = getattr(module, "CompactionAborted", None)
+    checks["abort_type_from_installed_plugin"] = (
+        isinstance(abort_type, type) and issubclass(abort_type, RuntimeError)
+        and inside(inspect.getfile(abort_type), Path(os.environ["HERMES_HOME"]) / "plugins" / "warm_compaction"))
+    before_history = copy.deepcopy(session["history"])
+    history_object = session["history"]
+    before_saved = copy.deepcopy(db.get_messages_as_conversation(agent.session_id))
+    before_capture = copy.deepcopy(capture)
+    before_session = agent.session_id
+    before_engine_session = engine._wc_session_id
+    before_version = session["history_version"]
+    before_count = engine.compression_count
+    before_failures = engine._warm_failures
+    before_notice = engine._warm_notice
+    before_notice_issued = engine._warm_notice_issued
+    before_requests = len(server.requests)
+    before_statuses = len(statuses)
+    begin = time.perf_counter()
+    try:
+        compress(session, "")
+    except Exception as error:
+        checks["expected_abort_error"] = abort_type is not None and type(error) is abort_type
+        checks["abort_error_name"] = type(error).__name__ == "CompactionAborted"
+        # Compare the fixed public text in memory. Never copy arbitrary exception text to the report.
+        checks["abort_error_is_sanitized"] = str(error) == (
+            "Warm compaction stopped; history is unchanged "
+            "(warm: provider_error; fallback: error:InternalServerError).")
+        result["abort_error_type"] = type(error).__name__
+    else:
+        checks["expected_abort_error"] = False
+    result["compress_seconds"] = round(time.perf_counter() - begin, 3)
+    last = dict(engine.warm_last or {})
+    result["warm_last"] = last
+    checks["path_and_reason"] = (last.get("path"), last.get("reason"), last.get("fallback_reason")) == (
+        "aborted", "provider_error", "error:InternalServerError")
+    checks["manual_history_object_unchanged"] = session["history"] is history_object
+    checks["manual_history_unchanged"] = session["history"] == before_history
+    checks["saved_history_unchanged"] = db.get_messages_as_conversation(before_session) == before_saved
+    checks["capture_unchanged"] = engine._store.latest(before_engine_session) == before_capture
+    checks["session_id_unchanged"] = agent.session_id == before_session
+    checks["engine_session_unchanged"] = engine._wc_session_id == before_engine_session
+    checks["session_history_version_unchanged"] = session["history_version"] == before_version
+    checks["session_key_unchanged"] = session["session_key"] == before_session
+    checks["compression_count_unchanged"] = engine.compression_count == before_count
+    checks["failure_streak_unchanged"] = engine._warm_failures == before_failures
+    checks["failure_notice_unchanged"] = (
+        engine._warm_notice == before_notice and engine._warm_notice_issued == before_notice_issued)
+    checks["no_pending_successful_boundary"] = engine._pending_warm_result is None
+    checks["no_successful_boundary_notification"] = finalize(agent, committed=True) is False
+    checks["aborted_manual_has_no_compacted_status"] = not any(
+        kind == "compacted" for kind, _message in statuses[before_statuses:])
+    checks["no_generated_summary"] = not any(row.get("_compressed_summary") for row in session["history"])
+    attempted = server.requests[before_requests:]
+    checks["only_two_summary_requests"] = [(row["kind"], row["status"]) for row in attempted] == [
+        ("warm", 500), ("fallback", 500)]
+    result["session_rotated"] = False
+    result["compression_count"] = engine.compression_count
+    result["automatic_stop_contract"] = "not checked: Hermes has no documented terminal plugin abort result"
 
 
 def run_manual_whitespace(agent, engine, db, history, server, result, checks, compress, finalize):
@@ -895,10 +960,16 @@ def check_injected_context(messages, request, checks, label, question):
 
 
 def run_auto(agent, engine, history, server, result, checks, statuses):
+    from agent.conversation_compression import COMPACTION_DONE_STATUS
+
     checks["threshold_from_settings"] = engine.threshold_tokens == int(CONTEXT_LENGTH * 0.4)
     context_case = result["scenario"] == "auto_context_tool"
     question = CONTEXT_TOOL_QUESTION if context_case else TOOL_QUESTION
+    before_first_statuses = len(statuses)
     first = agent.run_conversation(question, system_message=SYSTEM, conversation_history=history)
+    checks["first_automatic_compacted_status"] = [
+        message for kind, message in statuses[before_first_statuses:] if kind == "compacted"
+    ] == [COMPACTION_DONE_STATUS]
     first_notice_count = sum(NATIVE_NOTICE_MARK in message for _kind, message in statuses)
     checks["native_notice_on_first_automatic_compaction"] = (
         first_notice_count == int(result["native_warm_handoff"]["available"]))
@@ -914,8 +985,12 @@ def run_auto(agent, engine, history, server, result, checks, statuses):
     checks["first_summary_rows"] = summary_rows_ok(after_first)
     checks["wait_flag_cleared"] = engine.awaiting_real_usage_after_compression is False
     question = CONTEXT_TOOL_AGAIN_QUESTION if context_case else TOOL_AGAIN_QUESTION
+    before_second_statuses = len(statuses)
     second = agent.run_conversation(question, system_message=SYSTEM,
                                     conversation_history=list(after_first))
+    checks["second_automatic_compacted_status"] = [
+        message for kind, message in statuses[before_second_statuses:] if kind == "compacted"
+    ] == [COMPACTION_DONE_STATUS]
     checks["second_turn_final"] = second.get("final_response") == "Done again."
     if context_case:
         check_injected_context(second.get("messages") or [], by_kind(server, "main")[-1], checks, "auto2", question)

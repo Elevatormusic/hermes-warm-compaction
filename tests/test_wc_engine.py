@@ -92,6 +92,26 @@ class EngineTest(unittest.TestCase):
             self.commit(engine)
         return result
 
+    def assert_aborted(self, engine, history, fallback_reason, **kwargs):
+        """Check a synthetic failure without a history or state change."""
+        original = copy.deepcopy(history)
+        captured = copy.deepcopy(self.store.latest(engine._wc_session_id))
+        count = engine.compression_count
+        failures = (engine._warm_failures, list(engine._warm_failure_reasons), engine._warm_notice)
+        with self.assertRaises(RuntimeError) as stopped:
+            engine.compress(history, **kwargs)
+        from warm_compaction.engine import CompactionAborted
+        self.assertIsInstance(stopped.exception, CompactionAborted)
+        self.assertEqual(history, original)
+        self.assertEqual(self.store.latest(engine._wc_session_id), captured)
+        self.assertEqual(engine.compression_count, count)
+        self.assertIsNone(engine._pending_warm_result)
+        self.assertEqual((engine._warm_failures, engine._warm_failure_reasons, engine._warm_notice), failures)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["fallback_reason"]),
+                         ("aborted", fallback_reason))
+        self.assertIn("Warm compaction stopped; history is unchanged", str(stopped.exception))
+        return stopped.exception
+
     def test_threshold_comes_from_the_setting(self):
         self.assertEqual(self.engine.threshold_tokens, 100_000)
         self.assertFalse(self.engine.should_compress(99_999))
@@ -191,7 +211,7 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("done", sent.split("\n"))
         self.assertNotIn(rows[-2]["content"][:20], sent)
 
-    def test_request_refusals_reach_fallback_and_fixed_status_without_private_data(self):
+    def test_request_refusals_reach_fallback_or_abort_without_private_data(self):
         private = "synthetic-private-request-value"
         cases = (
             ([private], "request_not_mapping"),
@@ -201,10 +221,10 @@ class EngineTest(unittest.TestCase):
             ({"value": SimpleNamespace(secret=private)}, "request_not_json"),
         )
         rows, reply = old_turns(4), assistant("final")
-        for path in ("fallback", "fixed"):
+        for path in ("fallback", "aborted"):
             for body, code in cases:
                 with self.subTest(path=path, code=code):
-                    self.llm = FakeLlm(error=RuntimeError(private) if path == "fixed" else None)
+                    self.llm = FakeLlm(error=RuntimeError(private) if path == "aborted" else None)
                     engine = self.make(tail_tokens=10)
                     engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_key=private,
                                         provider="custom", api_mode=ROUTE[2])
@@ -218,13 +238,17 @@ class EngineTest(unittest.TestCase):
                         self.store.on_post_api_request(api_request_id="r1", session_id="s1", finish_reason="stop",
                                                        assistant_message=reply_object(reply))
                         history = [*rows, reply]
-                        new = self.compress_committed(engine, history)
+                        if path == "aborted":
+                            error = self.assert_aborted(engine, history, "error:RuntimeError")
+                            self.assertNotIn(private, str(error))
+                        else:
+                            new = self.compress_committed(engine, history)
                     status = engine.get_status()["warm_last"]
                     self.assertEqual((status["path"], status["reason"]), (path, code))
                     self.assertEqual((result, calls), ("response", [1]))
-                    self.assertIsNot(new, history)
-                    self.assertTrue(any("Fallback summary." in str(row.get("content")) for row in new)
-                                    if path == "fallback" else any(row.get("_compressed_summary") for row in new))
+                    if path == "fallback":
+                        self.assertIsNot(new, history)
+                        self.assertTrue(any("Fallback summary." in str(row.get("content")) for row in new))
                     self.assertEqual(len(self.llm.calls), 1)
                     self.assertEqual(self.post.calls, [])
                     self.assertIn(f"path={path} reason={code}", "\n".join(logs.output))
@@ -572,29 +596,22 @@ class EngineTest(unittest.TestCase):
                             api_mode=ROUTE[2])
         self.assertIsNone(self.store.latest("s1"))
 
-    def test_the_fixed_summary_keeps_the_focus_and_the_memory_context(self):
-        # The last path has no model: the inputs given for this compaction must stay.
-        self.llm.error = RuntimeError("down")
+    def test_failed_summary_keeps_history_with_focus_and_memory(self):
+        self.llm.error = RuntimeError("synthetic failure")
         engine = self.make(warm=False)
-        new = engine.compress([*old_turns(), assistant("done")], focus_topic="FOCUS-ON-PARSER",
-                              memory_context="MEMORY-FACT-42")
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
-        self.assertIn("FOCUS-ON-PARSER", summary)
-        self.assertIn("MEMORY-FACT-42", summary)
+        history = [*old_turns(), assistant("done")]
+        self.assert_aborted(engine, history, "error:RuntimeError", focus_topic="FOCUS-ON-PARSER",
+                            memory_context="MEMORY-FACT-42")
 
-    def test_a_fallback_summary_above_the_room_goes_to_the_fixed_summary(self):
-        # Under the reserve, but a large system prompt and a low threshold leave less room than the summary needs.
+    def test_a_fallback_summary_above_the_room_stops_compaction(self):
         self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
         engine = self.make(threshold=0.10, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        rows = old_turns(8)
-        reply = assistant("final")
+        rows, reply = old_turns(8), assistant("final")
         self.seed(rows, reply, system={"role": "system", "content": "s " * 10_000}, extra={"max_tokens": 4_096})
-        engine.compress([*rows, reply])
+        self.assert_aborted(engine, [*rows, reply], "summary_too_large")
         self.assertEqual(len(self.llm.calls), 1)
-        self.assertEqual(engine.warm_last["path"], "fixed")
 
     def test_a_switch_before_the_result_is_used_discards_it(self):
         # The check covers the whole compaction: a switch while the new history is built also stops it.
@@ -615,11 +632,11 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("cancelled", "route_changed"))
         self.assertEqual(engine.compression_count, 0)
 
-    def test_the_fixed_budget_is_not_above_a_small_room(self):
+    def test_the_summary_budget_is_not_above_a_small_room(self):
         self.engine._room = lambda *args, **kwargs: 100
-        self.assertEqual(self.engine._fixed_budget(0, 0), 100)
+        self.assertEqual(self.engine._summary_budget(0, 0), 100)
         self.engine._room = lambda *args, **kwargs: -5
-        self.assertEqual(self.engine._fixed_budget(0, 0), 0)
+        self.assertEqual(self.engine._summary_budget(0, 0), 0)
 
     def test_the_fallback_summary_gets_the_cut_middle_of_the_prepended_row(self):
         # The fallback transcript has only the start and end of a long row: the middle that the tail cuts from
@@ -734,9 +751,7 @@ class EngineTest(unittest.TestCase):
         self.engine.compress([*rows, reply])
         self.assertEqual(self.engine.warm_last["path"], "warm")
 
-    def test_a_fallback_summary_without_room_for_the_cut_quote_becomes_the_fixed_summary(self):
-        # The fallback summary takes almost all of its budget: no quote of the cut middle of the prepended request
-        # fits after it. The fixed summary then quotes that middle (its start: the marker is near it).
+    def test_a_fallback_summary_without_room_for_the_cut_quote_stops_compaction(self):
         rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
         self.llm.text = (HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 16_150)
@@ -744,9 +759,7 @@ class EngineTest(unittest.TestCase):
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        new = engine.compress(rows)
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        self.assertTrue(any("MID-REQ" in str(row.get("content")) for row in new if row.get("_compressed_summary")))
+        self.assert_aborted(engine, rows, "quote_capacity")
 
     def test_no_fallback_request_starts_after_a_switch(self):
         # A fallback task on the auto route follows the main route: after a switch, the old transcript must not
@@ -792,26 +805,36 @@ class EngineTest(unittest.TestCase):
 
     def test_a_host_compatibility_failure_tells_the_user_at_the_first_commit(self):
         for reason in ("middleware_order_unknown", "middleware_unavailable"):
-            for path in ("fallback", "fixed"):
-                with self.subTest(reason=reason, path=path):
-                    self.llm.error = RuntimeError("synthetic fallback failure") if path == "fixed" else None
-                    engine = self.make()
-                    self.compatibility_candidate(engine, reason)
-                    self.assertEqual(engine.warm_last["path"], path)
-                    self.assertEqual(engine._warm_failures, 0)
-                    self.assertIsNone(engine._warm_notice)
-                    self.commit(engine)
-                    notice = engine.get_automatic_compaction_status_message(
-                        phase="compress", default_message="Compacting")
-                    self.assertIn("Hermes compatibility", notice)
-                    self.assertIn(reason, notice)
-                    self.assertIn("fallback summary", notice)
-                    self.assertIn("logs/agent.log", notice)
-                    self.assertNotIn("no messages were dropped", notice)
-                    if path == "fixed":
-                        self.assertIn("fixed summary (no model, less detail)", notice)
-                    else:
-                        self.assertIn("Compaction continues with the fallback summary.", notice)
+            with self.subTest(reason=reason):
+                engine = self.make()
+                self.compatibility_candidate(engine, reason)
+                self.assertEqual(engine.warm_last["path"], "fallback")
+                self.assertEqual(engine._warm_failures, 0)
+                self.assertIsNone(engine._warm_notice)
+                self.commit(engine)
+                notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+                self.assertIn("Hermes compatibility", notice)
+                self.assertIn(reason, notice)
+                self.assertIn("Compaction continues with the fallback summary.", notice)
+                self.assertIn("logs/agent.log", notice)
+
+    def test_a_host_compatibility_failure_stops_if_backup_also_fails(self):
+        self.llm.error = RuntimeError("synthetic fallback failure")
+        for reason in ("middleware_order_unknown", "middleware_unavailable"):
+            with self.subTest(reason=reason):
+                engine = self.make()
+                rows, reply = old_turns(), assistant("done")
+                if reason == "middleware_order_unknown":
+                    with patch.object(wc_hermes_stub.PLUGINS, "_delivery_manager",
+                                      side_effect=AttributeError("synthetic change")):
+                        self.seed(rows, reply)
+                    self.assert_aborted(engine, [*rows, reply], "error:RuntimeError")
+                else:
+                    self.seed(rows, reply)
+                    with patch.dict(wc_hermes_stub.MIDDLEWARE.__dict__, clear=True):
+                        self.assert_aborted(engine, [*rows, reply], "error:RuntimeError")
+                self.assertEqual(engine.warm_last["reason"], reason)
+                self.assertIsNone(engine._warm_notice)
 
     def test_a_compatibility_notice_stays_pending_when_the_host_hides_status(self):
         engine = self.make()
@@ -824,15 +847,12 @@ class EngineTest(unittest.TestCase):
             phase="compress", default_message="Compacting"))
         self.assertEqual(engine._warm_notice, pending)
         self.llm.error = RuntimeError("synthetic fallback failure")
-        self.compress_committed(engine, [*old_turns(), assistant("done")])
+        self.assert_aborted(engine, [*old_turns(), assistant("done")], "error:RuntimeError")
         engine.emit_automatic_compaction_status = True
-        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
-        self.assertIn("Hermes compatibility", notice)
-        self.assertIn("no_capture", notice)
-        self.assertIn("the last 2 compactions", notice)
-        self.assertIn("the fallback summary could not be used 1 of 2 times", notice)
-        self.assertEqual(engine.get_automatic_compaction_status_message(
-            phase="compress", default_message="Compacting"), "Compacting")
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting"),
+                         pending)
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting"),
+                         "Compacting")
 
     def test_a_consumed_compatibility_notice_does_not_repeat_at_the_third_failure(self):
         engine = self.make()
@@ -951,21 +971,17 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
                                                                         default_message="Compacting"), "Compacting")
 
-    def test_a_pending_notice_includes_a_later_fixed_summary(self):
+    def test_an_aborted_attempt_keeps_the_pending_notice(self):
         engine = self.make()
         history = [*old_turns(), assistant("done")]
-        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
-            for _ in range(3):
-                self.compress_committed(engine, history)
-            self.llm.error = RuntimeError("down")
+        for _ in range(3):
             self.compress_committed(engine, history)
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
-        self.assertIn("the last 4 compactions", notice)
-        self.assertIn("the fallback summary could not be used 1 of 4 times", notice)
-        self.assertIn("fixed summary (no model, less detail)", notice)
-        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 4)
-        self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
+        pending = engine._warm_notice
+        self.llm.error = RuntimeError("synthetic failure")
+        self.assert_aborted(engine, history, "error:RuntimeError")
+        self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting"),
+                         pending)
+        self.assertIn("the last 3 compactions", pending)
 
     def test_a_pending_notice_keeps_each_reason_with_its_hint(self):
         engine = self.make()
@@ -1004,12 +1020,14 @@ class EngineTest(unittest.TestCase):
                 self.compress_committed(engine, history)
             self.assertIn("Warm compaction unavailable", engine.get_automatic_compaction_status_message(
                 phase="compress", default_message="Compacting"))
-            self.llm.error = RuntimeError("down")
+            self.llm.error = RuntimeError("synthetic fallback failure")
             for _ in range(2):
-                self.compress_committed(engine, history)
+                self.assert_aborted(engine, history, "error:RuntimeError")
                 self.assertEqual(engine.get_automatic_compaction_status_message(
                     phase="compress", default_message="Compacting"), "Compacting")
-        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 5)
+        self.assertEqual(engine._warm_failures, 3)
+        self.assertEqual(sum("Warm compaction skipped" in line for line in logs.output), 3)
+        self.assertEqual(sum("Warm compaction stopped" in line for line in logs.output), 2)
         self.assertEqual(sum("Warm compaction failed" in line for line in logs.output), 1)
 
     def test_a_rejected_warm_reply_with_cached_tokens_does_not_claim_a_cache_miss(self):
@@ -1036,7 +1054,7 @@ class EngineTest(unittest.TestCase):
         self.seed(rows, reply)
         self.compress_committed(engine, [*rows, reply])
         self.assertEqual(engine.warm_last["path"], "warm")
-        self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons), (0, 0, []))
+        self.assertEqual((engine._warm_failures, engine._warm_failure_reasons), (0, []))
         self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
                                                                         default_message="Compacting"), "Compacting")
         self.store.forget(session_id="s1")
@@ -1083,21 +1101,14 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(engine.get_automatic_compaction_status_message(
             phase="compress", default_message="Compacting"), "Compacting")
 
-    def test_the_notice_tells_when_the_fallback_also_failed(self):
-        # The fixed summary has no model request: the notice must not say that the fallback summary works.
-        self.llm = FakeLlm(error=RuntimeError("down"))
+    def test_summary_failures_stop_without_a_success_notice(self):
+        self.llm = FakeLlm(error=RuntimeError("synthetic failure"))
         engine = self.make()
         history = [*old_turns(), assistant("done")]
-        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
-            for _ in range(3):
-                self.compress_committed(engine, history)
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
-        self.assertNotIn("continues with the slower fallback summary", notice)
-        self.assertIn("the fallback summary could not be used 3 of 3 times", notice)
-        self.assertIn("fixed summary", notice)
-        self.assertNotIn("no messages were dropped", notice)
-        self.assertEqual(sum("3 of them with the fixed summary" in line for line in logs.output), 1)
+        for _ in range(3):
+            self.assert_aborted(engine, history, "error:RuntimeError")
+        self.assertEqual(engine._warm_failures, 0)
+        self.assertIsNone(engine._warm_notice)
 
     def test_a_session_reset_clears_the_failure_streak(self):
         # A notice or a streak of the old session does not show in the new session.
@@ -1106,7 +1117,7 @@ class EngineTest(unittest.TestCase):
         for _ in range(3):
             self.compress_committed(engine, history)
         engine.on_session_reset()
-        self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons), (0, 0, []))
+        self.assertEqual((engine._warm_failures, engine._warm_failure_reasons), (0, []))
         self.assertEqual(engine.get_automatic_compaction_status_message(phase="compress",
                                                                         default_message="Compacting"), "Compacting")
         for _ in range(2):
@@ -1117,7 +1128,7 @@ class EngineTest(unittest.TestCase):
     def test_a_result_is_not_counted_before_the_commit_boundary(self):
         engine = self.make()
         engine.compress([*old_turns(), assistant("done")])
-        self.assertEqual((engine._warm_failures, engine._warm_fixed), (0, 0))
+        self.assertEqual(engine._warm_failures, 0)
         self.assertIsNone(engine._warm_notice)
         self.commit(engine)
         self.assertEqual(engine._warm_failures, 1)
@@ -1561,13 +1572,98 @@ class EngineTest(unittest.TestCase):
                 section = summary.split("## Copied user messages", 1)[1].strip()
                 self.assertEqual(not section.startswith("(none)"), copied)
 
-    def test_fixed_summary_when_the_fallback_fails(self):
-        self.llm = FakeLlm(error=RuntimeError("down"))
+    def test_compaction_stops_when_the_fallback_fails(self):
+        self.llm = FakeLlm(error=RuntimeError("synthetic failure"))
         engine = self.make()
-        with self.assertLogs("warm_compaction.fallback", level="WARNING"):
-            new = engine.compress([*old_turns(), assistant("done")])
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        self.assertIn("Summary unavailable.", new[1]["content"])
+        self.assert_aborted(engine, [*old_turns(), assistant("done")], "error:RuntimeError")
+
+    def test_provider_error_and_backup_internal_server_error_stop_with_safe_metadata(self):
+        class InternalServerError(RuntimeError):
+            pass
+
+        private = "synthetic-private-message-and-credential"
+        self.llm.error = InternalServerError(private)
+        engine = self.make()
+        rows, reply = old_turns(), assistant("synthetic final reply")
+        self.seed(rows, reply)
+        engine._post = lambda *args, **kwargs: (500, private.encode())
+        with self.assertLogs("warm_compaction", level="INFO") as logs:
+            error = self.assert_aborted(engine, [*rows, reply], "error:InternalServerError")
+        self.assertEqual(engine.warm_last["reason"], "provider_error")
+        self.assertIn("warm: provider_error; fallback: error:InternalServerError", str(error))
+        self.assertNotIn(private, str(error))
+        self.assertNotIn(private, str(logs.output))
+        self.assertNotIn(private, json.dumps(engine.get_status()))
+        self.assertIsNone(error.__cause__)
+        self.assertTrue(error.__suppress_context__)
+
+    def test_absent_rejected_empty_and_incomplete_backup_summaries_stop_compaction(self):
+        cases = (
+            (None, "unavailable"),
+            (FakeLlm(text="synthetic answer\n" + END_LINE), "gate:heading_missing"),
+            (FakeLlm(text=""), "gate:missing_end_marker"),
+            (FakeLlm(text=HEADINGS_TEXT), "gate:missing_end_marker"),
+            (FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "x" * 30_000) + "\n" + END_LINE),
+             "gate:byte_bound"),
+        )
+        for llm, reason in cases:
+            with self.subTest(reason=reason):
+                self.llm = llm
+                engine = self.make(warm=False)
+                self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], reason)
+
+    def test_late_backup_errors_after_cancel_or_route_switch_keep_history(self):
+        for action in ("cancel", "route", "session"):
+            with self.subTest(action=action):
+                engine = self.make(warm=False)
+                history = [*old_turns(), assistant("synthetic final reply")]
+                original = copy.deepcopy(history)
+
+                def failed(*args, action=action, engine=engine, **kwargs):
+                    if action == "cancel":
+                        engine._compression_cancelled_check = lambda: True
+                    elif action == "route":
+                        engine.update_model("synthetic-other-model", 200_000)
+                    else:
+                        engine.on_session_start("synthetic-new-session")
+                    raise RuntimeError("synthetic private late failure")
+
+                with patch.object(self.llm, "complete", side_effect=failed):
+                    self.assertIs(engine.compress(history), history)
+                self.assertEqual(history, original)
+                self.assertEqual(engine.compression_count, 0)
+                self.assertIsNone(engine._pending_warm_result)
+                if action == "session":
+                    self.assertIsNone(engine.warm_last)
+                else:
+                    self.assertEqual(engine.warm_last["path"], "cancelled")
+
+    def test_a_stale_backup_error_cannot_replace_a_newer_result_or_raise(self):
+        engine = self.make(warm=False)
+        history = [*old_turns(), assistant("synthetic final reply")]
+        original = copy.deepcopy(history)
+        complete = self.llm.complete
+        latest = {}
+
+        def stale(*args, **kwargs):
+            self.llm.complete = complete
+            try:
+                candidate = copy.deepcopy(history)
+                self.assertIsNot(engine.compress(candidate), candidate)
+                latest.update(engine.warm_last)
+            finally:
+                self.llm.complete = stale
+            raise RuntimeError("synthetic private stale failure")
+
+        self.llm.complete = stale
+        try:
+            self.assertIs(engine.compress(history), history)
+        finally:
+            self.llm.complete = complete
+        self.assertEqual(history, original)
+        self.assertEqual(engine.warm_last, latest)
+        self.assertEqual(engine.compression_count, 1)
+        self.assertIsNotNone(engine._pending_warm_result)
 
     def test_disabled_setting(self):
         engine = self.make(warm=False)
@@ -1608,8 +1704,8 @@ class EngineTest(unittest.TestCase):
                 self.compress_committed(engine, history)
                 self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
                                  ("fallback", "provider_not_allowed"))
-                self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons),
-                                 (0, 0, []))
+                self.assertEqual((engine._warm_failures, engine._warm_failure_reasons),
+                                 (0, []))
                 self.assertEqual(engine.get_automatic_compaction_status_message(
                     phase="compress", default_message="Compacting"), "Compacting")
         self.assertEqual(self.post.calls, [])
@@ -1625,7 +1721,7 @@ class EngineTest(unittest.TestCase):
                 self.compress_committed(engine, history)
                 self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
                                  ("fallback", "no_capture"))
-        self.assertEqual((engine._warm_failures, engine._warm_fixed), (3, 0))
+        self.assertEqual(engine._warm_failures, 3)
         self.assertEqual(engine._warm_failure_reasons, ["no_capture"] * 3)
         self.assertEqual(self.post.calls, [])
         self.assertEqual(len(self.llm.calls), 3)
@@ -1646,8 +1742,8 @@ class EngineTest(unittest.TestCase):
                 self.compress_committed(engine, [*rows, reply])
                 self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
                                  ("fallback", "provider_not_allowed"))
-                self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons),
-                                 (0, 0, []))
+                self.assertEqual((engine._warm_failures, engine._warm_failure_reasons),
+                                 (0, []))
                 self.assertEqual(engine.get_automatic_compaction_status_message(
                     phase="compress", default_message="Compacting"), "Compacting")
         self.assertEqual(self.post.calls, [])
@@ -1671,7 +1767,7 @@ class EngineTest(unittest.TestCase):
                 self.compress_committed(engine, [*rows, reply])
                 self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
                                  ("fallback", "provider_error"))
-        self.assertEqual((engine._warm_failures, engine._warm_fixed), (3, 0))
+        self.assertEqual(engine._warm_failures, 3)
         self.assertEqual(engine._warm_failure_reasons, ["provider_error"] * 3)
         self.assertEqual((len(requests), len(self.llm.calls)), (3, 3))
         self.assertEqual(sum("Warm compaction skipped (provider_error); used the fallback summary" in line
@@ -1682,27 +1778,19 @@ class EngineTest(unittest.TestCase):
         self.assertIn("the last 3 compactions", notice)
         self.assertIn("provider_error", notice)
 
-    def test_an_excluded_provider_with_a_failed_fallback_still_reports_the_failure_streak(self):
+    def test_an_excluded_provider_with_a_failed_fallback_stops_compaction(self):
         engine = self.make(warm_providers="opencode-go,commandcode")
         rows, reply = old_turns(), assistant("final")
         self.llm.error = RuntimeError("synthetic fallback failure")
-        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
-            for _ in range(3):
-                self.seed(rows, reply)
-                self.compress_committed(engine, [*rows, reply])
-                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
-                                 ("fixed", "provider_not_allowed"))
-        self.assertEqual((engine._warm_failures, engine._warm_fixed), (3, 3))
-        self.assertEqual(engine._warm_failure_reasons, ["provider_not_allowed"] * 3)
+        for _ in range(3):
+            self.seed(rows, reply)
+            self.assert_aborted(engine, [*rows, reply], "error:RuntimeError")
+            self.assertEqual(engine.warm_last["reason"], "provider_not_allowed")
+        self.assertEqual(engine._warm_failures, 0)
+        self.assertEqual(engine._warm_failure_reasons, [])
         self.assertEqual(self.post.calls, [])
         self.assertEqual(len(self.llm.calls), 3)
-        self.assertEqual(sum("Warm compaction skipped (provider_not_allowed); used the fixed summary" in line
-                             for line in logs.output), 3)
-        self.assertEqual(sum("Warm compaction failed 3 times in a row (provider_not_allowed)" in line
-                             for line in logs.output), 1)
-        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
-        self.assertIn("the last 3 compactions", notice)
-        self.assertIn("the fallback summary could not be used 3 of 3 times", notice)
+        self.assertIsNone(engine._warm_notice)
 
     def test_a_provider_inside_the_list_uses_the_warm_request(self):
         engine = self.make(warm_providers="opencode-go, custom ")
@@ -1747,25 +1835,14 @@ class EngineTest(unittest.TestCase):
         self.assertIs(self.engine.compress(messages), messages)
         self.assertIsNone(self.engine.warm_last)
 
-    def test_the_fixed_summary_quotes_the_cut_middle_of_the_prepended_row(self):
-        # The prepended row is the latest user message; it is not copied, so its cut middle must stay in the
-        # summary when no model summary is available.
-        from warm_compaction.layout import MIN_COPY_CHARS
-        from warm_compaction.rows import estimate_tokens
-        from warm_compaction.warm import DEFAULT_RESERVE
-        self.llm.error = RuntimeError("down")
+    def test_failed_summary_keeps_the_complete_prepended_row(self):
+        self.llm.error = RuntimeError("synthetic failure")
         rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        new = engine.compress(rows)
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
-        self.assertLessEqual(len(prepended["content"]), MIN_COPY_CHARS)
-        self.assertNotIn("MID-REQ", prepended["content"])
-        self.assertTrue(any("MID-REQ" in str(row.get("content")) for row in new if row.get("_compressed_summary")))
-        self.assertLessEqual(estimate_tokens(new), min(engine.threshold_tokens, 64_000 - DEFAULT_RESERVE))
+        self.assert_aborted(engine, rows, "error:RuntimeError")
 
     def test_a_provider_or_key_switch_forgets_the_capture(self):
         # Two configurations can share the model, the base URL, and the API mode; the old body must not go out
@@ -1782,55 +1859,34 @@ class EngineTest(unittest.TestCase):
                                          api_mode=ROUTE[2], **change)
                 self.assertIsNone(self.store.latest("s1"))
 
-    def test_the_fixed_path_builds_the_tail_at_the_cap_that_the_summary_quotes(self):
-        # Each quote makes the summary larger and the cap smaller. When the rounds stop before the cap is stable,
-        # the tail must be cut at the cap whose cut the summary quotes, not at a smaller one.
-        from warm_compaction import layout
-        self.llm.error = RuntimeError("down")
-        text = "".join(f"{index:07d}" for index in range(30_000))
-        rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]), tool("c1", text)]
+    def test_a_failed_summary_does_not_build_replacement_history(self):
+        self.llm.error = RuntimeError("synthetic failure")
+        rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
+                tool("c1", "synthetic payload " * 30_000)]
         engine = self.make(threshold=0.95, tail_tokens=30_000, warm=False)
-        caps = iter(range(30_000, 0, -1_500))
-        engine._tail_cap = lambda *args, **kwargs: next(caps)
-        cuts, built = [], {}
-        real_bound, real_build = layout.bound_tail, layout.build
-
-        def bound(rows, tokens, removed=None, *args, **kwargs):
-            if removed is not None:
-                cuts.append(tokens)
-            return real_bound(rows, tokens, removed, *args, **kwargs)
-
-        def build(*args, **kwargs):
-            built.update(kwargs)
-            return real_build(*args, **kwargs)
-        layout.bound_tail, layout.build = bound, build
-        try:
-            engine.compress(rows)
-        finally:
-            layout.bound_tail, layout.build = real_bound, real_build
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        self.assertEqual(built["tail_tokens"], cuts[-1])
+        with patch("warm_compaction.layout.build") as build:
+            self.assert_aborted(engine, rows, "error:RuntimeError")
+        build.assert_not_called()
 
     def test_a_large_captured_overhead_makes_a_short_history_compact(self):
-        # The history fits the nominal tail, but the system rows and tool schemas of the captured request leave no
-        # room for it and the reply reserve.
-        rows = old_turns(4)
-        reply = assistant("final")
+        # The warm request is above capacity, but the smaller model fallback summary fits.
+        rows, reply = old_turns(4), assistant("final")
         engine = self.make(threshold=0.95)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         self.seed(rows, reply, system={"role": "system", "content": "s " * 112_000}, extra={"max_tokens": 4_096})
         history = [*rows, reply]
+        before = copy.deepcopy(history)
         self.assertTrue(engine.should_compress_preflight(history))
         self.assertTrue(engine.has_content_to_compress(history))
         new = engine.compress(history)
         self.assertIsNot(new, history)
         self.assertLess(len(new), len(history))
+        self.assertEqual(history, before)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "capacity"))
+        self.assertEqual(len(self.llm.calls), 1)
 
     def test_the_copied_messages_are_sized_after_the_tail_cut(self):
-        # A huge newest unit fills the room before the cut; after the cut there is room for the copies, which the
-        # fixed summary needs (it does not keep the earlier user text).
-        self.llm.error = RuntimeError("down")
         rows = [*old_turns(4), user("go")]
         reply = assistant("", [("c1", "read", "{}")])
         self.seed(rows, reply)
@@ -1838,7 +1894,7 @@ class EngineTest(unittest.TestCase):
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         new = engine.compress([*rows, reply, tool("c1", "t" * 400_000)])
-        self.assertEqual(engine.warm_last["path"], "fixed")
+        self.assertEqual(engine.warm_last["path"], "fallback")
         summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
         self.assertIn("ask 0 ", summary)
 
@@ -1947,42 +2003,28 @@ class EngineTest(unittest.TestCase):
         self.assertIn("u" * 100, transcript)
         self.assertTrue(any(str(row.get("content")).endswith(" end") for row in new))
 
-    def test_a_fallback_summary_above_the_reserve_goes_to_the_fixed_summary(self):
-        # A dense summary (CJK) can pass the byte gate and still be above the token reserve: the tail would then
-        # cut more than the fallback transcript had.
+    def test_a_fallback_summary_above_the_reserve_stops_compaction(self):
         dense = HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 2_500)
         self.llm = FakeLlm(text=dense + "\n" + END_LINE)
         engine = self.make(warm=False)
-        engine.compress([*old_turns(), assistant("done")])
-        self.assertEqual(engine.warm_last["path"], "fixed")
+        self.assert_aborted(engine, [*old_turns(), assistant("done")], "summary_too_large")
 
-    def test_the_fixed_summary_quotes_the_middle_that_the_final_tail_cuts(self):
-        # A large earlier summary (CJK) makes the fixed summary larger than the reserve: the tail is cut at the
-        # final cap, and the quote starts where the kept start ends.
-        from warm_compaction.rows import MIDDLE_MARK
-        self.llm.error = RuntimeError("down")
+    def test_failed_summary_keeps_the_earlier_summary_and_native_tail(self):
+        self.llm.error = RuntimeError("synthetic failure")
         text = "".join(f"{index:07d}" for index in range(30_000))
         rows = [assistant("\u65e7" * 9_000, _compressed_summary=True), *old_turns(4), user("go"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", text)]
         engine = self.make(threshold=0.95, tail_tokens=30_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        new = engine.compress(rows)
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        kept = next(row for row in new if row.get("role") == "tool")["content"]
-        head = kept.split(MIDDLE_MARK)[0]
-        summary = "\n".join(str(row["content"]) for row in new if row.get("_compressed_summary"))
-        self.assertIn("> " + text[len(head):len(head) + 40], summary)
+        self.assert_aborted(engine, rows, "error:RuntimeError")
 
-    def test_the_fixed_summary_gets_the_middles_that_the_tail_cuts(self):
-        self.llm.error = RuntimeError("down")
+    def test_failed_summary_keeps_the_middles_that_the_tail_would_cut(self):
+        self.llm.error = RuntimeError("synthetic failure")
         rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
                 tool("c1", "head " + "u" * 20_000 + " MIDDLE-FACT " + "u" * 20_000 + " end")]
         engine = self.make(tail_tokens=2_000, warm=False)
-        new = engine.compress(rows)
-        self.assertEqual(engine.warm_last["path"], "fixed")
-        self.assertTrue(any("## Key facts" in str(row.get("content")) and "u" * 50 in str(row.get("content"))
-                            for row in new))
+        self.assert_aborted(engine, rows, "error:RuntimeError")
 
     def test_a_capture_with_a_changed_source_is_not_used_for_the_budget(self):
         # A middleware removed a stored row: the captured body no longer shows which rows are the system rows.

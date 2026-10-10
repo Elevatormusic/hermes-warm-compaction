@@ -8,7 +8,7 @@ The warm path supports three API formats. A model name alone does not identify i
 | `codex_responses` | Stateless Responses requests with text and function tools, including the consumer Codex endpoint. Verified encrypted reasoning and native assistant message phases are replayed. |
 | `anthropic_messages` | API-key Messages routes with text and function tools. Native Claude signed and redacted thinking blocks retain their exact order and bytes. |
 
-Requests that cannot pass the source, route, credential, middleware, or capacity checks use the normal auxiliary summary. A failed auxiliary summary uses the fixed summary. A live cache or speed benefit needs a separate provider test.
+Requests that cannot pass the source, route, credential, middleware, or capacity checks use a model-based fallback through `auxiliary.warm_compaction`. Its default `auto` follows the main chat route. It is separate from the built-in compressor's `auxiliary.compression` task. If the fallback fails, is incomplete, or cannot fit safely, the current compaction pass stops and preserves its input history. Hermes can retry an automatic failure; the documented plugin API does not stop the entire host turn. The plugin reports safe error codes and never creates a summary without a model. A live cache or speed benefit needs a separate provider test.
 
 ## Responses
 
@@ -30,7 +30,7 @@ Forced or server tools, media, structured output, unknown request controls, and 
 
 ## Retained history and checks
 
-Native replay fields count in retained-tail estimates. A signed or encrypted assistant record stays whole, including the canonical text and tool data that its replay blocks describe. If an indivisible retained record exceeds the context budget, the attempt returns the original history with `path=unchanged reason=capacity`.
+Native replay fields count in retained-tail estimates. A signed or encrypted assistant record stays whole, including the canonical text and tool data that its replay blocks describe. If an indivisible retained record exceeds the context budget, the pass fails with `path=aborted` and a safe capacity code without replacing its input history.
 
 The provider transport check uses synthetic data and a loopback server. It calls real Hermes transports, hooks, and middleware explicitly. A separate native conversation check runs the real Hermes agent loop. It covers manual and automatic compaction, native tool rounds, and saved-session reload in a fresh process. Both checks require a clean source checkout and keep source and plugin hashes unchanged.
 

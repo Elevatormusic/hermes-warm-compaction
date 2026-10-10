@@ -1,14 +1,13 @@
-"""Tests for the fallback summary and the fixed-format summary."""
+"""Tests for the fallback model summary and its bounded quotes."""
 
 import unittest
 from types import SimpleNamespace
 
 from warm_compaction.fallback import (
     END_LINE, FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
-    fixed_summary, llm_summary, render_row, transcript,
+    llm_summary, render_row, transcript,
 )
 from warm_compaction.rows import estimate_tokens
-from warm_compaction.handoff import HEADINGS
 from wc_fixtures import assistant, tool, user
 
 PREFIXES = ("[HERMES PREFIX]", "[CONTEXT SUMMARY]:")
@@ -214,62 +213,49 @@ class LlmSummaryTest(unittest.TestCase):
             self.assertEqual(llm_summary(FakeLlm(error=RuntimeError("x")), [user("hi")], PREFIXES), (None, None))
         self.assertIn("(RuntimeError)", logs.output[0])
 
+    def test_failure_metadata_has_codes_only(self):
+        private = "synthetic-private-provider-body"
+        cases = (
+            (None, "unavailable"),
+            (FakeLlm(error=RuntimeError(private)), "error:RuntimeError"),
+            (FakeLlm(text=""), "gate:missing_end_marker"),
+            (FakeLlm(text=SUMMARY), "gate:missing_end_marker"),
+            (FakeLlm(text="synthetic answer\n" + END_LINE), "gate:heading_missing"),
+            (FakeLlm(text=SUMMARY + "\n" + END_LINE, output_tokens=MAX_TOKENS), "gate:output_token_limit"),
+        )
+        for llm, reason in cases:
+            with self.subTest(reason=reason):
+                failure = {"reason": "old"}
+                self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES, failure=failure),
+                                 (None, None))
+                self.assertEqual(failure, {"reason": reason})
+                self.assertNotIn(private, str(failure))
 
-class FixedSummaryTest(unittest.TestCase):
-    def test_the_fixed_summary_quotes_the_cut_middles(self):
-        # Without a model summary, the middles that the tail cut are not lost: a bounded quote keeps them.
-        from warm_compaction.layout import CUT_NOTE
-        rows = [user("old"), assistant("a"), tool("c1", CUT_NOTE + "REQ-42 must stay " + "m" * 40_000 + " REQ-END")]
-        text = fixed_summary(rows)
-        self.assertIn("REQ-42 must stay", text)
-        self.assertIn("REQ-END", text)
-        self.assertLess(len(text), 12_000)
+    def test_a_success_clears_old_failure_metadata(self):
+        failure = {"reason": "old"}
+        self.assertEqual(llm_summary(FakeLlm(), [user("synthetic request")], PREFIXES, failure=failure),
+                         (SUMMARY, 321))
+        self.assertEqual(failure, {})
 
-    def test_five_headings_and_tool_counts(self):
-        rows = [assistant("", [("c1", "read", "{}"), ("c2", "read", "{}")]), assistant("", [("c3", "ls", "{}")])]
-        text = fixed_summary(rows)
-        for heading in HEADINGS:
-            self.assertIn(heading + "\n", text)
-        self.assertIn("- Tool calls: ls x1", text)
-        self.assertIn("- Tool calls: read x2", text)
-        self.assertIn("[OPEN] Continue from the latest user message.", text)
+    def test_an_unready_request_reports_cancelled_without_a_model_call(self):
+        llm, failure = FakeLlm(), {}
+        self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES,
+                                     ready=lambda: False, failure=failure), (None, None))
+        self.assertEqual(failure, {"reason": "cancelled"})
+        self.assertEqual(llm.calls, [])
 
-    def test_keeps_the_earlier_summary(self):
-        # Goals and rules that only the earlier summary has must not be lost when both summary requests fail.
-        old = assistant("[CONTEXT SUMMARY]:\n## Goal\nShip the old goal.\n## Next step\nold step\n\n"
-                        "--- END OF CONTEXT SUMMARY x", _compressed_summary=True)
-        text = fixed_summary([old, user("x")], PREFIXES)
-        self.assertIn("> ## Goal\n> Ship the old goal.", text)
-        self.assertNotIn("END OF CONTEXT SUMMARY", text)
-        self.assertEqual([line for line in text.splitlines() if line == "## Goal"], ["## Goal"])
-        self.assertNotIn("earlier summary", fixed_summary([user("x")], PREFIXES))
+    def test_an_unsafe_exception_class_name_is_not_published(self):
+        unsafe = type("synthetic provider body / secret", (Exception,), {})
+        failure = {}
+        with self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
+            self.assertEqual(llm_summary(FakeLlm(error=unsafe("synthetic private message")),
+                                         [user("synthetic request")], PREFIXES, failure=failure), (None, None))
+        self.assertEqual(failure, {"reason": "error:Exception"})
+        self.assertNotIn("secret", str(logs.output))
+        self.assertNotIn("private message", str(logs.output))
 
-    def test_all_quotes_share_one_budget(self):
-        # The earlier summary, the focus, the memory context, and the cut middles together stay in the budget, and
-        # each keeps a part.
-        from warm_compaction.layout import CUT_NOTE
-        from warm_compaction.rows import estimate_tokens
-        old = assistant("[CONTEXT SUMMARY]:\nOLD-GOAL " + "o" * 40_000 + "\n\n--- END OF CONTEXT SUMMARY x ---",
-                        _compressed_summary=True)
-        rows = [old, user("x"), tool("c1", CUT_NOTE + "CUT-START " + "m" * 40_000)]
-        for budget in (4_096, 1_000):
-            with self.subTest(budget=budget):
-                text = fixed_summary(rows, PREFIXES, "FOCUS-START " + "f" * 40_000, "MEMORY-START " + "y" * 40_000,
-                                     max_tokens=budget)
-                self.assertLessEqual(estimate_tokens(text), budget)
-                for mark in ("OLD-GOAL", "FOCUS-START", "MEMORY-START", "CUT-START"):
-                    self.assertIn(mark, text)
 
-    def test_many_tool_names_stay_in_the_budget(self):
-        # The tool inventory is in the budget too: the most used names stay, the others become one count.
-        from warm_compaction.rows import estimate_tokens
-        rows = [assistant("", [(f"c{index}", f"synthetic_tool_name_{index:04d}", "{}")]) for index in range(500)]
-        rows.append(assistant("", [("x1", "read", "{}"), ("x2", "read", "{}")]))
-        text = fixed_summary(rows, max_tokens=1_000)
-        self.assertLessEqual(estimate_tokens(text), 1_000)
-        self.assertIn("- Tool calls: read x2", text)
-        self.assertIn("- Other tool calls:", text)
-
+class CutQuoteTest(unittest.TestCase):
     def test_the_cut_quote_block_fits_its_budget_with_its_label(self):
         from warm_compaction.fallback import cut_quote
         from warm_compaction.layout import CUT_NOTE
@@ -280,9 +266,6 @@ class FixedSummaryTest(unittest.TestCase):
                 block = cut_quote(rows, budget)
                 self.assertLessEqual(estimate_tokens(block), budget)
         self.assertIn("m" * 50, cut_quote(rows, 2_000))
-
-    def test_no_tool_calls(self):
-        self.assertIn("- No tool calls.", fixed_summary([user("x")]))
 
 
 if __name__ == "__main__":

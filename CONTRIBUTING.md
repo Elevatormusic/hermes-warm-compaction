@@ -26,7 +26,7 @@ Include:
 
 Use invented messages that reproduce the failure. State the approximate message count and token count. If no safe reproduction is available, explain that limit. Do not attach real or private histories, generated summaries, full configurations, raw requests, credentials, header/query values, account identifiers, or private local paths. Clearly label synthetic fixtures, synthetic summaries, and fake credential or option values used for tests. Do not enable full request dumps just to complete a report.
 
-Copy the relevant `warm_compaction:` lines from `logs/agent.log`, and any adjacent plugin warnings about capture, fallback, or fixed summaries. Keep path, reason, elapsed time, token counts, and error class when available. Report `no log line` with a reason when the plugin never loaded or no compaction ran. Review the selected lines before you paste them; do not attach the whole log.
+Copy the relevant `warm_compaction:` lines from `logs/agent.log`, and any adjacent plugin warnings about capture, fallback, or aborted compaction. Keep path, reason, elapsed time, token counts, and safe error codes when available. Report `no log line` with a reason when the plugin never loaded or no compaction ran. Review the selected lines before you paste them; do not attach the whole log.
 
 Run this command in the same terminal environment where Hermes runs, then provide the redacted check results:
 
