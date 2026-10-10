@@ -9,14 +9,6 @@ Read this file for every task. Use ASD-STE100 Simplified Technical English in ch
 3. Check the installed and running plugin version, source commit or install ref, and local edits when available. Check the exact Hermes commit and relevant plugin API source. Keep unknown values explicit. Historical evidence does not prove the current running state.
 4. State the scope, sources read, current behavior, intended change, and remaining unknowns in a short chat receipt.
 
-## Model roles
-
-For substantive implementation, use GPT-6 Astra (`gpt-6-astra`) as the primary agent and reviewer. It owns scope, design, integration, evidence review, and the final report. Delegate bounded edits, data work, investigation, and tests to GPT-6.1 Sol (`gpt-6.1-sol`) when useful work can run in parallel.
-
-Select the subagent model explicitly with fresh or bounded context. Give it the relevant paths, limits, and required checks. Subagents must not delegate again unless the primary agent asks. Inspect their diffs and check results before accepting completion.
-
-Handle simple questions and one-step actions directly. Follow an explicit user request for another model or workflow. If a required model is unavailable, state the limitation instead of silently selecting another model.
-
 ## Diagnose before a fix
 
 - Start with read-only checks. Use the diagnostic fields in the [bug form](.github/ISSUE_TEMPLATE/bug_report.yml): versions and local edits, environment and session, model route, compaction settings, request option names, synthetic reproduction, selected metadata logs, and plugin doctor results.

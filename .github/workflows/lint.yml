@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   ruff:
+    environment: ci-approval
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
