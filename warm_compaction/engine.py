@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 NAME = "warm_compaction"
 DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
+                            "summary_words": handoff.DEFAULT_SUMMARY_WORDS,
                             "warm_providers": ""}
 THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
@@ -72,6 +73,8 @@ def _valid(key: str, value: Any) -> bool:
         return isinstance(value, str)
     if isinstance(value, bool):
         return False
+    if key == "summary_words":
+        return isinstance(value, int) and value >= 1
     if key == "threshold":
         return isinstance(value, (int, float)) and THRESHOLD_RANGE[0] <= float(value) <= THRESHOLD_RANGE[1]
     return isinstance(value, int) and value >= 0
@@ -359,7 +362,8 @@ class WarmCompactionEngine(ContextEngine):
             # the old transcript does not go to the new route.
             summary, _tokens = fallback.llm_summary(
                 self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
-                task=self._task, ready=lambda: not self._cancelled() and self._attempt() == attempt)
+                task=self._task, summary_words=self._settings["summary_words"],
+                ready=lambda: not self._cancelled() and self._attempt() == attempt)
             if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
                                         or not self._summary_fits(summary, overhead, reserve)):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
@@ -526,19 +530,19 @@ class WarmCompactionEngine(ContextEngine):
         try:
             if not self._settings["warm"]:
                 raise warm.WarmRefusal("disabled")
-            if capture is None:
-                raise warm.WarmRefusal("no_capture")
             # A provider that is not in the list never sends a warm request. A route that rotates its upstream
             # can miss the prefix cache, and the warm request would then pay for the whole prompt. The
             # fallback summary, which sends a small transcript, runs in its place.
             if not provider_allowed(self._settings.get("warm_providers"), attempt[2]):
                 raise warm.WarmRefusal("provider_not_allowed")
+            if capture is None:
+                raise warm.WarmRefusal("no_capture")
             # The capture belongs to the key that sent it. Hermes can give the key as a function whose value
             # changes (a token that refreshes or rotates): resolve it one time, for this check and the request.
             key = warm.api_key_text(attempt[1])
             if capture.get("key_stamp") != key_stamp(key):
                 raise warm.WarmRefusal("credential_changed")
-            instruction = handoff.build_instruction(focus_topic, memory)
+            instruction = handoff.build_instruction(focus_topic, memory, self._settings["summary_words"])
             body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction,
                                       warm.native_details_type(attempt[2]))
             if self._cancelled():

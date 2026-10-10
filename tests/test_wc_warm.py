@@ -41,17 +41,35 @@ class SplitHistoryTest(unittest.TestCase):
         reply = assistant("", [("c1", "read", "{}")])
         capture = capture_for(rows, reply)
         cases = {
-            "changed row": [user("u1"), assistant("other"), user("u2"), reply, tool("c1", "r")],
-            "no reply": rows,
-            "other reply": [*rows, assistant("", [("c9", "read", "{}")]), tool("c9", "r")],
-            "missing tool row": [*rows, reply],
-            "unknown tool row": [*rows, reply, tool("c1", "r"), tool("c7", "r")],
-            "assistant after tools": [*rows, reply, tool("c1", "r"), assistant("next")],
+            "history_changed:digest": [user("u1"), assistant("other"), user("u2"), reply, tool("c1", "r")],
+            "history_changed:reply_missing": rows,
+            "history_changed:capture_ahead": rows[:-1],
+            "history_changed:reply": [*rows, assistant("", [("c9", "read", "{}")]), tool("c9", "r")],
+            "history_changed:tool_count": [*rows, reply],
+            "history_changed:trailing": [*rows, reply, tool("c1", "r"), assistant("next")],
         }
         for label, messages in cases.items():
             with self.subTest(label), self.assertRaises(WarmRefusal) as caught:
                 split_history(capture, messages)
-            self.assertEqual(caught.exception.code, "history_changed")
+            self.assertEqual(caught.exception.args, (label,))
+
+    def test_capture_ahead_cannot_use_a_matching_earlier_reply(self):
+        rows = history()
+        reply = assistant("synthetic answer")
+        capture = capture_for([*rows, reply, user("future synthetic question")], reply)
+        with self.assertRaises(WarmRefusal) as caught:
+            split_history(capture, [*rows, reply])
+        self.assertEqual(caught.exception.args, ("history_changed:capture_ahead",))
+
+    def test_extra_or_missing_tool_results_have_a_fixed_code(self):
+        rows = history()
+        reply = assistant("", [("c1", "read", "{}"), ("c2", "read", "{}")])
+        capture = capture_for(rows, reply)
+        for results, code in (([tool("c1", "r")], "tool_count"),
+                              ([tool("c1", "r"), tool("c2", "r"), tool("c7", "r")], "tool_extra")):
+            with self.subTest(results=results), self.assertRaises(WarmRefusal) as caught:
+                split_history(capture, [*rows, reply, *results])
+            self.assertEqual(caught.exception.args, ("history_changed:" + code,))
 
 
 class RepeatedCallIdTest(unittest.TestCase):
@@ -68,6 +86,17 @@ class RepeatedCallIdTest(unittest.TestCase):
 
 
 class ApiContentHistoryTest(unittest.TestCase):
+    def test_assembled_capture_matches_stored_context(self):
+        rows = [user("synthetic question", api_content="[synthetic context]\n\nsynthetic question"),
+                assistant("display reply", api_content="synthetic sent reply"), user("next question")]
+        assembled = copy.deepcopy(rows)
+        for row in assembled:
+            if "api_content" in row:
+                row["content"] = row.pop("api_content")
+        reply = assistant("synthetic answer")
+        capture = capture_for(assembled, reply)
+        self.assertEqual(split_history(capture, [*rows, reply]), ([reply], []))
+
     def test_the_reply_matches_by_its_api_content(self):
         rows = history()
         capture = capture_for(rows, assistant("The answer is 4."))
@@ -688,6 +717,16 @@ class SendTest(unittest.TestCase):
         send({"messages": []}, "http://h/v1", "k", post=fake_post(200, payload, calls),
              extra_headers={"X-Title": "Hermes Agent"})
         self.assertEqual((calls[0][2]["X-Title"], calls[0][2]["Authorization"]), ("Hermes Agent", "Bearer k"))
+
+    def test_the_warm_request_sends_a_user_agent(self):
+        # Python urllib adds "Python-urllib/x.y" when the request sets no User-Agent.
+        # Cloudflare-fronted routes refuse that signature with HTTP 403 (error 1010).
+        calls = []
+        payload = {"choices": [{"message": {"content": "text"}, "finish_reason": "stop"}], "usage": {}}
+        send({"messages": []}, "http://h/v1", "k", post=fake_post(200, payload, calls))
+        agent = calls[0][2]["User-Agent"]
+        self.assertTrue(agent, "the warm request must set a User-Agent")
+        self.assertNotIn("urllib", agent.lower(), "the library User-Agent is refused by a bot rule")
 
     def test_reads_the_reply_and_the_usage(self):
         calls = []

@@ -22,6 +22,7 @@ concurrency:
 jobs:
   contract:
     name: Hermes contract (${{ matrix.hermes }})
+    environment: ci-approval
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

@@ -9,14 +9,6 @@ Read this file for every task. Use ASD-STE100 Simplified Technical English in ch
 3. Check the installed and running plugin version, source commit or install ref, and local edits when available. Check the exact Hermes commit and relevant plugin API source. Keep unknown values explicit. Historical evidence does not prove the current running state.
 4. State the scope, sources read, current behavior, intended change, and remaining unknowns in a short chat receipt.
 
-## Model roles
-
-For substantive implementation, use GPT-6 Astra (`gpt-6-astra`) as the primary agent and reviewer. It owns scope, design, integration, evidence review, and the final report. Delegate bounded edits, data work, investigation, and tests to GPT-6.1 Sol (`gpt-6.1-sol`) when useful work can run in parallel.
-
-Select the subagent model explicitly with fresh or bounded context. Give it the relevant paths, limits, and required checks. Subagents must not delegate again unless the primary agent asks. Inspect their diffs and check results before accepting completion.
-
-Handle simple questions and one-step actions directly. Follow an explicit user request for another model or workflow. If a required model is unavailable, state the limitation instead of silently selecting another model.
-
 ## Diagnose before a fix
 
 - Start with read-only checks. Use the diagnostic fields in the [bug form](.github/ISSUE_TEMPLATE/bug_report.yml): versions and local edits, environment and session, model route, compaction settings, request option names, synthetic reproduction, selected metadata logs, and plugin doctor results.
@@ -36,7 +28,7 @@ Keep default diagnostics and published runtime evidence small and metadata only.
 
 ## Checks
 
-Use Python 3.10 or later and Git. For Python changes, run:
+Use Python 3.10 or later and Git. For every PR, including document and form changes, run all tests in [CONTRIBUTING.md](CONTRIBUTING.md#run-the-checks) and lint. This includes unit, property, policy, and all four loopback Hermes checks. No live model or performance test is required for this suite. These commands are part of the suite:
 
 ```bash
 python -m unittest discover -s tests -p "test_wc_*.py"
@@ -45,17 +37,23 @@ ruff check .
 
 Use Ruff `0.16.10`, the version used by CI. The [contribution guide](CONTRIBUTING.md#run-the-checks) gives setup and integration commands.
 
-For changes to Hermes interaction, run `scripts/check_plugin_hermes.py` with the Python of a Hermes virtual environment and a clean Hermes checkout. Use its loopback fake server. Record the exact Hermes commit, Python version, command, and report result.
+For every PR, run the four Hermes checks with the Python of a Hermes virtual environment and a clean Hermes checkout. Use synthetic data and loopback fake servers. Record the exact Hermes commit, Python version, commands, and report results. Use placeholders for private paths in shared results.
 
-For document or form changes, check local Markdown links, parse issue-form YAML, check the [GitHub form schema](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema), and run `git diff --check`. Keep `AGENTS.md` and `CLAUDE.md` identical in bytes. A document-only change needs no code regression test or live model probe.
+For document or form changes, also check local Markdown links, parse issue-form YAML, check the [GitHub form schema](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema), and run `git diff --check`. Keep `AGENTS.md` and `CLAUDE.md` identical in bytes. A document-only change needs no new regression test, but it must pass the full test suite.
 
-Record every applicable check as passed, failed, skipped, or unavailable. Give exact commands and explain skipped or unavailable checks. CI unit and lint checks must pass for every PR.
+Record every required check as passed, failed, skipped, or unavailable. Give exact commands and explain failed, skipped, or unavailable checks. Only mark the PR test checkbox after all listed tests passed. A skipped or unavailable test does not satisfy it. CI test and lint checks must pass for every PR.
+
+The full suite can run locally or in CI. Link complete passing CI results for the current PR commit. Do not repeat a complete passing CI suite locally or download Hermes only for that repeat. Do not mark the checkbox while a required CI test is running.
 
 Unit tests prove local fixture behavior. Loopback integration checks prove behavior on the named Hermes source. Neither proves a live route, summary quality, cache reuse, or a speed gain. A performance claim needs the synthetic workload, comparison method, versions/settings, run counts, per-run times, token/cache counters, and measurement limits. Report missing counters as unknown.
 
 ## PR and final report
 
-Use the [PR template](.github/pull_request_template.md). Link the issue, give the concrete trigger and before/after behavior, describe scope and limits, and include exact check results. Use `not applicable` with a reason for runtime sections in a document-only PR.
+Use the [PR template](.github/pull_request_template.md). Link the issue, give the concrete trigger and before/after behavior, describe scope and limits, and include exact check results. A document-only PR needs the full synthetic test results, but can mark live provider and performance details `not applicable` with a reason.
+
+A PR authored by `Elevatormusic` is exempt from the issue requirement only. The author name check is not case-sensitive. The limit of five open PRs, AI agent disclosure, and the test checkbox still apply. Count draft PRs and open PRs on all base branches. Closed or merged PRs and ordinary issues do not count. Do not close PRs under this policy. PRs that predate the policy cutoff stay outside the automated check, but they count toward the author's open PR limit for later PRs.
+
+Every issue and PR must declare AI agent use. If agents helped diagnose the problem or write code, list every harness, exact model, and task. Use plain `Harness:`, `Model:`, and `Work:` lines for each agent. If no AI agent was used, write exactly `No AI agent used`. Do not invent a model or include private paths, configs, credentials, or conversations.
 
 Before a PR update or publication, check the current branch head, diff, checks, and relevant issue or review comments again. Inspect the full diff for unrelated changes and private data. Do not infer completion from an old check result.
 

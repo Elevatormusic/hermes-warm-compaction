@@ -47,6 +47,16 @@ class ResponsesSourceTest(unittest.TestCase):
         self.assertEqual(wire[1]["content"], [{"type": "output_text", "text": "a"}])
         self.assertEqual(wire[1]["phase"], "final_answer")
 
+    def test_an_input_item_without_a_type_is_a_message(self):
+        # The Responses API reads an input item that has a role and no "type" as a message.
+        # Hermes sends that form, so the source check must accept it.
+        rows = [user("u"), assistant("a")]
+        wire = responses.wire_rows(rows, ROUTE[1], model=ROUTE[0])
+        untyped = [{key: value for key, value in item.items() if key != "type"} for item in wire]
+        self.assertEqual(untyped[0], {"role": "user", "content": "u"})
+        responses.check_source({"model": ROUTE[0], "instructions": "Synthetic system text.",
+                                "store": False, "input": untyped}, rows)
+
     def test_native_text_replay_keeps_phase_status_and_id(self):
         row = assistant("a", codex_message_items=[{
             "type": "message", "role": "assistant", "id": "msg_fake", "status": "completed",
@@ -180,6 +190,35 @@ class ResponsesSourceTest(unittest.TestCase):
 
 
 class ResponsesBuildTest(unittest.TestCase):
+    def test_capture_ahead_has_a_history_refusal(self):
+        for route in (ROUTE, CODEX):
+            with self.subTest(route=route):
+                rows = [user("First synthetic question."), assistant("First synthetic answer."),
+                        user("Next synthetic question.")]
+                saved = capture(rows, assistant("Captured synthetic answer."), route)
+                messages = rows[:-1]
+                original_capture, original_messages = copy.deepcopy(saved), copy.deepcopy(messages)
+                with self.assertRaises(WarmRefusal) as caught:
+                    responses.build_request(saved, messages, route, 100_000, INSTRUCTION)
+                self.assertEqual(caught.exception.args, ("history_changed:capture_ahead",))
+                self.assertEqual(caught.exception.code, "history_changed:capture_ahead")
+                self.assertEqual(saved, original_capture)
+                self.assertEqual(messages, original_messages)
+
+    def test_changed_digest_has_a_history_refusal(self):
+        for route in (ROUTE, CODEX):
+            with self.subTest(route=route):
+                rows, reply = [user("Original synthetic question.")], assistant("Synthetic answer.")
+                saved = capture(rows, reply, route)
+                messages = [user("Changed synthetic question."), reply]
+                original_capture, original_messages = copy.deepcopy(saved), copy.deepcopy(messages)
+                with self.assertRaises(WarmRefusal) as caught:
+                    responses.build_request(saved, messages, route, 100_000, INSTRUCTION)
+                self.assertEqual(caught.exception.args, ("history_changed:digest",))
+                self.assertEqual(caught.exception.code, "history_changed:digest")
+                self.assertEqual(saved, original_capture)
+                self.assertEqual(messages, original_messages)
+
     def test_request_preserves_prefix_and_non_generation_controls(self):
         rows, reply = [user("question")], assistant("answer")
         controls = {"prompt_cache_key": "fake-cache", "prompt_cache_retention": "24h", "reasoning": {"effort": "low"},

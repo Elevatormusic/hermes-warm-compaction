@@ -167,6 +167,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | `tail_tokens` | int, 0 or more | 0: 2.5% of the context window, from 10,000 to 25,000 | Size of the verbatim tail, at most half of the compaction threshold |
 | `user_copy_chars` | int, 0 or more | 24,000 | Total characters of user messages that the summary copies |
 | `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
+| `summary_words` | int, 1 or more | 600 | Word count the handoff instruction asks for. It applies to the warm request and the fallback summary. A larger value records more of a long session. The task, not this value, controls the final reply size |
 | `warm_providers` | text | empty: every provider | Comma-separated provider names that may use the warm path. A provider outside the list sends no warm request, so a route that can miss its prefix cache does not pay for the whole prompt. Names are matched without case. An empty value keeps every provider |
 
 ```yaml
@@ -207,6 +208,8 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
 Capture refusal codes identify the failed check: `request_not_mapping` means that the request is not a mapping; `request_options_unsupported` means that extra headers, query options, or `extra_body` cannot be kept; `request_not_json` means that a body value cannot be sent as JSON (including NaN and infinity). `settings_unsupported` still applies to unsupported model settings. These codes contain no request values.
+
+History refusal codes identify the failed stage: `history_changed:capture_ahead` means that the capture has more rows than the live history; `history_changed:reply_missing` means that the captured reply is absent; `history_changed:digest` means that a captured row differs; `history_changed:reply` means that the next row does not match the reply; `history_changed:tool_extra` or `history_changed:tool_count` means that tool results do not match the captured calls; `history_changed:trailing` means that later rows include a role other than user. These codes contain no message text or tool IDs. A shorter live history uses the fallback; the plugin cannot reuse unmatched future rows.
 
 The engine status (`get_status()`) has the same values in `warm_last`. After a new attempt starts, an older worker cannot replace this status or write a final metadata line. The log never contains message text, request bodies, or keys.
 
@@ -336,7 +339,7 @@ For native provider edits, run both `scripts/check_provider_apis.py` and `script
 
 ## Contributing
 
-Bug reports, server results, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the checks, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+Bug reports, server results, and pull requests are welcome. Each author can have at most five open PRs, including drafts. Each new PR must link an earlier issue, such as `Closes #123`; PRs authored by `Elevatormusic` are exempt from the issue rule. Issues and PRs must declare the AI harness and model used, or state that no AI agent was used. Each new PR must also confirm that all tests passed. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules and checks, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License and credit
 
