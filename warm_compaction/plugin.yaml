@@ -32,3 +32,7 @@ config_schema:
     type: int
     default: 600
     description: Word count the handoff instruction asks for, for the warm request and the fallback summary.
+  warm_providers:
+    type: str
+    default: ""
+    description: Comma-separated provider names that may use the warm path. Empty means every provider.

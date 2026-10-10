@@ -168,6 +168,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | `user_copy_chars` | int, 0 or more | 24,000 | Total characters of user messages that the summary copies |
 | `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
 | `summary_words` | int, 1 or more | 600 | Word count the handoff instruction asks for. It applies to the warm request and the fallback summary. A larger value records more of a long session. The task, not this value, controls the final reply size |
+| `warm_providers` | text | empty: every provider | Comma-separated provider names that may use the warm path. A provider outside the list sends no warm request, so a route that can miss its prefix cache does not pay for the whole prompt. Names are matched without case. An empty value keeps every provider |
 
 ```yaml
 plugins:
@@ -203,7 +204,7 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 ```
 
 - `path` is `warm`, `fallback`, or `fixed`. `unchanged` means that an indivisible native replay block left no room for a valid new history; no compaction was committed.
-- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `api_mode_unsupported`, `auth_unsupported`, `route_changed`, `settings_unsupported`, `request_not_mapping`, `request_options_unsupported`, `request_not_json`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `tls_unknown`, `tls_unverified`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
+- `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `provider_not_allowed`, `api_mode_unsupported`, `auth_unsupported`, `route_changed`, `settings_unsupported`, `request_not_mapping`, `request_options_unsupported`, `request_not_json`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `tls_unknown`, `tls_unverified`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
 
 Capture refusal codes identify the failed check: `request_not_mapping` means that the request is not a mapping; `request_options_unsupported` means that extra headers, query options, or `extra_body` cannot be kept; `request_not_json` means that a body value cannot be sent as JSON (including NaN and infinity). `settings_unsupported` still applies to unsupported model settings. These codes contain no request values.

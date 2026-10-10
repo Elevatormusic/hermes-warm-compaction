@@ -1589,6 +1589,148 @@ class EngineTest(unittest.TestCase):
         self.assertIn("Use at most 1200 words.", sent)
         self.assertNotIn("600 words", sent)
 
+    def test_a_provider_outside_the_list_skips_the_warm_request(self):
+        # The route is kept out of the warm path: no warm request is sent, and the fallback summary runs.
+        engine = self.make(warm_providers="opencode-go,commandcode")
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                         ("fallback", "provider_not_allowed"))
+        self.assertEqual(self.post.calls, [])
+
+    def test_three_provider_exclusions_without_capture_do_not_report_a_warm_failure(self):
+        engine = self.make(warm_providers="opencode-go,commandcode", summary_words=777)
+        history = [*old_turns(), assistant("final")]
+        with self.assertNoLogs("warm_compaction.engine", level="WARNING"):
+            for _ in range(3):
+                self.compress_committed(engine, history)
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                                 ("fallback", "provider_not_allowed"))
+                self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons),
+                                 (0, 0, []))
+                self.assertEqual(engine.get_automatic_compaction_status_message(
+                    phase="compress", default_message="Compacting"), "Compacting")
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual((len(self.llm.calls), engine.compression_count), (3, 3))
+        for messages, _kwargs in self.llm.calls:
+            self.assertIn("Use at most 777 words.", str(messages))
+
+    def test_an_allowed_provider_without_capture_still_reports_the_failure_streak(self):
+        engine = self.make(warm_providers="custom")
+        history = [*old_turns(), assistant("final")]
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.compress_committed(engine, history)
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                                 ("fallback", "no_capture"))
+        self.assertEqual((engine._warm_failures, engine._warm_fixed), (3, 0))
+        self.assertEqual(engine._warm_failure_reasons, ["no_capture"] * 3)
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual(len(self.llm.calls), 3)
+        self.assertEqual(sum("Warm compaction skipped (no_capture); used the fallback summary" in line
+                             for line in logs.output), 3)
+        self.assertEqual(sum("Warm compaction failed 3 times in a row (no_capture)" in line
+                             for line in logs.output), 1)
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("the last 3 compactions", notice)
+        self.assertIn("no_capture", notice)
+
+    def test_three_provider_exclusions_do_not_report_a_warm_failure(self):
+        engine = self.make(warm_providers="opencode-go,commandcode")
+        rows, reply = old_turns(), assistant("final")
+        with self.assertNoLogs("warm_compaction.engine", level="WARNING"):
+            for _ in range(3):
+                self.seed(rows, reply)
+                self.compress_committed(engine, [*rows, reply])
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                                 ("fallback", "provider_not_allowed"))
+                self.assertEqual((engine._warm_failures, engine._warm_fixed, engine._warm_failure_reasons),
+                                 (0, 0, []))
+                self.assertEqual(engine.get_automatic_compaction_status_message(
+                    phase="compress", default_message="Compacting"), "Compacting")
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual((len(self.llm.calls), engine.compression_count), (3, 3))
+        self.assertIsNone(engine._warm_notice)
+        self.assertFalse(engine._warm_notice_issued)
+
+    def test_an_allowed_provider_error_still_reports_the_failure_streak(self):
+        engine = self.make(warm_providers="custom")
+        rows, reply = old_turns(), assistant("final")
+        requests = []
+
+        def refused(*args, **kwargs):
+            requests.append(True)
+            return 500, b"{}"
+
+        engine._post = refused
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.seed(rows, reply)
+                self.compress_committed(engine, [*rows, reply])
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                                 ("fallback", "provider_error"))
+        self.assertEqual((engine._warm_failures, engine._warm_fixed), (3, 0))
+        self.assertEqual(engine._warm_failure_reasons, ["provider_error"] * 3)
+        self.assertEqual((len(requests), len(self.llm.calls)), (3, 3))
+        self.assertEqual(sum("Warm compaction skipped (provider_error); used the fallback summary" in line
+                             for line in logs.output), 3)
+        self.assertEqual(sum("Warm compaction failed 3 times in a row (provider_error)" in line
+                             for line in logs.output), 1)
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("the last 3 compactions", notice)
+        self.assertIn("provider_error", notice)
+
+    def test_an_excluded_provider_with_a_failed_fallback_still_reports_the_failure_streak(self):
+        engine = self.make(warm_providers="opencode-go,commandcode")
+        rows, reply = old_turns(), assistant("final")
+        self.llm.error = RuntimeError("synthetic fallback failure")
+        with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
+            for _ in range(3):
+                self.seed(rows, reply)
+                self.compress_committed(engine, [*rows, reply])
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                                 ("fixed", "provider_not_allowed"))
+        self.assertEqual((engine._warm_failures, engine._warm_fixed), (3, 3))
+        self.assertEqual(engine._warm_failure_reasons, ["provider_not_allowed"] * 3)
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual(len(self.llm.calls), 3)
+        self.assertEqual(sum("Warm compaction skipped (provider_not_allowed); used the fixed summary" in line
+                             for line in logs.output), 3)
+        self.assertEqual(sum("Warm compaction failed 3 times in a row (provider_not_allowed)" in line
+                             for line in logs.output), 1)
+        notice = engine.get_automatic_compaction_status_message(phase="compress", default_message="Compacting")
+        self.assertIn("the last 3 compactions", notice)
+        self.assertIn("the fallback summary could not be used 3 of 3 times", notice)
+
+    def test_a_provider_inside_the_list_uses_the_warm_request(self):
+        engine = self.make(warm_providers="opencode-go, custom ")
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+        self.assertNotEqual(self.post.calls, [])
+
+    def test_an_empty_provider_list_allows_every_provider(self):
+        engine = self.make(warm_providers="")
+        rows = old_turns()
+        reply = assistant("final")
+        self.seed(rows, reply)
+        engine.compress([*rows, reply])
+        self.assertEqual(engine.warm_last["path"], "warm")
+
+    def test_the_provider_names_match_without_case_or_spaces(self):
+        from warm_compaction.engine import provider_allowed
+        self.assertTrue(provider_allowed("", "nous"))
+        self.assertTrue(provider_allowed(None, "nous"))
+        self.assertTrue(provider_allowed(" Opencode-Go , commandcode ", "opencode-go"))
+        self.assertTrue(provider_allowed("opencode-go,commandcode", "COMMANDCODE"))
+        self.assertFalse(provider_allowed("opencode-go,commandcode", "nous"))
+        self.assertFalse(provider_allowed("opencode-go", ""))
+
+
     def test_cancelled_attempt_keeps_the_history(self):
         rows = old_turns()
         reply = assistant("final")
@@ -1871,16 +2013,16 @@ class SettingsTest(unittest.TestCase):
 
     def test_valid_values(self):
         values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
-                  "summary_words": 1200}
+                  "summary_words": 1200, "warm_providers": "opencode-go,commandcode"}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
         values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
-                  "summary_words": 0}
+                  "summary_words": 0, "warm_providers": 7}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 5)
+        self.assertEqual(len(logs.output), 6)
 
     def test_a_word_count_below_one_uses_the_default(self):
         def reader(values):
