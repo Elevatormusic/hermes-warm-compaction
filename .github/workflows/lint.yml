@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   ruff:
-    environment: ci-approval
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main' || 'ci-approval' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

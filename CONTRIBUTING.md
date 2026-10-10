@@ -92,15 +92,28 @@ You need Python 3.10 or later and Git. The plugin has no third-party dependency.
 
 Every PR must pass the full suite: unit tests, property tests, issue policy tests, and all four loopback Hermes checks below. Run lint too. This rule includes document and form changes. These checks use synthetic data. They do not prove deployed compatibility, summary quality, or cache reuse. No live model or performance test is required for this suite.
 
-### Manual approval for each run
+### Approval for check runs
 
-Code tests and lint need a manual maintainer or reviewer action for each run.
+Local code tests and lint need a manual maintainer or reviewer action for each run.
 Do not start or repeat them automatically after a change, review, or failure.
 An agent must wait for an explicit request to run local checks. CI uses the
 protected `ci-approval` environment for policy unit tests, unit and property
-tests, Ruff, syntax checks, and all Hermes suites.
+tests, Ruff, syntax checks, and all Hermes suites, except for pushes to `main`.
 
-The repository owner must create `ci-approval` before these workflows are enabled.
+A `push` event on `refs/heads/main` selects the approval-free `ci-main` environment
+and runs these checks automatically. All other events select `ci-approval`.
+Pull requests, scheduled runs, and manual dispatch still need approval, including
+scheduled runs and manual dispatch on `main`.
+
+The Hermes compatibility workflow keeps separate concurrency groups for each
+event and ref. A newer run cancels an earlier run only when both match.
+Scheduled and manual runs cannot cancel a push run.
+
+The repository owner must create both environments before these workflows are enabled.
+Create `ci-main` with no required reviewers, wait timer, secrets, or variables.
+For its deployment branch policy, select **Selected branches and tags**. Add one
+branch rule for the exact name `main`. Add no tag rules.
+For `ci-approval`, use these settings:
 Set `Elevatormusic` as its required reviewer. Allow self-review so this reviewer
 can approve runs on their own PRs. Disable administrator bypass. Allow all branch
 and tag refs so fork and same-repository PR merge refs can reach the gate. Add no
@@ -108,14 +121,14 @@ environment secrets or variables. GitHub creates an unprotected environment if
 a workflow names one that does not exist; the workflow name alone does not enable
 approval. See [GitHub environment setup](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 
-PR, push, scheduled, and manual events create waiting jobs. For each run, the
+Events that select `ci-approval` create waiting jobs. For each such run, the
 reviewer checks its exact commit, opens **Review deployments**, selects
 `ci-approval`, and selects **Approve and deploy**. These jobs run checks only.
 Reject a run that must not execute. A new commit or rerun needs a new approval;
 an earlier approval or PR label does not approve it. See [GitHub review steps](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments).
 
 The `issue-first` metadata check stays automatic. It reads trusted policy code
-and PR metadata. The test aggregate waits for the approved test jobs. Required
+and PR metadata. The test aggregate waits for all test jobs. Required
 check names and the rule to pass every check for the current PR commit stay in place.
 
 The full suite can run in CI. Link all passing test jobs for the current PR commit, including the Hermes checks, before marking the test checkbox. A running, failed, skipped, or unavailable job is not a passing result. The local commands below provide the same checks when you run them outside CI. You do not need to download a Hermes runtime only to repeat a complete passing CI suite.

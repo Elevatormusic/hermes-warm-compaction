@@ -15,7 +15,7 @@ concurrency:
 jobs:
   issue-policy:
     name: Issue policy unit tests
-    environment: ci-approval
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main' || 'ci-approval' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -30,7 +30,7 @@ jobs:
 
   unit:
     name: unit (${{ matrix.os }}, ${{ matrix.python-version }})
-    environment: ci-approval
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main' || 'ci-approval' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
