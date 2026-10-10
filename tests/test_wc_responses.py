@@ -47,6 +47,16 @@ class ResponsesSourceTest(unittest.TestCase):
         self.assertEqual(wire[1]["content"], [{"type": "output_text", "text": "a"}])
         self.assertEqual(wire[1]["phase"], "final_answer")
 
+    def test_an_input_item_without_a_type_is_a_message(self):
+        # The Responses API reads an input item that has a role and no "type" as a message.
+        # Hermes sends that form, so the source check must accept it.
+        rows = [user("u"), assistant("a")]
+        wire = responses.wire_rows(rows, ROUTE[1], model=ROUTE[0])
+        untyped = [{key: value for key, value in item.items() if key != "type"} for item in wire]
+        self.assertEqual(untyped[0], {"role": "user", "content": "u"})
+        responses.check_source({"model": ROUTE[0], "instructions": "Synthetic system text.",
+                                "store": False, "input": untyped}, rows)
+
     def test_native_text_replay_keeps_phase_status_and_id(self):
         row = assistant("a", codex_message_items=[{
             "type": "message", "role": "assistant", "id": "msg_fake", "status": "completed",
