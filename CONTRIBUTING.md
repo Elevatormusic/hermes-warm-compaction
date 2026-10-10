@@ -105,6 +105,10 @@ and runs these checks automatically. All other events select `ci-approval`.
 Pull requests, scheduled runs, and manual dispatch still need approval, including
 scheduled runs and manual dispatch on `main`.
 
+The Hermes compatibility workflow keeps separate concurrency groups for each
+event and ref. A newer run cancels an earlier run only when both match.
+Scheduled and manual runs cannot cancel a push run.
+
 The repository owner must create both environments before these workflows are enabled.
 Create `ci-main` with no required reviewers, wait timer, secrets, or variables.
 For its deployment branch policy, select **Selected branches and tags**. Add one

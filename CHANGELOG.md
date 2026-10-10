@@ -7,6 +7,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Changed
 
 - Run CI checks automatically for pushes to `main` through the approval-free `ci-main` environment, which allows only the branch named `main`. Keep approval through `ci-approval` for pull requests, scheduled runs, and manual dispatch. Local checks still need an explicit request.
+- Keep separate Hermes compatibility concurrency groups for each event and ref. Scheduled and manual runs cannot cancel an automatic push run.
 - Remove the fixed summary without a model. If the warm request and model-based fallback cannot produce a usable summary, stop the current compaction pass, preserve its input history, and report safe error codes. Hermes can retry an automatic failure; the plugin does not stop the entire host turn. This includes incomplete or oversized fallback replies and a retained-history layout that cannot fit safely.
 - Keep the fallback on `auxiliary.warm_compaction`; `auto` follows the main chat route. This task stays separate from the built-in compressor's `auxiliary.compression` task.
 
