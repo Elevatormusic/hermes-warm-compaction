@@ -13,7 +13,8 @@ from warm_compaction.fallback import END_LINE
 from wc_fixtures import HEADINGS_TEXT, ROUTE, SYSTEM, assistant, tool, user, wire
 
 
-FALLBACK_TEXT = HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- progress unknown")
+FALLBACK_TEXT = (HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- progress unknown")
+                 .replace("- The file is report.txt.", "- facts unknown"))
 
 
 class FakeLlm:

@@ -18,7 +18,7 @@ PREFIXES = ("[HERMES PREFIX]", "[CONTEXT SUMMARY]:")
 
 
 SUMMARY = ("## Goal\nG\n## User instructions\n- none\n## Current state\n- progress unknown\n"
-           "## Key facts\n- y\n## Next step\nz")
+           "## Key facts\n- facts unknown\n## Next step\nz")
 
 
 class FakeLlm:
@@ -534,11 +534,11 @@ class CurrentStateSourceTest(unittest.TestCase):
                 self.assert_repaired('- "not complete"', [assistant(reported)], expected)
 
     def test_state_budget_includes_json_encoding_and_reserved_unknown(self):
-        reported = "State: " + "\u5831" * 400 + ": end."
-        encoded = "- " + json.dumps(reported, ensure_ascii=True)
+        reported = "State: " + '\\"' * 400 + ": end."
+        encoded = "- " + json.dumps(reported, ensure_ascii=False)
         self.assertLess(estimate_tokens(reported), MAX_STATE_TOKENS)
         self.assertGreater(estimate_tokens(encoded), MAX_STATE_TOKENS)
-        self.assert_repaired("- " + json.dumps("\u5831"), [assistant(reported)])
+        self.assert_repaired("- " + json.dumps('\\"'), [assistant(reported)])
         rows = [assistant("First state " + "a" * 1000), assistant("Second state " + "b" * 1000)]
         first, second = (row["content"] for row in rows)
         third = "Third state " + "c" * 1000
@@ -555,8 +555,8 @@ class CurrentStateSourceTest(unittest.TestCase):
 
     def test_expanded_state_leaves_the_other_sections_and_body_bound_unchanged(self):
         reported = "not complete " + "x" * 1900
-        raw = state_summary('- "not complete"').replace("- y", "- " + "k" * 6350)
-        expected = state_summary("- progress unknown").replace("- y", "- " + "k" * 6350)
+        raw = state_summary('- "not complete"').replace("## Goal\nG", "## Goal\n" + "k" * 6350)
+        expected = state_summary("- progress unknown").replace("## Goal\nG", "## Goal\n" + "k" * 6350)
         self.assertLessEqual(estimate_tokens(raw), MAX_TOKENS)
         llm = FakeLlm(text=raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES), (expected, 321))
@@ -595,6 +595,212 @@ class CurrentStateSourceTest(unittest.TestCase):
         self.assertNotIn("synthetic-private-source", published)
         self.assertNotIn(llm.calls[-1][0][0]["content"].splitlines()[-1], published)
         logger.warning.assert_not_called()
+
+
+def facts_summary(facts):
+    head, rest = SUMMARY.split("## Key facts\n", 1)
+    _old, step = rest.split("\n## Next step\n", 1)
+    return head + "## Key facts\n" + facts + "\n## Next step\n" + step
+
+
+class KeyFactsSourceTest(unittest.TestCase):
+    def test_unreported_approval_condition_is_dropped_without_losing_supported_values(self):
+        reported = "JOB-X3 output is 28 V."
+        facts = "- " + json.dumps(reported) + "\n- approval for JOB-X3 is required before proceeding"
+        raw = facts_summary(facts).replace("## Goal\nG", "## Goal\nCheck JOB-X3 output.")
+        expected = facts_summary("- " + json.dumps(reported) + "\n- facts unknown")
+        expected = expected.replace("## Goal\nG", "## Goal\nCheck JOB-X3 output.")
+        llm = FakeLlm(text=raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES), (expected, 321))
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_exact_fact_fragment_keeps_full_scope_and_negation(self):
+        reported = "JOB-X3 does not require approval; output is 28 V."
+        raw = facts_summary('- "require approval"')
+        expected = facts_summary("- " + json.dumps(reported))
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [tool("c1", reported)], PREFIXES),
+                         (expected, 321))
+
+    def test_facts_loss_and_section_budget_are_explicit(self):
+        first, second = "Fact one " + "a" * 1400, "Fact two " + "b" * 1400
+        raw = facts_summary("\n".join("- " + json.dumps(value) for value in (first, second))
+                            + '\n- "invented condition"')
+        expected = facts_summary("- " + json.dumps(first) + "\n- facts unknown")
+        text, tokens = llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant(first + "\n" + second)], PREFIXES)
+        self.assertEqual((text, tokens), (expected, 321))
+        section = text.split("## Key facts\n", 1)[1].split("\n## Next step", 1)[0]
+        self.assertLessEqual(estimate_tokens(section), MAX_STATE_TOKENS)
+
+    def test_blank_lines_count_against_each_source_section_budget(self):
+        for section, unknown in ((state_summary, "- progress unknown"), (facts_summary, "- facts unknown")):
+            with self.subTest(section=section.__name__):
+                raw = section(unknown + "\n" * 1100)
+                self.assertLessEqual(estimate_tokens(raw), MAX_TOKENS)
+                self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user("Check task.")], PREFIXES),
+                                 (SUMMARY, 321))
+
+
+
+class PriorStateTest(unittest.TestCase):
+    def assert_stable(self, reported, section=state_summary, prefix=None):
+        body = section("- " + json.dumps(reported))
+        previous = body
+        for attempt in range(4):
+            with self.subTest(attempt=attempt):
+                llm = FakeLlm(text=body + "\n" + END_LINE)
+                rows = ([assistant(previous, _compressed_summary=True)] if prefix is None else
+                        [assistant(prefix + "\n" + previous + "\n--- END OF CONTEXT SUMMARY ---")])
+                text, tokens = llm_summary(llm, rows, PREFIXES)
+                previous = text
+                self.assertEqual((text, tokens), (body, 321))
+                self.assertEqual(len(llm.calls), 1)
+
+    def test_reported_state_stays_stable_across_repeated_compactions(self):
+        self.assert_stable("Task PKG-17 is not complete.")
+
+    def test_json_looking_reported_data_is_unwrapped_only_once_per_summary(self):
+        self.assert_stable('- "not complete"')
+
+    def test_both_sections_survive_saved_summary_carriers_without_private_flags(self):
+        for section in (state_summary, facts_summary):
+            for prefix in PREFIXES:
+                with self.subTest(section=section.__name__, prefix=prefix):
+                    self.assert_stable("JOB-X3 is not complete; output is 28 V.", section, prefix)
+
+    def test_multiline_heading_like_reported_data_stays_encoded_across_compactions(self):
+        for section in (state_summary, facts_summary):
+            with self.subTest(section=section.__name__):
+                self.assert_stable("Reported state:\n## Goal\nnot complete\n## Key facts\n28 V.", section)
+
+    def test_model_quote_of_prior_wrapper_recovers_one_layer(self):
+        for section in (state_summary, facts_summary):
+            with self.subTest(section=section.__name__):
+                reported = '- "not complete"'
+                wrapper = "- " + json.dumps(reported)
+                prior = section(wrapper)
+                raw = section("- " + json.dumps(wrapper))
+                self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE),
+                                             [assistant(prior, _compressed_summary=True)], PREFIXES), (prior, 321))
+
+    def test_prior_wrapper_collision_with_ordinary_text_is_ambiguous(self):
+        reported = "Task not complete."
+        wrapper = "- " + json.dumps(reported)
+        prior = state_summary(wrapper)
+        raw = state_summary("- " + json.dumps(wrapper))
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True), user(wrapper)], PREFIXES),
+                         (SUMMARY, 321))
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_no_one_layer_decode_from_arbitrary_user_or_tool_rows(self):
+        prior = state_summary('- "Task not complete."')
+        raw = state_summary('- "Task not complete."')
+        expected = state_summary("- " + json.dumps('- "Task not complete."'))
+        for row in (user(prior), tool("c1", prior)):
+            with self.subTest(role=row["role"]):
+                self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [row], PREFIXES), (expected, 321))
+
+    def test_cut_earlier_quote_does_not_supply_missing_evidence(self):
+        reported = "Missing middle report."
+        prior = state_summary('- "first"\n' + 'x' * 12000 + '\n- ' + json.dumps(reported)
+                              + '\n' + 'y' * 12000 + '\n- "last"')
+        llm = FakeLlm(state_summary("- " + json.dumps(reported)) + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES), (SUMMARY, 321))
+        self.assertNotIn(reported, llm.calls[0][0][1]["content"])
+
+    def test_malformed_prior_heading_structure_does_not_decode_wrappers(self):
+        prior = state_summary('- "not complete"')
+        for malformed in (prior.replace("## Current state\n", "## Current state\n## Goal\n"),
+                          prior.replace("## Current state", "Current state"),
+                          prior.replace("## Current state", "## Key facts")):
+            with self.subTest(malformed=malformed):
+                expected = state_summary("- " + json.dumps('- "not complete"'))
+                raw = state_summary('- "not complete"')
+                self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE),
+                                             [assistant(malformed, _compressed_summary=True)], PREFIXES),
+                                 (expected, 321))
+
+    def test_intact_facts_span_survives_uncertain_state_boundaries(self):
+        prior = facts_summary('- "Output is 28 V."').replace("## Current state", "[cut] State")
+        raw = facts_summary('- "28 V."')
+        expected = facts_summary('- "Output is 28 V."')
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE),
+                                     [assistant(prior, _compressed_summary=True)], PREFIXES), (expected, 321))
+
+    def test_prior_alias_collision_drops_only_ambiguous_evidence(self):
+        quote = '- "not complete"'
+        prior = state_summary(quote + "\n- " + json.dumps(quote) + '\n- "Other task is complete."')
+        raw = state_summary("- " + json.dumps("- " + json.dumps(quote)) + '\n- "Other task is complete."')
+        expected = state_summary('- "Other task is complete."\n- progress unknown')
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES), (expected, 321))
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_raw_unicode_json_with_oversized_whitespace_fails_before_canonicalization(self):
+        for padding, reason in ((9000, "body_token_limit"), (25000, "byte_bound")):
+            with self.subTest(padding=padding):
+                reported = "Task\u2028not complete"
+                raw = state_summary("- " + json.dumps(reported, ensure_ascii=False) + " " * padding)
+                llm, failure = FakeLlm(raw + "\n" + END_LINE), {}
+                self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES, failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:" + reason)
+                self.assertEqual(len(llm.calls), 2)
+
+    def test_lone_surrogate_in_expanded_source_is_stored_as_json_escape(self):
+        reported = "Task not complete \ud800."
+        raw = state_summary('- "not complete"')
+        expected = state_summary("- " + json.dumps(reported))
+        text, tokens = llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant(reported)], PREFIXES)
+        self.assertEqual((text, tokens), (expected, 321))
+        text.encode("utf-8")
+
+    def test_full_match_raw_lone_surrogate_is_stored_as_json_escape(self):
+        reported = "Task not complete \ud800."
+        raw = state_summary("- " + json.dumps(reported, ensure_ascii=False))
+        expected = state_summary("- " + json.dumps(reported))
+        text, tokens = llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant(reported)], PREFIXES)
+        self.assertEqual((text, tokens), (expected, 321))
+        text.encode("utf-8")
+
+    def test_surrogate_pair_encoding_loss_drops_only_that_source_candidate(self):
+        reported = "Task not complete \ud83d\ude00."
+        raw = state_summary('- "not complete"\n- "Other task is complete."')
+        expected = state_summary('- "Other task is complete."\n- progress unknown')
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [assistant(reported + "\nOther task is complete.")], PREFIXES),
+                         (expected, 321))
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_arbitrary_user_and_tool_json_bullets_stay_unchanged(self):
+        body = state_summary('- "reported state"')
+        for row in (user(body), tool("c1", body)):
+            with self.subTest(role=row["role"]):
+                text = transcript([row], PREFIXES)
+                self.assertIn('## Current state\n- "reported state"\n', text)
+
+    def test_malformed_prior_state_and_unknown_are_preserved_as_data(self):
+        for state in ('- "unfinished', '- {"result": "unfinished"}', '- progress unknown'):
+            with self.subTest(state=state):
+                text = transcript([assistant(state_summary(state), _compressed_summary=True)], PREFIXES)
+                self.assertIn("## Current state\n" + state + "\n", text)
+
+    def test_raw_json_unicode_separators_and_heading_data_survive_reply_parsing(self):
+        for section in (state_summary, facts_summary):
+            for separator in ("\u0085", "\u2028", "\u2029"):
+                with self.subTest(section=section.__name__, separator=separator):
+                    reported = "Task not complete" + separator + "## Goal" + separator + "same scope."
+                    raw = section("- " + json.dumps(reported, ensure_ascii=False))
+                    expected = section("- " + json.dumps(reported, ensure_ascii=True))
+                    llm = FakeLlm(text=raw + "\n" + END_LINE)
+                    self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES), (expected, 321))
+                    self.assertEqual(len(llm.calls), 1)
+
+    def test_japanese_fragment_expansion_keeps_visible_names(self):
+        reported = "PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002"
+        raw = state_summary("- " + json.dumps("PKG-17"))
+        expected = state_summary("- " + json.dumps(reported, ensure_ascii=False))
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant(reported)], PREFIXES),
+                         (expected, 321))
 
 
 class CutQuoteTest(unittest.TestCase):

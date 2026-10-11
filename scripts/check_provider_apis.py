@@ -40,6 +40,8 @@ HANDOFF = (
     "## Key facts\n- The code word is BLUE-7.\n\n"
     "## Next step\nReport the code word BLUE-7."
 )
+FALLBACK_HANDOFF = (HANDOFF.replace("- [OPEN] Report the code word.", "- progress unknown")
+                    .replace("- The code word is BLUE-7.", "- facts unknown"))
 TOOLS = [{"type": "function", "function": {"name": TOOL_NAME, "description": "Return a synthetic note.",
           "parameters": {"type": "object", "properties": {}, "required": []}}}]
 WARM_MARK = "Stop the current task now. This request comes from the host program"
@@ -121,8 +123,7 @@ class FakeServer:
                     payload = {"id": "synthetic", "object": "chat.completion", "created": 0, "model": MODEL,
                                "choices": [{"index": 0, "finish_reason": "stop",
                                             "message": {"role": "assistant",
-                                                        "content": owner.fallback_reply(body, HANDOFF.replace(
-                                                            "- [OPEN] Report the code word.", "- progress unknown"))}}],
+                                                        "content": owner.fallback_reply(body, FALLBACK_HANDOFF)}}],
                                "usage": {"prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80}}
                 if body.get("stream") and mode_for(owner.case) == "codex_responses":
                     event = "response.incomplete" if payload["status"] == "incomplete" else "response.completed"
@@ -176,7 +177,7 @@ class FakeServer:
         is_tool = kind == "main" and self.case.endswith("_tool")
         text = MAIN_TEXT if kind == "main" else HANDOFF
         if kind == "fallback":
-            text = self.fallback_reply(body, text)
+            text = self.fallback_reply(body, FALLBACK_HANDOFF)
         if mode_for(self.case) == "codex_responses":
             output = [{"type": "message", "id": "msg_synthetic", "role": "assistant", "status": "completed",
                        "content": [{"type": "output_text", "text": text, "annotations": []}]}]
@@ -332,7 +333,8 @@ def worker(source, case, dependency_paths):
         failure = case.endswith(("_incomplete", "_refusal"))
         checks["warm_or_fallback_outcome"] = outcome.get("path") == ("fallback" if failure else "warm")
         checks["history_compacted"] = compacted is not history and len(compacted) < len(history)
-        checks["summary_has_synthetic_handoff"] = any(HANDOFF in str(r.get("content")) for r in compacted)
+        expected_handoff = FALLBACK_HANDOFF if failure else HANDOFF
+        checks["summary_has_synthetic_handoff"] = any(expected_handoff in str(r.get("content")) for r in compacted)
         if not failure:
             checks["synthetic_token_counters"] = (
                 outcome.get("prompt_tokens") == 200 and outcome.get("cached_tokens") == 120)

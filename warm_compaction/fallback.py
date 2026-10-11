@@ -10,7 +10,10 @@ import time
 from typing import Any
 from collections.abc import Callable, Iterable
 
-from .handoff import DEFAULT_SUMMARY_WORDS, END_MARKER, LEGACY_PREFIX, SUMMARY_WORDS_TOKEN, extras, gate_content
+from .handoff import (
+    DEFAULT_SUMMARY_WORDS, END_MARKER, HEADINGS, LEGACY_PREFIX, MAX_REPLY_BYTES, SUMMARY_WORDS_TOKEN,
+    extras, gate_content,
+)
 from .layout import CUT_NOTE, is_real_user, is_summary, quote
 from .rows import (  # noqa: F401 - MIDDLE_MARK is part of this module's names.
     MIDDLE_MARK, cut_middle as _cut_middle,
@@ -87,7 +90,9 @@ Keep the reported scope; a completed tool call does not prove completion of a br
 records what was reported, not what is currently true. Use "- progress unknown" when no usable state was reported.
 
 ## Key facts
-Identifiers, names, values, and results that the next step needs.
+Identifiers, names, values, and results that the next step needs. Each bullet must be one JSON string after \
+"- ", with exact source lines or an exact part of one line, as for Current state. Do not add facts or conditions. \
+Use the exact line "- facts unknown" when no usable facts were reported.
 
 ## Next step
 The next action that the user asked for and its exact target. Do not add a condition, delay, or permission that \
@@ -128,6 +133,12 @@ def _summary_text(row: Any, prefixes: tuple[str, ...]) -> str:
     return text.split(END_MARKER, 1)[0].strip()
 
 
+def _earlier_summary(messages: list, prefixes: tuple[str, ...]) -> str:
+    summaries = [row for row in messages if is_summary(row, prefixes)]
+    return (_bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS,
+                   EARLIER_SUMMARY_TOKENS, middle=True) if summaries else "")
+
+
 def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
     """Return one transcript entry for a row: the text that Hermes sent (api_content when the row has it) under
     a label with the role and the name. A tool result names its call id and tool, so that results of parallel
@@ -161,11 +172,10 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
     """
     prefixes = tuple(prefixes)
     head = []
-    summaries = [row for row in messages if is_summary(row, prefixes)]
-    if summaries:
+    earlier = _earlier_summary(messages, prefixes)
+    if earlier:
         # The start and the end: "## Key facts", "## Next step", and the newest copies are at the end.
-        head.append("[earlier summary]\n" + _bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS,
-                                                   EARLIER_SUMMARY_TOKENS, middle=True))
+        head.append("[earlier summary]\n" + earlier)
     first = next((row for row in messages if is_real_user(row, prefixes)), None)
     if first is not None:
         # The start and the end: a long request often has the question or the output rules at the end.
@@ -200,8 +210,8 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
 
 def _complete_reply(raw: str, end_line: str) -> tuple[str | None, str]:
     """Check protocol completion. This does not prove the host stop cause or factual accuracy."""
-    visible = strip_think(raw).rstrip("\r\n")
-    lines = visible.splitlines()
+    visible = strip_think(raw).replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+    lines = visible.split("\n")
     if visible.count(end_line) > 1:
         return "duplicate_end_marker", visible
     if not lines or lines[-1] != end_line or visible.count(end_line) != 1:
@@ -237,89 +247,163 @@ def error_class(error: Exception) -> str:
     return name if name.isascii() and name.isidentifier() and len(name) <= 80 else "Exception"
 
 
-def _source_current_state(text: str, original: str) -> bool:
-    """Check exact source lines in Current state. This does not prove current truth or the other sections."""
+SOURCE_SECTIONS = (("## Current state", "## Key facts", "- progress unknown"),
+                   ("## Key facts", "## Next step", "- facts unknown"))
+
+
+def _json_quote(line: str) -> str | None:
+    try:
+        value = json.loads(line[2:]) if line.startswith("- ") else None
+    except (ValueError, RecursionError):
+        return None
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _encoded_quote(value: str) -> str:
+    text = json.dumps(value, ensure_ascii=False)
+    text = "".join("\\u" + format(ord(char), "04x")
+                   if char in ("\u0085", "\u2028", "\u2029") or 0xD800 <= ord(char) <= 0xDFFF else char
+                   for char in text)
+    return "- " + text
+
+
+def _source_spans(lines: list[str]) -> list[tuple[int, int, str]]:
+    headings = [line.strip() for line in lines]
+    spans = []
+    for heading, next_heading, unknown in SOURCE_SECTIONS:
+        if headings.count(heading) != 1 or headings.count(next_heading) != 1:
+            continue
+        start, end = headings.index(heading) + 1, headings.index(next_heading)
+        if start <= end and not any(line in HEADINGS for line in headings[start:end]):
+            spans.append((start, end, unknown))
+    return spans
+
+
+def _canonical_source_json(text: str) -> str:
+    """Keep Unicode line separators inside valid source JSON, before the shared heading check."""
+    lines = text.split("\n")
+    for start, end, _unknown in _source_spans(lines):
+        for index in range(start, end):
+            line = lines[index]
+            if any(char in ("\u0085", "\u2028", "\u2029") or 0xD800 <= ord(char) <= 0xDFFF for char in line):
+                value = _json_quote(line)
+                if value is not None:
+                    lines[index] = _encoded_quote(value)
+    return "\n".join(lines)
+
+
+class _SourceTable:
+    """Bounded source lines and one decoded layer from the known earlier summary only."""
+
+    def __init__(self, original: str, earlier: str = ""):
+        lines = original.split("\n")
+        excluded: set[int] = set()
+        self.aliases: dict[str, set[str]] = {}
+        decoded: list[str] = []
+        if earlier and original.startswith("[earlier summary]\n" + earlier):
+            earlier_lines = earlier.split("\n")
+            for start, end, _unknown in _source_spans(earlier_lines):
+                for index in range(start, end):
+                    line = earlier_lines[index]
+                    value = _json_quote(line)
+                    if value is not None:
+                        excluded.add(index + 1)
+                        self.aliases.setdefault(line, set()).add(value)
+                        decoded.append(value)
+        # Do not join lines across an excluded wrapper: that would create new source adjacency.
+        self.chunks: list[str] = []
+        chunk: list[str] = []
+        for index, line in enumerate(lines):
+            if index in excluded:
+                if chunk:
+                    self.chunks.append("\n".join(chunk))
+                    chunk = []
+            else:
+                chunk.append(line)
+        if chunk:
+            self.chunks.append("\n".join(chunk))
+        self.chunks.extend(decoded)
+        self.lines = {line for part in self.chunks for line in part.split("\n") if line.strip()}
+
+    def resolve(self, value: str) -> str | None:
+        if not value.strip() or any(marker in value for marker in (CUT_MARK.strip(), MIDDLE_MARK)):
+            return None
+        matches = set(self.aliases.get(value, ()))
+        if any("\n" + value + "\n" in "\n" + part + "\n" for part in self.chunks):
+            matches.add(value)
+        if not matches:
+            matches = {line for line in self.lines if value in line}
+        if len(matches) != 1:
+            return None
+        full = matches.pop()
+        return None if any(marker in full for marker in (CUT_MARK.strip(), MIDDLE_MARK)) else full
+
+
+def _source_current_state(text: str, original: str | _SourceTable) -> bool:
+    """Check both source sections. Reported source text does not prove current truth."""
+    source = original if isinstance(original, _SourceTable) else _SourceTable(original)
     lines = text.splitlines()
-    start = next(index for index, line in enumerate(lines) if line.strip() == "## Current state") + 1
-    end = next(index for index, line in enumerate(lines) if line.strip() == "## Key facts")
-    source = "\n" + original + "\n"
-    seen = False
-    for line in lines[start:end]:
-        if not line.strip():
-            continue
-        seen = True
-        if line == "- progress unknown":
-            continue
-        if not line.startswith("- "):
+    for heading, next_heading, unknown in SOURCE_SECTIONS:
+        start = next(index for index, line in enumerate(lines) if line.strip() == heading) + 1
+        end = next(index for index, line in enumerate(lines) if line.strip() == next_heading)
+        section = [line for line in lines[start:end] if line.strip()]
+        if not section or estimate_tokens("\n".join(lines[start:end])) > MAX_STATE_TOKENS:
             return False
-        try:
-            quote = json.loads(line[2:])
-        except (ValueError, RecursionError):
-            return False
-        if (not isinstance(quote, str) or not quote.strip()
-                or any(marker in quote for marker in (CUT_MARK.strip(), MIDDLE_MARK))
-                or "\n" + quote + "\n" not in source):
-            return False
-    return seen
+        for line in section:
+            if line == unknown:
+                continue
+            value = _json_quote(line)
+            if value is None or source.resolve(value) != value:
+                return False
+    return True
 
 
-def _construct_current_state(text: str, original: str, prefixes: Iterable[str]) -> str:
-    """Keep complete source quotes, expand unique exact parts, and report unknown for dropped state.
-
-    The JSON encoding and unknown line count against both the state and body bounds.
-    Source quotes do not prove current truth or the accuracy of other sections.
-    """
+def _construct_current_state(text: str, original: str | _SourceTable, prefixes: Iterable[str]) -> str:
+    """Construct both source sections, with room for unknown in each section and in the whole body."""
+    source = original if isinstance(original, _SourceTable) else _SourceTable(original)
     lines = text.splitlines()
-    start = next(index for index, line in enumerate(lines) if line.strip() == "## Current state") + 1
-    end = next(index for index, line in enumerate(lines) if line.strip() == "## Key facts")
-    source = "\n" + original + "\n"
-    source_lines = {line for line in original.split("\n") if line.strip()}
-    unknown = "- progress unknown"
-    kept: list[str] = []
-    dropped = changed = has_unknown = False
+    spans = [(next(i for i, line in enumerate(lines) if line.strip() == heading) + 1,
+              next(i for i, line in enumerate(lines) if line.strip() == next_heading), unknown)
+             for heading, next_heading, unknown in SOURCE_SECTIONS]
+    sections = [[unknown] for _start, _end, unknown in spans]
 
-    def render(state: list[str]) -> str:
-        return "\n".join([*lines[:start], *state, *lines[end:]])
+    def render() -> str:
+        result = lines[:]
+        for (start, end, _unknown), section in reversed(list(zip(spans, sections))):
+            result[start:end] = section
+        return "\n".join(result)
 
-    for line in lines[start:end]:
-        if not line.strip():
-            continue
-        if line == unknown:
-            has_unknown = True
-            continue
-        try:
-            quote = json.loads(line[2:]) if line.startswith("- ") else None
-        except (ValueError, RecursionError):
-            quote = None
-        if (not isinstance(quote, str) or not quote.strip()
-                or any(marker in quote for marker in (CUT_MARK.strip(), MIDDLE_MARK))):
-            dropped = True
-            continue
-        full = quote
-        if "\n" + quote + "\n" not in source:
-            matches = {entry for entry in source_lines if quote in entry}
-            if len(matches) != 1:
+    changed = False
+    for slot, (start, end, unknown) in enumerate(spans):
+        kept: list[str] = []
+        dropped = has_unknown = False
+        for line in lines[start:end]:
+            if not line.strip():
+                continue
+            if line == unknown:
+                has_unknown = True
+                continue
+            value = _json_quote(line)
+            full = source.resolve(value) if value is not None else None
+            if full is None or source.resolve(full) != full:
                 dropped = True
                 continue
-            full = matches.pop()
-        if any(marker in full for marker in (CUT_MARK.strip(), MIDDLE_MARK)):
-            dropped = True
-            continue
-        # ASCII encoding keeps Unicode line separators inside this one JSON bullet.
-        candidate = line if full == quote else "- " + json.dumps(full, ensure_ascii=True)
-        trial = [*kept, candidate, unknown]
-        body = render(trial)
-        if (estimate_tokens("\n".join(trial)) > MAX_STATE_TOKENS or estimate_tokens(body) > MAX_TOKENS
-                or gate_content(body, prefixes)[0] is None):
-            dropped = True
-            continue
-        kept.append(candidate)
-        changed = changed or candidate != line
-    if not dropped and not changed and estimate_tokens("\n".join(lines[start:end])) <= MAX_STATE_TOKENS:
-        return text
-    if dropped or has_unknown or not kept:
-        kept.append(unknown)
-    return render(kept)
+            candidate = line if full == value else _encoded_quote(full)
+            if _json_quote(candidate) != full:
+                dropped = True
+                continue
+            sections[slot] = [*kept, candidate, unknown]
+            body = render()
+            if (estimate_tokens("\n".join(sections[slot])) > MAX_STATE_TOKENS
+                    or estimate_tokens(body) > MAX_TOKENS or gate_content(body, prefixes)[0] is None):
+                dropped = True
+                sections[slot] = [*kept, unknown]
+                continue
+            kept.append(candidate)
+        sections[slot] = [*kept, *([unknown] if dropped or has_unknown or not kept else [])]
+        changed = (changed or sections[slot] != [line for line in lines[start:end] if line.strip()]
+                   or estimate_tokens("\n".join(lines[start:end])) > MAX_STATE_TOKENS)
+    return render() if changed else text
 
 
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
@@ -342,6 +426,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     # The start (the focus line) and the end of a large memory context.
     extra = _bound(extras(focus_topic, memory_context), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
     original = transcript(messages, prefixes, len(extra), estimate_tokens(extra))
+    source = _SourceTable(original, _earlier_summary(messages, prefixes))
     for attempt in range(1, 3):
         end_line = END_LINE.replace("{nonce}", secrets.token_hex(16))
         words = int(summary_words) if attempt == 1 else min(int(summary_words), 300)
@@ -386,15 +471,21 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         reason, body = _complete_reply(raw, end_line)
         text = None
         if reason is None:
-            text, reason = gate_content(body, prefixes)
-            if text is not None and estimate_tokens(body) > MAX_TOKENS:
-                text, reason = None, "body_token_limit"
+            if len(body.encode("utf-8", "surrogatepass")) > MAX_REPLY_BYTES:
+                reason = "byte_bound"
+            elif estimate_tokens(body) > MAX_TOKENS:
+                reason = "body_token_limit"
+            else:
+                body = _canonical_source_json(body)
+                text, reason = gate_content(body, prefixes)
+                if text is not None and estimate_tokens(body) > MAX_TOKENS:
+                    text, reason = None, "body_token_limit"
             if text is not None:
-                text = _construct_current_state(text, original, prefixes)
+                text = _construct_current_state(text, source, prefixes)
                 text, reason = gate_content(text, prefixes)
                 if text is not None and estimate_tokens(text) > MAX_TOKENS:
                     text, reason = None, "body_token_limit"
-                if text is not None and not _source_current_state(text, original):
+                if text is not None and not _source_current_state(text, source):
                     text, reason = None, "current_state_unverified"
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)

@@ -56,7 +56,8 @@ HANDOFF = (
 )
 HANDOFF_GOAL = "Finish the synthetic test task."
 FALLBACK_SUMMARY = (HANDOFF.replace("Finish the synthetic test task.", "Finish the synthetic test task (fallback).")
-                    .replace("- [OPEN] Report the code word.", "- progress unknown"))
+                    .replace("- [OPEN] Report the code word.", "- progress unknown")
+                    .replace("- The code word is BLUE-7.", "- facts unknown"))
 
 
 def fallback_reply(body, text=FALLBACK_SUMMARY):
