@@ -373,7 +373,7 @@ class WarmCompactionEngine(ContextEngine):
                 ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure)
             if summary is None:
                 record["fallback_reason"] = failure.get("reason", "unavailable")
-                for key in ("output_tokens", "requested_max_tokens", "end_marker"):
+                for key in ("output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"):
                     if key in failure:
                         record["fallback_" + key] = failure[key]
             if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
@@ -757,10 +757,11 @@ class WarmCompactionEngine(ContextEngine):
             self.warm_last = record
             logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s "
                         "fallback_reason=%s fallback_output_tokens=%s fallback_requested_max_tokens=%s "
-                        "fallback_end_marker=%s",
+                        "fallback_end_marker=%s fallback_attempts=%s fallback_body_tokens=%s",
                         record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
                         record["cached_tokens"], record.get("fallback_reason"), record.get("fallback_output_tokens"),
-                        record.get("fallback_requested_max_tokens"), record.get("fallback_end_marker"))
+                        record.get("fallback_requested_max_tokens"), record.get("fallback_end_marker"),
+                        record.get("fallback_attempts"), record.get("fallback_body_tokens"))
 
     def _clear_warm_failures(self) -> None:
         self._warm_failures = 0

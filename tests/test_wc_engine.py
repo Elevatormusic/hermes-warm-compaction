@@ -22,7 +22,8 @@ class FakeLlm:
         self.calls.append((messages, kwargs))
         if self.error:
             raise self.error
-        return SimpleNamespace(text=self.text, usage=SimpleNamespace(input_tokens=50))
+        marker = messages[0]["content"].rstrip().splitlines()[-1]
+        return SimpleNamespace(text=self.text.replace(END_LINE, marker), usage=SimpleNamespace(input_tokens=50))
 
 
 def fake_post(content=HEADINGS_TEXT, cached=900):
@@ -658,7 +659,7 @@ class EngineTest(unittest.TestCase):
         # cap does not go below the cap that the fallback transcript had.
         from warm_compaction.engine import SUMMARY_RESERVE
         from warm_compaction.rows import estimate_tokens
-        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 3_000) + "\n" + END_LINE)
+        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
         rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
@@ -754,11 +755,15 @@ class EngineTest(unittest.TestCase):
     def test_a_fallback_summary_without_room_for_the_cut_quote_stops_compaction(self):
         rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
-        self.llm.text = (HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 16_150)
+        self.llm.text = (HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 7_000)
                          + "\n" + END_LINE)
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
+        from warm_compaction.rows import estimate_tokens
+        # Keep the body within 2048 tokens and leave no room for the required quote.
+        budget = estimate_tokens(self.llm.text.removesuffix("\n" + END_LINE)) + 4
+        engine._summary_budget = lambda *args, **kwargs: budget
         self.assert_aborted(engine, rows, "quote_capacity")
 
     def test_no_fallback_request_starts_after_a_switch(self):
@@ -1614,23 +1619,30 @@ class EngineTest(unittest.TestCase):
 
     def test_fallback_refusal_status_has_safe_counts_and_marker_code(self):
         # These replies and counts are synthetic. History must stay unchanged.
+        from warm_compaction.rows import estimate_tokens
         for text, output, reason, marker in (
-                (HEADINGS_TEXT + "\n" + END_LINE, 7_281, "output_token_limit", "present"),
+                (HEADINGS_TEXT + "\n" + "word " * 2_000 + "\n" + END_LINE, 7_281, "body_token_limit", "present"),
                 (HEADINGS_TEXT, 814, "missing_end_marker", "missing")):
             with self.subTest(reason=reason):
-                self.llm = SimpleNamespace(complete=lambda *args, text=text, output=output, **kwargs: SimpleNamespace(
-                    text=text, usage=SimpleNamespace(input_tokens=50, output_tokens=output)))
+                def complete(messages, text=text, output=output, **kwargs):
+                    end_line = messages[0]["content"].rstrip().splitlines()[-1]
+                    return SimpleNamespace(text=text.replace(END_LINE, end_line),
+                                           usage=SimpleNamespace(input_tokens=50, output_tokens=output))
+                self.llm = SimpleNamespace(complete=complete)
                 engine = self.make(warm=False)
                 with self.assertLogs("warm_compaction", level="INFO") as logs:
                     self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], "gate:" + reason)
                 status = engine.get_status()["warm_last"]
                 self.assertEqual(status["fallback_output_tokens"], output)
-                self.assertEqual(status["fallback_requested_max_tokens"], 2048)
+                self.assertEqual(status["fallback_requested_max_tokens"], 8192)
                 self.assertEqual(status["fallback_end_marker"], marker)
+                self.assertEqual(status["fallback_attempts"], 2)
+                self.assertEqual(status["fallback_body_tokens"], estimate_tokens(text.removesuffix("\n" + END_LINE)))
                 logged = "\n".join(logs.output)
                 self.assertIn(f"fallback_output_tokens={output}", logged)
-                self.assertIn("fallback_requested_max_tokens=2048", logged)
+                self.assertIn("fallback_requested_max_tokens=8192", logged)
                 self.assertIn(f"fallback_end_marker={marker}", logged)
+                self.assertIn("fallback_attempts=2", logged)
                 self.assertNotIn(HEADINGS_TEXT, logged + json.dumps(status))
 
     def test_late_backup_errors_after_cancel_or_route_switch_keep_history(self):
@@ -2028,7 +2040,7 @@ class EngineTest(unittest.TestCase):
         dense = HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 2_500)
         self.llm = FakeLlm(text=dense + "\n" + END_LINE)
         engine = self.make(warm=False)
-        self.assert_aborted(engine, [*old_turns(), assistant("done")], "summary_too_large")
+        self.assert_aborted(engine, [*old_turns(), assistant("done")], "gate:body_token_limit")
 
     def test_failed_summary_keeps_the_earlier_summary_and_native_tail(self):
         self.llm.error = RuntimeError("synthetic failure")

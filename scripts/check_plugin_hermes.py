@@ -19,6 +19,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -54,8 +55,19 @@ HANDOFF = (
     "## Next step\nReport the code word BLUE-7."
 )
 HANDOFF_GOAL = "Finish the synthetic test task."
-FALLBACK_SUMMARY = HANDOFF.replace("Finish the synthetic test task.", "Finish the synthetic test task (fallback).") + (
-    "\n[END OF SUMMARY]")
+FALLBACK_SUMMARY = HANDOFF.replace("Finish the synthetic test task.", "Finish the synthetic test task (fallback).")
+
+
+def fallback_reply(body, text=FALLBACK_SUMMARY):
+    """Complete a synthetic reply with the marker from this request only."""
+    messages = body.get("messages") or body.get("input") or []
+    system = "\n".join(str(row.get("content") or "") for row in messages
+                       if isinstance(row, dict) and row.get("role") in ("system", "developer"))
+    system = str(body.get("instructions") or "") + str(body.get("system") or "") + system
+    markers = re.findall(r"\[END OF SUMMARY [0-9a-f]{32}\]", system)
+    if len(markers) != 1:
+        raise ValueError("The synthetic fallback request needs one fresh marker.")
+    return text + "\n" + markers[0]
 TOOL_PLUGIN = {
     "plugin.yaml": (
         "manifest_version: 2\nname: wc_test_tools\nversion: 0.0.1\n"
@@ -218,7 +230,7 @@ class FakeServer:
                 payload = completion(HANDOFF, prompt_tokens=size, cached_tokens=self.plan.get("cached", size // 2))
             elif kind == "fallback":
                 entry["status"] = self.plan.get("fallback_status", 200)
-                payload = completion(FALLBACK_SUMMARY, prompt_tokens=size)
+                payload = completion(fallback_reply(body), prompt_tokens=size)
             elif kind == "main":
                 step = self.main_replies.pop(0) if self.main_replies else {"content": "OK."}
                 payload = completion(step.get("content"), step.get("tool"),
@@ -1076,8 +1088,8 @@ def check_host_commit_boundaries(engine, checks):
         _queue_context_engine_compression_notification, _restore_compressor_attempt_state,
         _snapshot_compressor_attempt_state, finalize_context_engine_compression_notification)
 
-    llm = SimpleNamespace(complete=lambda *_args, **_kwargs: SimpleNamespace(
-        text=FALLBACK_SUMMARY, usage=SimpleNamespace(input_tokens=50)))
+    llm = SimpleNamespace(complete=lambda messages, **_kwargs: SimpleNamespace(
+        text=fallback_reply({"messages": messages}), usage=SimpleNamespace(input_tokens=50)))
     probe = type(engine)(llm=llm)
     probe.on_session_start("wc-boundary-0", platform="cli")
     probe.update_model(model=MODEL, context_length=CONTEXT_LENGTH, base_url=PLACEHOLDER_URL,

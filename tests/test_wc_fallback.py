@@ -2,9 +2,11 @@
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from warm_compaction.fallback import (
-    END_LINE, FALLBACK_INSTRUCTION, MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS, TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
+    END_LINE, FALLBACK_INSTRUCTION, MAX_TOKENS, REQUEST_MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS,
+    TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
     llm_summary, render_row, transcript,
 )
 from warm_compaction.rows import estimate_tokens
@@ -27,7 +29,10 @@ class FakeLlm:
         usage = SimpleNamespace(input_tokens=321)
         if self.output_tokens is not None:
             usage.output_tokens = self.output_tokens
-        return SimpleNamespace(text=self.text, usage=usage)
+        marker = messages[0]["content"].rstrip().splitlines()[-1]
+        text = (self.text(messages, kwargs, len(self.calls)) if callable(self.text)
+                else self.text.replace(END_LINE, marker))
+        return SimpleNamespace(text=text, usage=usage)
 
 
 class TranscriptTest(unittest.TestCase):
@@ -145,141 +150,237 @@ class TranscriptTest(unittest.TestCase):
 
 
 class LlmSummaryTest(unittest.TestCase):
+    def marker(self, messages):
+        return messages[0]["content"].rstrip().splitlines()[-1]
+
     def test_calls_the_registered_task(self):
         llm = FakeLlm()
         text, tokens = llm_summary(llm, [user("hi"), assistant("ok")], PREFIXES, focus_topic="db", memory_context="m")
         messages, kwargs = llm.calls[0]
         self.assertEqual((text, tokens), (SUMMARY, 321))
-        self.assertEqual((kwargs["task"], kwargs["max_tokens"], kwargs["timeout"]), (TASK, MAX_TOKENS, 120.0))
-        self.assertTrue(messages[0]["content"].startswith(FALLBACK_INSTRUCTION))
+        self.assertEqual((kwargs["task"], kwargs["max_tokens"]), (TASK, REQUEST_MAX_TOKENS))
+        self.assertGreater(kwargs["timeout"], 0)
+        self.assertLessEqual(kwargs["timeout"], 120.0)
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
+        self.assertRegex(self.marker(messages), r"^\[END OF SUMMARY [0-9a-f]{32}\]$")
+        self.assertEqual(len(llm.calls), 1)
 
     def test_the_fallback_instruction_asks_for_the_set_word_count(self):
         llm = FakeLlm()
         llm_summary(llm, [user("hi"), assistant("ok")], PREFIXES, summary_words=1200)
-        content = llm.calls[0][0][0]["content"]
-        self.assertIn("Use at most 1200 words.", content)
-        self.assertNotIn("600 words", content)
-        # The default stays the long-standing text.
+        self.assertIn("Use at most 1200 words.", llm.calls[0][0][0]["content"])
         self.assertIn("Use at most 600 words.", FALLBACK_INSTRUCTION)
 
     def test_the_memory_context_counts_against_the_transcript_budget(self):
-        # A memory provider can give a very large context. The fallback request must stay inside its budget.
         from warm_compaction.fallback import EXTRAS_CHARS
         llm = FakeLlm()
         rows = [user("first"), *[assistant(f"row {index} " + "x" * 3_500) for index in range(12)]]
         llm_summary(llm, rows, PREFIXES, memory_context="m" * 200_000 + " the end")
         messages, _kwargs = llm.calls[0]
-        extra = messages[0]["content"][len(FALLBACK_INSTRUCTION):]
+        content = messages[0]["content"]
+        extra = content[content.index("\nAlso keep this context"):content.index("End the summary with this line:")]
         self.assertLessEqual(len(extra), EXTRAS_CHARS)
         self.assertTrue(extra.rstrip().endswith("the end"))
         self.assertLessEqual(len(extra) + len(messages[1]["content"]), TRANSCRIPT_CHARS)
-        self.assertLessEqual(estimate_tokens(extra) + estimate_tokens(messages[1]["content"]),
-                             TRANSCRIPT_TOKENS + 16)
+        self.assertLessEqual(estimate_tokens(extra) + estimate_tokens(messages[1]["content"]), TRANSCRIPT_TOKENS + 16)
 
-    def test_a_reply_without_the_end_line_is_refused(self):
-        # ctx.llm reports no finish reason. A content filter or a provider limit can stop a reply below
-        # MAX_TOKENS; the five headings can already be there. Only the end line shows a complete reply.
-        self.assertTrue(FALLBACK_INSTRUCTION.rstrip().endswith(END_LINE))
-        for text in (SUMMARY, SUMMARY + "\n" + END_LINE + "\nmore text", END_LINE + "\n" + SUMMARY):
-            with self.subTest(text=text[-20:]), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
-                self.assertEqual(llm_summary(FakeLlm(text=text, output_tokens=300), [user("hi")], PREFIXES),
-                                 (None, None))
-            self.assertIn("(missing_end_marker)", logs.output[0])
-            self.assertNotIn(SUMMARY, "\n".join(logs.output))
-        text = "<think>plan</think>\n" + SUMMARY + "\n\n  " + END_LINE + "  \n"
-        self.assertEqual(llm_summary(FakeLlm(text=text), [user("hi")], PREFIXES), (SUMMARY, 321))
+    def test_reported_output_counts_are_telemetry_only(self):
+        for output in (2048, 8192, 7281, 300, None, True, -1, "fake-count", 2 ** 64):
+            with self.subTest(output=output):
+                self.assertEqual(llm_summary(FakeLlm(output_tokens=output), [user("hi")], PREFIXES), (SUMMARY, 321))
 
-    def test_a_reply_that_reached_the_token_limit_is_refused(self):
-        # ctx.llm reports no finish reason. A reply at the max_tokens limit can be cut off.
-        for llm in (FakeLlm(output_tokens=MAX_TOKENS), FakeLlm(text=SUMMARY, output_tokens=MAX_TOKENS + 1)):
-            with self.subTest(), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
-                self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (None, None))
-            self.assertIn("(output_token_limit)", logs.output[0])
-        self.assertEqual(llm_summary(FakeLlm(output_tokens=300), [user("hi")], PREFIXES), (SUMMARY, 321))
-
-    def test_refusal_diagnostics_have_counts_and_marker_codes_only(self):
-        # Synthetic replies exercise the metadata without publishing their text.
-        private = "synthetic-private-reply"
+    def test_the_exact_fresh_marker_is_required_once_at_the_end(self):
         cases = (
-            (SUMMARY + "\n" + END_LINE, 7_281, "present", "output_token_limit"),
-            (SUMMARY + "\n" + private, 814, "missing", "missing_end_marker"),
-            (SUMMARY + "\n" + END_LINE + "\n" + private, 814, "not_last", "missing_end_marker"),
-            ("<think>" + private + "</think>\n", 814, "empty", "missing_end_marker"),
+            (lambda marker: SUMMARY, "missing_end_marker"),
+            (lambda marker: SUMMARY + "\n[END OF SUMMARY]", "missing_end_marker"),
+            (lambda marker: SUMMARY + "\n[END OF SUMMARY " + "0" * 32 + "]", "missing_end_marker"),
+            (lambda marker: SUMMARY + "\n" + marker + "\nmore text", "missing_end_marker"),
+            (lambda marker: SUMMARY + "\n" + marker + "\n" + marker, "duplicate_end_marker"),
+            (lambda marker: SUMMARY + " embedded " + marker + "\n" + marker, "duplicate_end_marker"),
+            (lambda marker: SUMMARY + "\n " + marker + " ", "missing_end_marker"),
         )
-        for text, output, marker, reason in cases:
-            with self.subTest(marker=marker), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
+        for make, reason in cases:
+            with self.subTest(reason=reason), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
+                llm = FakeLlm(text=lambda messages, kwargs, count, make=make: make(self.marker(messages)))
                 failure = {}
-                self.assertEqual(llm_summary(FakeLlm(text=text, output_tokens=output),
-                                             [user("synthetic request")], PREFIXES, failure=failure), (None, None))
-            self.assertEqual(failure, {"reason": "gate:" + reason, "output_tokens": output,
-                                       "requested_max_tokens": MAX_TOKENS, "end_marker": marker})
-            logged = "\n".join(logs.output)
-            self.assertIn(f"output_tokens={output}", logged)
-            self.assertIn(f"requested_max_tokens={MAX_TOKENS}", logged)
-            self.assertIn(f"end_marker={marker}", logged)
-            self.assertNotIn(private, logged + str(failure))
-            self.assertNotIn(SUMMARY, logged + str(failure))
+                self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
+            self.assertEqual(failure["reason"], "gate:" + reason)
+            self.assertEqual(failure["attempts"], 2)
+            self.assertEqual(len(llm.calls), 2)
+            self.assertNotIn(self.marker(llm.calls[-1][0]), str(logs.output) + str(failure))
 
-    def test_refusal_diagnostics_do_not_publish_invalid_output_counts(self):
-        for output in (None, True, -1, "synthetic-private-count", 2 ** 64):
+    def test_thinking_is_removed_before_the_content_and_body_checks(self):
+        llm = FakeLlm(text="<think>" + "private-plan" * 4_000 + "</think>\n" + SUMMARY + "\n" + END_LINE + "\n")
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (SUMMARY, 321))
+
+    def test_oversized_body_is_refused_with_any_usage(self):
+        for suffix in ("word " * 2_000, "\u76ee" * 2_200, "\U0001f600" * 2_200):
+            for output in (None, 1, 2048, 7281, 8192):
+                with self.subTest(output=output, suffix=suffix[:5]):
+                    body = SUMMARY + "\n" + suffix
+                    failure = {}
+                    llm = FakeLlm(text=body + "\n" + END_LINE, output_tokens=output)
+                    self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
+                    self.assertEqual(failure["reason"], "gate:body_token_limit")
+                    self.assertGreater(failure["body_tokens"], MAX_TOKENS)
+                    self.assertEqual(len(llm.calls), 2)
+
+    def test_content_checks_stay_in_force(self):
+        for text, reason in (("answer", "heading_missing"), (SUMMARY + "\n[CONTEXT SUMMARY]: x", "carrier_marker"),
+                             (SUMMARY + "\n" + "x" * 30_000, "byte_bound")):
+            with self.subTest(reason=reason):
+                failure = {}
+                self.assertEqual(llm_summary(FakeLlm(text=text + "\n" + END_LINE), [user("hi")], PREFIXES,
+                                             failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:" + reason)
+
+    def test_refusal_diagnostics_have_counts_and_fixed_codes_only(self):
+        private = "synthetic-private-reply"
+        for output in (7281, 814, None, True, -1, "synthetic-private-count", 2 ** 64):
             with self.subTest(output=output), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
                 failure = {}
-                self.assertEqual(llm_summary(FakeLlm(text=SUMMARY, output_tokens=output),
-                                             [user("synthetic request")], PREFIXES, failure=failure), (None, None))
-            self.assertIsNone(failure["output_tokens"])
-            self.assertIn("output_tokens=None", "\n".join(logs.output))
-            self.assertNotIn("synthetic-private-count", "\n".join(logs.output))
+                llm = FakeLlm(text=SUMMARY + "\n" + private, output_tokens=output)
+                self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES, failure=failure), (None, None))
+            safe_output = output if type(output) is int and 0 <= output <= 2 ** 63 - 1 else None
+            self.assertEqual(failure, {"reason": "gate:missing_end_marker", "output_tokens": safe_output,
+                                      "requested_max_tokens": REQUEST_MAX_TOKENS, "end_marker": "missing",
+                                      "attempts": 2, "body_tokens": estimate_tokens(SUMMARY + "\n" + private)})
+            logged = "\n".join(logs.output)
+            self.assertNotIn(private, logged + str(failure))
+            self.assertNotIn(SUMMARY, logged + str(failure))
+            self.assertNotIn("synthetic-private-count", logged + str(failure))
+
+    def test_marker_metadata_has_bounded_codes(self):
+        cases = ((lambda marker: "<think>fake</think>\n", "empty"),
+                 (lambda marker: SUMMARY + "\n" + marker + "\nlater", "not_last"),
+                 (lambda marker: SUMMARY + "\n" + marker + "\n" + marker, "duplicate"),
+                 (lambda marker: "bad body\n" + marker, "present"))
+        for make, expected in cases:
+            with self.subTest(expected=expected):
+                failure = {}
+                llm_summary(FakeLlm(text=lambda messages, kwargs, count, make=make: make(self.marker(messages))),
+                            [user("hi")], PREFIXES, failure=failure)
+                self.assertEqual(failure["end_marker"], expected)
+
+    def test_retry_has_fresh_nonce_original_transcript_shorter_instruction_and_remaining_timeout(self):
+        clock = [10.0]
+
+        def reply(messages, kwargs, count):
+            clock[0] += 7.0
+            return "synthetic partial reply" if count == 1 else SUMMARY + "\n" + self.marker(messages)
+
+        llm, failure = FakeLlm(text=reply), {"reason": "old"}
+        with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda clock=clock: clock[0]):
+            self.assertEqual(llm_summary(llm, [user("original synthetic input")], PREFIXES,
+                                         summary_words=1200, timeout_s=20.0, failure=failure), (SUMMARY, 321))
+        self.assertEqual(failure, {})
+        first, second = llm.calls
+        self.assertNotEqual(self.marker(first[0]), self.marker(second[0]))
+        self.assertEqual(first[0][1], second[0][1])
+        self.assertNotIn("synthetic partial reply", str(second))
+        self.assertIn("Use at most 1200 words.", first[0][0]["content"])
+        self.assertIn("Use at most 300 words.", second[0][0]["content"])
+        self.assertEqual((first[1]["timeout"], second[1]["timeout"]), (20.0, 13.0))
+        self.assertEqual(second[1]["max_tokens"], REQUEST_MAX_TOKENS)
+
+    def test_retry_word_count_does_not_raise_a_small_user_limit(self):
+        llm = FakeLlm(text=SUMMARY)
+        llm_summary(llm, [user("hi")], PREFIXES, summary_words=100)
+        self.assertIn("Use at most 100 words.", llm.calls[1][0][0]["content"])
+
+    def test_retry_refuses_the_nonce_from_the_previous_attempt(self):
+        previous = []
+
+        def reply(messages, kwargs, count):
+            marker = self.marker(messages)
+            if count == 1:
+                previous.append(marker)
+                return SUMMARY
+            return SUMMARY + "\n" + previous[0]
+
+        failure = {}
+        self.assertEqual(llm_summary(FakeLlm(text=reply), [user("hi")], PREFIXES, failure=failure), (None, None))
+        self.assertEqual(failure["reason"], "gate:missing_end_marker")
+
+    def test_no_second_call_after_deadline_and_late_valid_reply_is_refused(self):
+        for valid in (False, True):
+            with self.subTest(valid=valid):
+                clock = [0.0]
+
+                def reply(messages, kwargs, count, clock=clock, valid=valid):
+                    clock[0] = 21.0
+                    return SUMMARY + "\n" + self.marker(messages) if valid else SUMMARY
+
+                llm, failure = FakeLlm(text=reply), {}
+                with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda clock=clock: clock[0]):
+                    self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20, failure=failure),
+                                     (None, None))
+                self.assertEqual(failure, {"reason": "deadline"})
+                self.assertEqual(len(llm.calls), 1)
+
+    def test_preparation_time_reduces_the_first_call_budget(self):
+        clock = [0.0]
+        original = transcript
+
+        def slow_transcript(*args, **kwargs):
+            clock[0] = 7.0
+            return original(*args, **kwargs)
+
+        llm = FakeLlm()
+        with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda: clock[0]), \
+                patch("warm_compaction.fallback.transcript", side_effect=slow_transcript):
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20), (SUMMARY, 321))
+        self.assertEqual(llm.calls[0][1]["timeout"], 13.0)
+
+    def test_deadline_before_retry_prevents_a_second_call(self):
+        llm, failure = FakeLlm(text=SUMMARY), {}
+        with patch("warm_compaction.fallback.time.monotonic", side_effect=(0, 0, 1, 20)):
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20, failure=failure),
+                                     (None, None))
+        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual(failure, {"reason": "deadline"})
+
+    def test_ready_checks_before_every_call_and_after_each_reply(self):
+        for states, text, count in (((False,), SUMMARY, 0), ((True, False), SUMMARY, 1),
+                                   ((True, True, False), SUMMARY, 1),
+                                   ((True, False), SUMMARY + "\n" + END_LINE, 1),
+                                   ((True, True, True, False), SUMMARY, 2)):
+            with self.subTest(states=states):
+                values = iter(states)
+                llm, failure = FakeLlm(text=text), {}
+                self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES,
+                                             ready=lambda values=values: next(values), failure=failure), (None, None))
+                self.assertEqual(failure, {"reason": "cancelled"})
+                self.assertEqual(len(llm.calls), count)
 
     def test_task_none_uses_the_main_model_route(self):
         llm = FakeLlm()
         llm_summary(llm, [user("hi")], PREFIXES, task=None)
         self.assertIsNone(llm.calls[0][1]["task"])
 
-    def test_failures_return_none(self):
-        for llm in (None, FakeLlm(text="  "), FakeLlm(text="x" * 30_000), FakeLlm(text="The answer is 4."),
-                    FakeLlm(text="## Goal\nG\n## Next step\nz"), FakeLlm(text=SUMMARY + "\n[CONTEXT SUMMARY]: x")):
-            with self.subTest(llm=llm):
-                self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (None, None))
-        with self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
-            self.assertEqual(llm_summary(FakeLlm(error=RuntimeError("x")), [user("hi")], PREFIXES), (None, None))
-        self.assertIn("(RuntimeError)", logs.output[0])
+    def test_unavailable_and_errors_do_not_retry(self):
+        for llm, reason in ((None, "unavailable"), (FakeLlm(error=RuntimeError("fake-private")), "error:RuntimeError")):
+            failure = {"reason": "old"}
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
+            self.assertEqual(failure, {"reason": reason})
+            if llm is not None:
+                self.assertEqual(len(llm.calls), 1)
 
-    def test_failure_metadata_has_codes_only(self):
-        private = "synthetic-private-provider-body"
-        cases = (
-            (None, "unavailable"),
-            (FakeLlm(error=RuntimeError(private)), "error:RuntimeError"),
-            (FakeLlm(text=""), "gate:missing_end_marker"),
-            (FakeLlm(text=SUMMARY), "gate:missing_end_marker"),
-            (FakeLlm(text="synthetic answer\n" + END_LINE), "gate:heading_missing"),
-            (FakeLlm(text=SUMMARY + "\n" + END_LINE, output_tokens=MAX_TOKENS), "gate:output_token_limit"),
-        )
-        for llm, reason in cases:
-            with self.subTest(reason=reason):
-                failure = {"reason": "old"}
-                self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES, failure=failure),
-                                 (None, None))
-                self.assertEqual(failure["reason"], reason)
-                if reason.startswith("gate:"):
-                    self.assertEqual(set(failure), {"reason", "output_tokens", "requested_max_tokens", "end_marker"})
-                else:
-                    self.assertEqual(failure, {"reason": reason})
-                self.assertNotIn(private, str(failure))
+    def test_second_call_exception_does_not_make_a_third_call(self):
+        def reply(messages, kwargs, count):
+            if count == 2:
+                raise TimeoutError("fake private exception")
+            return SUMMARY
+        llm, failure = FakeLlm(text=reply), {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
+        self.assertEqual(failure, {"reason": "error:TimeoutError"})
+        self.assertEqual(len(llm.calls), 2)
 
     def test_a_success_clears_old_failure_metadata(self):
         failure = {"reason": "old"}
-        self.assertEqual(llm_summary(FakeLlm(), [user("synthetic request")], PREFIXES, failure=failure),
-                         (SUMMARY, 321))
+        self.assertEqual(llm_summary(FakeLlm(), [user("synthetic request")], PREFIXES, failure=failure), (SUMMARY, 321))
         self.assertEqual(failure, {})
-
-    def test_an_unready_request_reports_cancelled_without_a_model_call(self):
-        llm, failure = FakeLlm(), {}
-        self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES,
-                                     ready=lambda: False, failure=failure), (None, None))
-        self.assertEqual(failure, {"reason": "cancelled"})
-        self.assertEqual(llm.calls, [])
 
     def test_an_unsafe_exception_class_name_is_not_published(self):
         unsafe = type("synthetic provider body / secret", (Exception,), {})
