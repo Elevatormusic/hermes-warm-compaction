@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 TASK = "warm_compaction"
 PURPOSE = "warm_compaction_fallback"
 MAX_TOKENS = 2048
+MAX_STATE_TOKENS = 512
 REQUEST_MAX_TOKENS = 8192
 TIMEOUT_S = 120.0
 TRANSCRIPT_CHARS = 32_000
@@ -78,11 +79,12 @@ user in double quotes. Copy punctuation too.
 
 ## Current state
 Each bullet must be one JSON string after "- ", or the exact line "- progress unknown".
-The decoded string must copy complete nonblank source lines from the transcript exactly, including punctuation. \
-Use JSON escapes for quotes and newlines. Do not add status labels or prose outside the JSON string. Do not \
-copy a line that contains "[cut]". Prefer the latest user correction or direct tool result. Keep the exact \
-reported scope; a completed tool call does not prove completion of a broader task. A source quote is evidence \
-of what was reported, not proof that it is currently true. Use "- progress unknown" when no usable state was reported.
+Copy exact source text from the transcript, including punctuation. A quote can be complete source lines or an \
+exact part of one line. The plugin restores the complete source line only when that part matches one distinct \
+line. Use JSON escapes for quotes and newlines. Do not add labels, prose, or invented progress inside or outside \
+the quote. Do not copy text that contains "[cut]". Prefer the latest user correction or direct tool result. \
+Keep the reported scope; a completed tool call does not prove completion of a broader task. A source quote \
+records what was reported, not what is currently true. Use "- progress unknown" when no usable state was reported.
 
 ## Key facts
 Identifiers, names, values, and results that the next step needs.
@@ -261,6 +263,65 @@ def _source_current_state(text: str, original: str) -> bool:
     return seen
 
 
+def _construct_current_state(text: str, original: str, prefixes: Iterable[str]) -> str:
+    """Keep complete source quotes, expand unique exact parts, and report unknown for dropped state.
+
+    The JSON encoding and unknown line count against both the state and body bounds.
+    Source quotes do not prove current truth or the accuracy of other sections.
+    """
+    lines = text.splitlines()
+    start = next(index for index, line in enumerate(lines) if line.strip() == "## Current state") + 1
+    end = next(index for index, line in enumerate(lines) if line.strip() == "## Key facts")
+    source = "\n" + original + "\n"
+    source_lines = {line for line in original.split("\n") if line.strip()}
+    unknown = "- progress unknown"
+    kept: list[str] = []
+    dropped = changed = has_unknown = False
+
+    def render(state: list[str]) -> str:
+        return "\n".join([*lines[:start], *state, *lines[end:]])
+
+    for line in lines[start:end]:
+        if not line.strip():
+            continue
+        if line == unknown:
+            has_unknown = True
+            continue
+        try:
+            quote = json.loads(line[2:]) if line.startswith("- ") else None
+        except (ValueError, RecursionError):
+            quote = None
+        if (not isinstance(quote, str) or not quote.strip()
+                or any(marker in quote for marker in (CUT_MARK.strip(), MIDDLE_MARK))):
+            dropped = True
+            continue
+        full = quote
+        if "\n" + quote + "\n" not in source:
+            matches = {entry for entry in source_lines if quote in entry}
+            if len(matches) != 1:
+                dropped = True
+                continue
+            full = matches.pop()
+        if any(marker in full for marker in (CUT_MARK.strip(), MIDDLE_MARK)):
+            dropped = True
+            continue
+        # ASCII encoding keeps Unicode line separators inside this one JSON bullet.
+        candidate = line if full == quote else "- " + json.dumps(full, ensure_ascii=True)
+        trial = [*kept, candidate, unknown]
+        body = render(trial)
+        if (estimate_tokens("\n".join(trial)) > MAX_STATE_TOKENS or estimate_tokens(body) > MAX_TOKENS
+                or gate_content(body, prefixes)[0] is None):
+            dropped = True
+            continue
+        kept.append(candidate)
+        changed = changed or candidate != line
+    if not dropped and not changed and estimate_tokens("\n".join(lines[start:end])) <= MAX_STATE_TOKENS:
+        return text
+    if dropped or has_unknown or not kept:
+        kept.append(unknown)
+    return render(kept)
+
+
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
@@ -328,8 +389,13 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
             text, reason = gate_content(body, prefixes)
             if text is not None and estimate_tokens(body) > MAX_TOKENS:
                 text, reason = None, "body_token_limit"
-            if text is not None and not _source_current_state(text, original):
-                text, reason = None, "current_state_unverified"
+            if text is not None:
+                text = _construct_current_state(text, original, prefixes)
+                text, reason = gate_content(text, prefixes)
+                if text is not None and estimate_tokens(text) > MAX_TOKENS:
+                    text, reason = None, "body_token_limit"
+                if text is not None and not _source_current_state(text, original):
+                    text, reason = None, "current_state_unverified"
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None

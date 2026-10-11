@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from warm_compaction.fallback import (
-    END_LINE, FALLBACK_INSTRUCTION, MAX_TOKENS, REQUEST_MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS,
+    END_LINE, FALLBACK_INSTRUCTION, MAX_STATE_TOKENS, MAX_TOKENS, REQUEST_MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS,
     TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
     llm_summary, render_row, transcript,
 )
@@ -404,21 +404,33 @@ def state_summary(state):
 
 
 class CurrentStateSourceTest(unittest.TestCase):
-    def assert_refused(self, state, rows):
+    def assert_repaired(self, state, rows, expected="- progress unknown"):
         failure = {}
         llm = FakeLlm(text=state_summary(state) + "\n" + END_LINE)
-        self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (None, None))
-        self.assertEqual(failure["reason"], "gate:current_state_unverified")
-        self.assertEqual(failure["attempts"], 2)
-        self.assertEqual(len(llm.calls), 2)
+        body = state_summary(expected)
+        self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (body, 321))
+        self.assertEqual(failure, {})
+        self.assertEqual(len(llm.calls), 1)
         return llm, failure
 
-    def test_unreported_japanese_incomplete_state_is_refused(self):
-        state = "- " + json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
-        self.assert_refused(state, [user("PKG-17 \u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002")])
+    def test_accepted_alternative_heading_separators_do_not_raise_during_construction(self):
+        from warm_compaction.fallback import _construct_current_state
+        from warm_compaction.handoff import gate_content
+        for separator in ("\r", "\r\n", "\u2028"):
+            with self.subTest(separator=separator):
+                body = state_summary("- progress unknown").replace("\n", separator)
+                text, reason = gate_content(body, PREFIXES)
+                self.assertIsNone(reason)
+                self.assertIsNotNone(text)
+                repaired = _construct_current_state(text, "[user]\nCheck progress.", PREFIXES)
+                self.assertEqual(gate_content(repaired, PREFIXES), (text, None))
 
-    def test_a_completion_fragment_cannot_match_a_negative_source_line(self):
-        self.assert_refused('- "complete"', [assistant("not complete")])
+    def test_unreported_japanese_incomplete_state_becomes_unknown_without_retry(self):
+        state = "- " + json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
+        self.assert_repaired(state, [user("PKG-17 \u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002")])
+
+    def test_completion_fragment_restores_the_whole_negative_source_line(self):
+        self.assert_repaired('- "complete"', [assistant("not complete")], '- "not complete"')
 
     def test_exact_reported_unfinished_state_is_accepted(self):
         reported = "PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002"
@@ -436,8 +448,8 @@ class CurrentStateSourceTest(unittest.TestCase):
         rows = [user("Verify package PKG-17."), tool("call_read_7", reported)]
         body = state_summary("- " + json.dumps(reported))
         self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
-        self.assert_refused('- [COMPLETE] Verify package PKG-17: ' + json.dumps(reported), rows)
-        self.assert_refused("- " + json.dumps("Verify package PKG-17 is complete."), rows)
+        self.assert_repaired('- [COMPLETE] Verify package PKG-17: ' + json.dumps(reported), rows)
+        self.assert_repaired("- " + json.dumps("Verify package PKG-17 is complete."), rows)
 
     def test_json_escapes_and_multiline_source_quotes_are_kept_encoded(self):
         reports = ('The result is "unfinished".', "C:\\synthetic\\report is unfinished.",
@@ -459,25 +471,26 @@ class CurrentStateSourceTest(unittest.TestCase):
                     self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE),
                                                  [assistant(reported)], PREFIXES), (body, 321))
 
-    def test_malformed_extra_prose_and_nonstring_values_are_refused(self):
+    def test_malformed_extra_prose_and_nonstring_values_become_unknown(self):
         for state in ('- "reported" later', '- [OPEN] "reported"', '- "reported', '- null', '- true', '- 1',
                       '- []', '- {}', '- ""', '- "   "', 'reported', '- progress unknown later',
                       '- ' + '[' * 1100 + '0' + ']' * 1100, '- ' + '1' * 5000):
             with self.subTest(state=state[:30]):
-                self.assert_refused(state, [assistant("reported")])
+                self.assert_repaired(state, [assistant("reported")])
 
-    def test_partial_source_lines_are_refused(self):
+    def test_unique_partial_quotes_expand_to_complete_source_lines(self):
         for reported, quote in (("not complete", "complete"), ("complete later", "complete"),
-                                ("scope complete later", "scope complete"), ("first\nsecond line", "first\nsecond")):
+                                ("scope complete later", "scope complete")):
             with self.subTest(reported=reported, quote=quote):
-                self.assert_refused("- " + json.dumps(quote), [assistant(reported)])
+                self.assert_repaired("- " + json.dumps(quote), [assistant(reported)], "- " + json.dumps(reported))
+        self.assert_repaired('- "first\\nsecond"', [assistant("first\nsecond line")])
 
-    def test_cut_source_and_cut_markers_are_refused(self):
+    def test_cut_source_and_cut_markers_become_unknown(self):
         for reported in ("reported [cut] state", "reported" + MIDDLE_MARK + "state"):
             with self.subTest(reported=reported):
-                self.assert_refused("- " + json.dumps(reported), [assistant(reported)])
+                self.assert_repaired("- " + json.dumps(reported), [assistant(reported)])
         rows = [user("Check progress."), assistant("start " + "p" * 15_000 + "\nMiddle state.\n" + "q" * 15_000)]
-        llm, _failure = self.assert_refused('- "Middle state."', rows)
+        llm, _failure = self.assert_repaired('- "Middle state."', rows)
         self.assertNotIn("Middle state.", llm.calls[0][0][1]["content"])
 
     def test_blank_lines_and_multiple_supported_bullets_are_accepted(self):
@@ -485,13 +498,85 @@ class CurrentStateSourceTest(unittest.TestCase):
         body = state_summary('\n- "First state."\n\n- "Second state."\n- progress unknown\n')
         self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
 
-    def test_an_invalid_state_gets_one_retry_with_the_same_source(self):
+    def test_ambiguous_case_changed_and_paraphrased_quotes_become_unknown(self):
+        self.assert_repaired('- "complete"', [assistant("not complete"), tool("c1", "Calibration is complete.")])
+        self.assert_repaired('- "Complete"', [assistant("not complete")])
+        self.assert_repaired('- "complete."', [assistant("not complete")])
+        self.assert_repaired('- "unfinished"', [assistant("not complete")])
+
+    def test_duplicate_first_user_lines_do_not_create_false_ambiguity(self):
+        reported = "The task is not complete."
+        llm, _failure = self.assert_repaired('- "complete"', [user(reported)], "- " + json.dumps(reported))
+        self.assertEqual(llm.calls[0][0][1]["content"].count(reported), 2)
+
+    def test_a_unique_fragment_keeps_the_entire_long_first_user_line(self):
+        reported = "Check PKG-17, keep all prior constraints, and report that only calibration call_read_7 is complete."
+        self.assert_repaired('- "call_read_7 is complete"', [user(reported)], "- " + json.dumps(reported))
+
+    def test_a_calibration_fragment_does_not_become_parent_task_completion(self):
+        reported = "Calibration call_read_7 is complete."
+        rows = [user("Verify package PKG-17."), tool("call_read_7", reported)]
+        self.assert_repaired('- "complete"', rows, "- " + json.dumps(reported))
+
+    def test_a_cut_marker_on_the_expanded_source_line_prevents_its_use(self):
+        self.assert_repaired('- "complete"', [assistant("not complete [cut] later scope")])
+
+    def test_supported_state_survives_and_any_dropped_state_adds_unknown(self):
+        state = '- "reported state"\n- "invented progress"'
+        expected = '- "reported state"\n- progress unknown'
+        self.assert_repaired(state, [assistant("reported state")], expected)
+
+    def test_unicode_source_line_separators_are_escaped_when_fragments_expand(self):
+        for separator in ("\u0085", "\u2028", "\u2029"):
+            with self.subTest(separator=separator):
+                reported = "The task is not complete" + separator + "pending review."
+                expected = "- " + json.dumps(reported, ensure_ascii=True)
+                self.assert_repaired('- "not complete"', [assistant(reported)], expected)
+
+    def test_state_budget_includes_json_encoding_and_reserved_unknown(self):
+        reported = "State: " + "\u5831" * 400 + ": end."
+        encoded = "- " + json.dumps(reported, ensure_ascii=True)
+        self.assertLess(estimate_tokens(reported), MAX_STATE_TOKENS)
+        self.assertGreater(estimate_tokens(encoded), MAX_STATE_TOKENS)
+        self.assert_repaired("- " + json.dumps("\u5831"), [assistant(reported)])
+        rows = [assistant("First state " + "a" * 1000), assistant("Second state " + "b" * 1000)]
+        first, second = (row["content"] for row in rows)
+        third = "Third state " + "c" * 1000
+        rows.append(assistant(third))
+        state = "\n".join("- " + json.dumps(line) for line in (first, second, third))
+        llm = FakeLlm(text=state_summary(state) + "\n" + END_LINE)
+        text, _tokens = llm_summary(llm, rows, PREFIXES)
+        self.assertIsNotNone(text)
+        section = text.split("## Current state\n", 1)[1].split("\n## Key facts", 1)[0]
+        self.assertLessEqual(estimate_tokens(section), MAX_STATE_TOKENS)
+        self.assertIn("- progress unknown", section)
+        self.assertLessEqual(estimate_tokens(text), MAX_TOKENS)
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_expanded_state_leaves_the_other_sections_and_body_bound_unchanged(self):
+        reported = "not complete " + "x" * 1900
+        raw = state_summary('- "not complete"').replace("- y", "- " + "k" * 6350)
+        expected = state_summary("- progress unknown").replace("- y", "- " + "k" * 6350)
+        self.assertLessEqual(estimate_tokens(raw), MAX_TOKENS)
+        llm = FakeLlm(text=raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES), (expected, 321))
+        self.assertLessEqual(estimate_tokens(expected), MAX_TOKENS)
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_an_oversized_raw_state_still_fails_the_original_body_check(self):
+        body = state_summary("- " + json.dumps("x" * 9000))
+        llm, failure = FakeLlm(text=body + "\n" + END_LINE), {}
+        self.assertEqual(llm_summary(llm, [user("Check progress.")], PREFIXES, failure=failure), (None, None))
+        self.assertEqual(failure["reason"], "gate:body_token_limit")
+        self.assertEqual(len(llm.calls), 2)
+
+    def test_an_actual_protocol_failure_retries_with_the_same_source(self):
         reported = "not complete"
         good = state_summary("- " + json.dumps(reported))
-        bad = state_summary('- "complete"')
+        bad = state_summary('- "unsupported"')
 
         def reply(messages, kwargs, count):
-            return (bad if count == 1 else good) + "\n" + messages[0]["content"].rstrip().splitlines()[-1]
+            return bad if count == 1 else good + "\n" + messages[0]["content"].rstrip().splitlines()[-1]
 
         llm, failure = FakeLlm(text=reply), {}
         self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES, failure=failure), (good, 321))
@@ -501,14 +586,15 @@ class CurrentStateSourceTest(unittest.TestCase):
         self.assertNotEqual(llm.calls[0][0][0]["content"].splitlines()[-1],
                             llm.calls[1][0][0]["content"].splitlines()[-1])
 
-    def test_refusal_metadata_does_not_include_the_quote_or_source(self):
+    def test_repaired_state_does_not_publish_the_quote_or_source(self):
         state = '- "synthetic-private-state"'
-        with self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
-            llm, failure = self.assert_refused(state, [assistant("synthetic-private-source")])
-        published = str(failure) + "\n".join(logs.output)
+        with patch("warm_compaction.fallback.logger") as logger:
+            llm, failure = self.assert_repaired(state, [assistant("synthetic-private-source")])
+        published = str(failure) + str(logger.method_calls)
         self.assertNotIn("synthetic-private-state", published)
         self.assertNotIn("synthetic-private-source", published)
         self.assertNotIn(llm.calls[-1][0][0]["content"].splitlines()[-1], published)
+        logger.warning.assert_not_called()
 
 
 class CutQuoteTest(unittest.TestCase):

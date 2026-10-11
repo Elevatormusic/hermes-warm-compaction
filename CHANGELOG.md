@@ -19,7 +19,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
-- Check fallback Current state bullets against complete lines in the bounded transcript, or accept the literal unknown-state bullet. Refuse unsupported quotes, added labels, and cut markers. This establishes source support for that section only, not current truth or whole-summary accuracy.
+- Construct fallback Current state from complete source lines. Restore the complete line for a unique exact quoted part; drop ambiguous, malformed, cut, or oversized state and report unknown. Count JSON encoding and unknown space in the state and body bounds. State repair alone needs no retry and does not prove current truth or whole-summary accuracy.
 - Report safe fallback token counts, request limits, attempt counts, and end-marker status when a reply is refused. Keep summary text and random markers out of status and logs. Document a task configuration workaround for Hermes versions that omit the generation limit on custom Chat Completions routes; a general correction remains a Hermes dependency.
 - Match captured content with the stored `api_content` text for context-injected rows. Keep role, tool, and native replay checks. Report each history refusal stage and use the fallback when the capture is ahead of the live history.
 - Keep the original history when an indivisible native replay block exceeds the compaction budget. Check the threshold, reply reserve, and unknown request overhead before accepting the new history.

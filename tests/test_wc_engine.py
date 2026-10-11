@@ -1620,17 +1620,28 @@ class EngineTest(unittest.TestCase):
                 engine = self.make(warm=False)
                 self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], reason)
 
-    def test_unreported_fallback_state_preserves_history_after_two_refusals(self):
+    def test_unreported_fallback_state_is_repaired_without_a_second_call(self):
         state = json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
         self.llm = FakeLlm(text=HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- " + state)
                           + "\n" + END_LINE)
         engine = self.make(warm=False)
         history = [user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")]
-        with self.assertLogs("warm_compaction", level="INFO") as logs:
-            self.assert_aborted(engine, history, "gate:current_state_unverified")
+        original = copy.deepcopy(history)
+        new = engine.compress(history)
+        self.assertEqual(history, original)
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        summary = next(row["content"] for row in new if row.get("_compressed_summary") and row["role"] == "assistant")
+        self.assertIn("## Current state\n- progress unknown", summary)
+        self.assertNotIn(state, summary)
+        self.assertEqual(len(self.llm.calls), 1)
+
+    def test_invalid_fallback_protocol_keeps_history_after_two_calls(self):
+        state = json.dumps("synthetic unsupported state")
+        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- " + state))
+        engine = self.make(warm=False)
+        history = [user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")]
+        self.assert_aborted(engine, history, "gate:missing_end_marker")
         self.assertEqual(len(self.llm.calls), 2)
-        self.assertEqual(engine.warm_last["fallback_attempts"], 2)
-        self.assertNotIn(state, str(logs.output) + json.dumps(engine.get_status()))
 
     def test_fallback_refusal_status_has_safe_counts_and_marker_code(self):
         # These replies and counts are synthetic. History must stay unchanged.
