@@ -87,7 +87,8 @@ completion of a broader task. Keep the remaining task progress as "progress unkn
 Identifiers, names, values, and results that the next step needs.
 
 ## Next step
-The next action that the user asked for and its exact target. Describe it. Do not do it.
+The next action that the user asked for and its exact target. Do not add a condition, delay, or permission that \
+the user did not require.
 
 End the summary with this line:
 [END OF SUMMARY {nonce}]
