@@ -41,7 +41,10 @@ HANDOFF = (
     "## Next step\nReport the code word BLUE-7."
 )
 FALLBACK_HANDOFF = (HANDOFF.replace("- [OPEN] Report the code word.", "- progress unknown")
-                    .replace("- The code word is BLUE-7.", "- facts unknown"))
+                    .replace("- The code word is BLUE-7.", "- facts unknown")
+                    .replace("Finish the synthetic task.", "- goal unknown")
+                    .replace("- Keep the code word BLUE-7.", "- instructions unknown")
+                    .replace("Report the code word BLUE-7.", "- next step unknown"))
 TOOLS = [{"type": "function", "function": {"name": TOOL_NAME, "description": "Return a synthetic note.",
           "parameters": {"type": "object", "properties": {}, "required": []}}}]
 WARM_MARK = "Stop the current task now. This request comes from the host program"

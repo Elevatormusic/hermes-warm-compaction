@@ -14,7 +14,7 @@ from .handoff import (
     DEFAULT_SUMMARY_WORDS, END_MARKER, HEADINGS, LEGACY_PREFIX, MAX_REPLY_BYTES, SUMMARY_WORDS_TOKEN,
     extras, gate_content,
 )
-from .layout import CUT_NOTE, is_real_user, is_summary, quote
+from .layout import COPY_HEADING, CUT_NOTE, is_real_user, is_summary, quote
 from .rows import (  # noqa: F401 - MIDDLE_MARK is part of this module's names.
     MIDDLE_MARK, cut_middle as _cut_middle,
     api_content, attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text,
@@ -72,31 +72,31 @@ Rules:
 marks the first message of the user.
 
 Use these five headings, in this order, each on its own line. Start the reply with "## Goal":
+Each section must contain only bullets with one JSON string after "- ", or its exact unknown line below.
+Copy exact source text, including punctuation. A quote can be complete source lines or an exact part of one \
+line. The plugin restores the complete line only when that part matches one distinct line. Use JSON escapes \
+for quotes and newlines. Do not add labels, prose, conditions, or invented claims inside or outside the quote.
+Do not copy text that contains "[cut]". Keep each reported scope and condition.
 
 ## Goal
-The current goal of the user, in one or two sentences.
+The current goal of the user. Use "- goal unknown" when no usable goal was reported.
 
 ## User instructions
-Each instruction, rule, or preference from the user that still applies, as a bullet with the exact words of the \
-user in double quotes. Copy punctuation too.
+Each instruction, rule, or preference from the user that still applies. Use "- instructions unknown" when no \
+usable instruction was reported.
 
 ## Current state
-Each bullet must be one JSON string after "- ", or the exact line "- progress unknown".
-Copy exact source text from the transcript, including punctuation. A quote can be complete source lines or an \
-exact part of one line. The plugin restores the complete source line only when that part matches one distinct \
-line. Use JSON escapes for quotes and newlines. Do not add labels, prose, or invented progress inside or outside \
-the quote. Do not copy text that contains "[cut]". Prefer the latest user correction or direct tool result. \
+Prefer the latest user correction or direct tool result. \
 Keep the reported scope; a completed tool call does not prove completion of a broader task. A source quote \
 records what was reported, not what is currently true. Use "- progress unknown" when no usable state was reported.
 
 ## Key facts
-Identifiers, names, values, and results that the next step needs. Each bullet must be one JSON string after \
-"- ", with exact source lines or an exact part of one line, as for Current state. Do not add facts or conditions. \
+Identifiers, names, values, and results that the next step needs. \
 Use the exact line "- facts unknown" when no usable facts were reported.
 
 ## Next step
-The next action that the user asked for and its exact target. Do not add a condition, delay, or permission that \
-the user did not require.
+The next action that the user asked for and its exact target. Use "- next step unknown" when no usable next \
+step was reported. Do not add a condition, delay, or permission that the user did not require.
 
 End the summary with this line:
 [END OF SUMMARY {nonce}]
@@ -247,8 +247,12 @@ def error_class(error: Exception) -> str:
     return name if name.isascii() and name.isidentifier() and len(name) <= 80 else "Exception"
 
 
-SOURCE_SECTIONS = (("## Current state", "## Key facts", "- progress unknown"),
-                   ("## Key facts", "## Next step", "- facts unknown"))
+SOURCE_SECTIONS = (("## Goal", "## User instructions", "- goal unknown"),
+                   ("## User instructions", "## Current state", "- instructions unknown"),
+                   ("## Current state", "## Key facts", "- progress unknown"),
+                   ("## Key facts", "## Next step", "- facts unknown"),
+                   ("## Next step", None, "- next step unknown"))
+SOURCE_PRIORITY = (1, 4, 0, 2, 3)
 
 
 def _json_quote(line: str) -> str | None:
@@ -267,13 +271,16 @@ def _encoded_quote(value: str) -> str:
     return "- " + text
 
 
-def _source_spans(lines: list[str]) -> list[tuple[int, int, str]]:
+def _source_spans(lines: list[str], prior: bool = False) -> list[tuple[int, int, str]]:
+    if prior and COPY_HEADING in lines:
+        lines = lines[:lines.index(COPY_HEADING)]
     headings = [line.strip() for line in lines]
     spans = []
     for heading, next_heading, unknown in SOURCE_SECTIONS:
-        if headings.count(heading) != 1 or headings.count(next_heading) != 1:
+        if headings.count(heading) != 1 or (next_heading is not None and headings.count(next_heading) != 1):
             continue
-        start, end = headings.index(heading) + 1, headings.index(next_heading)
+        start = headings.index(heading) + 1
+        end = headings.index(next_heading) if next_heading is not None else len(lines)
         if start <= end and not any(line in HEADINGS for line in headings[start:end]):
             spans.append((start, end, unknown))
     return spans
@@ -288,7 +295,9 @@ def _canonical_source_json(text: str) -> str:
             if any(char in ("\u0085", "\u2028", "\u2029") or 0xD800 <= ord(char) <= 0xDFFF for char in line):
                 value = _json_quote(line)
                 if value is not None:
-                    lines[index] = _encoded_quote(value)
+                    encoded = _encoded_quote(value)
+                    # A non-string JSON bullet makes construction record this encoding loss as unknown.
+                    lines[index] = encoded if _json_quote(encoded) == value else "- null"
     return "\n".join(lines)
 
 
@@ -302,7 +311,7 @@ class _SourceTable:
         decoded: list[str] = []
         if earlier and original.startswith("[earlier summary]\n" + earlier):
             earlier_lines = earlier.split("\n")
-            for start, end, _unknown in _source_spans(earlier_lines):
+            for start, end, _unknown in _source_spans(earlier_lines, prior=True):
                 for index in range(start, end):
                     line = earlier_lines[index]
                     value = _json_quote(line)
@@ -340,12 +349,13 @@ class _SourceTable:
 
 
 def _source_current_state(text: str, original: str | _SourceTable) -> bool:
-    """Check both source sections. Reported source text does not prove current truth."""
+    """Check all source sections. Reported source text does not prove current truth or applicability."""
     source = original if isinstance(original, _SourceTable) else _SourceTable(original)
     lines = text.splitlines()
-    for heading, next_heading, unknown in SOURCE_SECTIONS:
-        start = next(index for index, line in enumerate(lines) if line.strip() == heading) + 1
-        end = next(index for index, line in enumerate(lines) if line.strip() == next_heading)
+    spans = _source_spans(lines)
+    if len(spans) != len(SOURCE_SECTIONS):
+        return False
+    for start, end, unknown in spans:
         section = [line for line in lines[start:end] if line.strip()]
         if not section or estimate_tokens("\n".join(lines[start:end])) > MAX_STATE_TOKENS:
             return False
@@ -359,12 +369,10 @@ def _source_current_state(text: str, original: str | _SourceTable) -> bool:
 
 
 def _construct_current_state(text: str, original: str | _SourceTable, prefixes: Iterable[str]) -> str:
-    """Construct both source sections, with room for unknown in each section and in the whole body."""
+    """Construct all sections in retention priority, with room for every unknown and normal heading order."""
     source = original if isinstance(original, _SourceTable) else _SourceTable(original)
     lines = text.splitlines()
-    spans = [(next(i for i, line in enumerate(lines) if line.strip() == heading) + 1,
-              next(i for i, line in enumerate(lines) if line.strip() == next_heading), unknown)
-             for heading, next_heading, unknown in SOURCE_SECTIONS]
+    spans = _source_spans(lines)
     sections = [[unknown] for _start, _end, unknown in spans]
 
     def render() -> str:
@@ -374,8 +382,10 @@ def _construct_current_state(text: str, original: str | _SourceTable, prefixes: 
         return "\n".join(result)
 
     changed = False
-    for slot, (start, end, unknown) in enumerate(spans):
+    for slot in SOURCE_PRIORITY:
+        start, end, unknown = spans[slot]
         kept: list[str] = []
+        seen: set[str] = set()
         dropped = has_unknown = False
         for line in lines[start:end]:
             if not line.strip():
@@ -392,6 +402,8 @@ def _construct_current_state(text: str, original: str | _SourceTable, prefixes: 
             if _json_quote(candidate) != full:
                 dropped = True
                 continue
+            if full in seen:
+                continue
             sections[slot] = [*kept, candidate, unknown]
             body = render()
             if (estimate_tokens("\n".join(sections[slot])) > MAX_STATE_TOKENS
@@ -400,6 +412,7 @@ def _construct_current_state(text: str, original: str | _SourceTable, prefixes: 
                 sections[slot] = [*kept, unknown]
                 continue
             kept.append(candidate)
+            seen.add(full)
         sections[slot] = [*kept, *([unknown] if dropped or has_unknown or not kept else [])]
         changed = (changed or sections[slot] != [line for line in lines[start:end] if line.strip()]
                    or estimate_tokens("\n".join(lines[start:end])) > MAX_STATE_TOKENS)

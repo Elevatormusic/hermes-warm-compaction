@@ -17,8 +17,8 @@ from wc_fixtures import assistant, tool, user
 PREFIXES = ("[HERMES PREFIX]", "[CONTEXT SUMMARY]:")
 
 
-SUMMARY = ("## Goal\nG\n## User instructions\n- none\n## Current state\n- progress unknown\n"
-           "## Key facts\n- facts unknown\n## Next step\nz")
+SUMMARY = ("## Goal\n- goal unknown\n## User instructions\n- instructions unknown\n"
+           "## Current state\n- progress unknown\n## Key facts\n- facts unknown\n## Next step\n- next step unknown")
 
 
 class FakeLlm:
@@ -553,10 +553,10 @@ class CurrentStateSourceTest(unittest.TestCase):
         self.assertLessEqual(estimate_tokens(text), MAX_TOKENS)
         self.assertEqual(len(llm.calls), 1)
 
-    def test_expanded_state_leaves_the_other_sections_and_body_bound_unchanged(self):
+    def test_unsupported_long_goal_is_repaired_before_state_expansion(self):
         reported = "not complete " + "x" * 1900
-        raw = state_summary('- "not complete"').replace("## Goal\nG", "## Goal\n" + "k" * 6350)
-        expected = state_summary("- progress unknown").replace("## Goal\nG", "## Goal\n" + "k" * 6350)
+        raw = state_summary('- "not complete"').replace("- goal unknown", "k" * 5700)
+        expected = state_summary("- " + json.dumps(reported))
         self.assertLessEqual(estimate_tokens(raw), MAX_TOKENS)
         llm = FakeLlm(text=raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES), (expected, 321))
@@ -603,13 +603,21 @@ def facts_summary(facts):
     return head + "## Key facts\n" + facts + "\n## Next step\n" + step
 
 
+def field_summary(heading, content, body=SUMMARY):
+    headings = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+    head, rest = body.split(heading + "\n", 1)
+    index = headings.index(heading)
+    following = "\n" + headings[index + 1] + "\n" if index + 1 < len(headings) else None
+    tail = following + rest.split(following, 1)[1] if following else ""
+    return head + heading + "\n" + content + tail
+
+
 class KeyFactsSourceTest(unittest.TestCase):
     def test_unreported_approval_condition_is_dropped_without_losing_supported_values(self):
         reported = "JOB-X3 output is 28 V."
         facts = "- " + json.dumps(reported) + "\n- approval for JOB-X3 is required before proceeding"
-        raw = facts_summary(facts).replace("## Goal\nG", "## Goal\nCheck JOB-X3 output.")
+        raw = facts_summary(facts)
         expected = facts_summary("- " + json.dumps(reported) + "\n- facts unknown")
-        expected = expected.replace("## Goal\nG", "## Goal\nCheck JOB-X3 output.")
         llm = FakeLlm(text=raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES), (expected, 321))
         self.assertEqual(len(llm.calls), 1)
@@ -638,6 +646,123 @@ class KeyFactsSourceTest(unittest.TestCase):
                 self.assertLessEqual(estimate_tokens(raw), MAX_TOKENS)
                 self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user("Check task.")], PREFIXES),
                                  (SUMMARY, 321))
+
+
+class AllFieldsSourceTest(unittest.TestCase):
+    def test_recovery_goal_drops_unconditional_publish_restriction(self):
+        raw = SUMMARY.replace("- goal unknown", "Finish JOB-X3 without publishing.")
+        rows = [user("Finish JOB-X3. Do not publish without written approval.")]
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        text, tokens = llm_summary(llm, rows, PREFIXES)
+        self.assertEqual(text.split("## Goal\n", 1)[1].split("\n## User instructions", 1)[0], "- goal unknown")
+        self.assertEqual(tokens, 321)
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_next_step_discards_added_condition_and_unchecked_tail(self):
+        raw = field_summary("## Next step", '- "Review JOB-X3 after approval."\nDo not perform it yet.')
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [user("Review JOB-X3.")], PREFIXES), (SUMMARY, 321))
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_next_step_keeps_supported_action_and_records_lost_tail_condition(self):
+        raw = field_summary("## Next step", '- "Review JOB-X3."\nDo not perform it yet.')
+        expected = field_summary("## Next step", '- "Review JOB-X3."\n- next step unknown')
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user("Review JOB-X3.")], PREFIXES),
+                         (expected, 321))
+
+    def test_complete_goal_source_quote_keeps_the_original_approval_condition(self):
+        reported = "Finish JOB-X3. Do not publish without written approval."
+        raw = field_summary("## Goal", '- "Do not publish"')
+        expected = field_summary("## Goal", "- " + json.dumps(reported))
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user(reported)], PREFIXES), (expected, 321))
+
+    def test_json_looking_reported_data_stays_one_layer_in_every_field(self):
+        headings = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+        reported = '- "not complete"'
+        for heading in headings:
+            body = field_summary(heading, "- " + json.dumps(reported))
+            previous = body
+            for attempt in range(4):
+                with self.subTest(heading=heading, attempt=attempt):
+                    text, tokens = llm_summary(FakeLlm(body + "\n" + END_LINE),
+                                               [assistant(previous, _compressed_summary=True)], PREFIXES)
+                    self.assertEqual((text, tokens), (body, 321))
+                    previous = text
+
+    def test_raw_surrogate_pair_encoding_loss_preserves_other_next_step_evidence(self):
+        reported = "Task not complete \ud83d\ude00."
+        raw = field_summary("## Next step", "- " + json.dumps(reported, ensure_ascii=False)
+                            + '\n- "Review JOB-X3."')
+        expected = field_summary("## Next step", '- "Review JOB-X3."\n- next step unknown')
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        rows = [assistant(reported), user("Review JOB-X3.")]
+        self.assertEqual(llm_summary(llm, rows, PREFIXES), (expected, 321))
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_japanese_instruction_fragment_restores_source_punctuation_and_condition(self):
+        reported = ("\u66f8\u9762\u306e\u627f\u8a8d\u306a\u3057\u306b\u516c\u958b\u3057\u306a\u3044"
+                    "\u3067\u304f\u3060\u3055\u3044\u3002")
+        raw = field_summary("## User instructions", "- " + json.dumps(reported[:-1], ensure_ascii=False))
+        expected = field_summary("## User instructions", "- " + json.dumps(reported, ensure_ascii=False))
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user(reported)], PREFIXES), (expected, 321))
+
+    def test_all_fields_repeat_through_saved_carrier_without_wrapping(self):
+        headings = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+        body = SUMMARY
+        for index, heading in enumerate(headings):
+            reported = f"Reported field {index}:\n## Goal\nnot complete."
+            body = field_summary(heading, "- " + json.dumps(reported), body)
+        for prefix in PREFIXES:
+            previous = body
+            for attempt in range(4):
+                with self.subTest(prefix=prefix, attempt=attempt):
+                    row = assistant(prefix + "\n" + previous + "\n--- END OF CONTEXT SUMMARY ---")
+                    text, tokens = llm_summary(FakeLlm(body + "\n" + END_LINE), [row], PREFIXES)
+                    self.assertEqual((text, tokens), (body, 321))
+                    previous = text
+
+    def test_prior_next_step_stops_before_copied_user_messages(self):
+        body = field_summary("## Next step", '- "Review JOB-X3."')
+        copied = '- "Copied user rule."'
+        prior = body + "\n## Copied user messages\n" + copied
+        row = assistant(prior, _compressed_summary=True)
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [row], PREFIXES), (body, 321))
+        raw = field_summary("## Next step", '- "Copied user rule."')
+        expected = field_summary("## Next step", "- " + json.dumps(copied))
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [row], PREFIXES), (expected, 321))
+
+    def test_duplicate_decoded_quotes_do_not_report_evidence_loss(self):
+        reported = "\u66f8\u9762\u306e\u627f\u8a8d\u304c\u5fc5\u8981\u3067\u3059\u3002"
+        first = "- " + json.dumps(reported)
+        duplicate = "- " + json.dumps(reported, ensure_ascii=False)
+        raw = field_summary("## User instructions", first + "\n" + duplicate + "\n" + first)
+        expected = field_summary("## User instructions", first)
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user(reported)], PREFIXES), (expected, 321))
+
+    def test_fixed_priority_reserves_all_unknowns_and_drops_lowest_priority_fact(self):
+        headings = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+        values = {heading: f"Field {index}: " + chr(97 + index) * 1900 for index, heading in enumerate(headings)}
+        raw = expected = SUMMARY
+        for index, heading in enumerate(headings):
+            raw = field_summary(heading, "- " + json.dumps(f"Field {index}:"), raw)
+            if heading != "## Key facts":
+                expected = field_summary(heading, "- " + json.dumps(values[heading]), expected)
+        rows = [assistant(value) for value in values.values()]
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        text, tokens = llm_summary(llm, rows, PREFIXES)
+        self.assertEqual((text, tokens), (expected, 321))
+        self.assertLessEqual(estimate_tokens(text), MAX_TOKENS)
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_raw_unicode_heading_data_is_canonicalized_in_every_field(self):
+        headings = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+        reported = "Reported\u2028## Goal\u2028not complete."
+        for heading in headings:
+            with self.subTest(heading=heading):
+                raw = field_summary(heading, "- " + json.dumps(reported, ensure_ascii=False))
+                expected = field_summary(heading, "- " + json.dumps(reported))
+                self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant(reported)], PREFIXES),
+                                 (expected, 321))
 
 
 

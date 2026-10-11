@@ -14,11 +14,23 @@ from wc_fixtures import HEADINGS_TEXT, ROUTE, SYSTEM, assistant, tool, user, wir
 
 
 FALLBACK_TEXT = (HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- progress unknown")
-                 .replace("- The file is report.txt.", "- facts unknown"))
+                 .replace("- The file is report.txt.", "- facts unknown")
+                 .replace("Finish the test task.", "- goal unknown")
+                 .replace('- "Use short names."', "- instructions unknown")
+                 .replace("Write report.txt.", "- next step unknown"))
+
+
+def large_fallback_text(rows):
+    """Return a large synthetic fallback with four source quotes and one unknown field."""
+    value = "- " + json.dumps(rows[0]["content"])
+    text = FALLBACK_TEXT
+    for unknown in ("- goal unknown", "- instructions unknown", "- progress unknown", "- next step unknown"):
+        text = text.replace(unknown, value)
+    return text
 
 
 class FakeLlm:
-    def __init__(self, text=FALLBACK_TEXT.replace("Finish the test task.", "Fallback summary.") + "\n" + END_LINE,
+    def __init__(self, text=FALLBACK_TEXT + "\n" + END_LINE,
                  error=None):
         self.text, self.error, self.calls = text, error, []
 
@@ -203,7 +215,7 @@ class EngineTest(unittest.TestCase):
         new = self.engine.compress([*old_turns(), assistant("done")])
         self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]), ("fallback", "no_capture"))
         self.assertEqual(self.llm.calls[0][1]["task"], "warm_compaction")
-        self.assertIn("Fallback summary.", new[1]["content"])
+        self.assertIn("- goal unknown", new[1]["content"])
         self.assertEqual(self.post.calls, [])
 
     def test_the_fallback_summarizes_only_the_removed_rows(self):
@@ -253,7 +265,7 @@ class EngineTest(unittest.TestCase):
                     self.assertEqual((result, calls), ("response", [1]))
                     if path == "fallback":
                         self.assertIsNot(new, history)
-                        self.assertTrue(any("Fallback summary." in str(row.get("content")) for row in new))
+                        self.assertTrue(any("- goal unknown" in str(row.get("content")) for row in new))
                     self.assertEqual(len(self.llm.calls), 1)
                     self.assertEqual(self.post.calls, [])
                     self.assertIn(f"path={path} reason={code}", "\n".join(logs.output))
@@ -609,7 +621,7 @@ class EngineTest(unittest.TestCase):
                             memory_context="MEMORY-FACT-42")
 
     def test_a_fallback_summary_above_the_room_stops_compaction(self):
-        self.llm = FakeLlm(text=FALLBACK_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
+        self.llm = FakeLlm(text=large_fallback_text(old_turns(8)) + "\n" + END_LINE)
         engine = self.make(threshold=0.10, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
@@ -663,7 +675,7 @@ class EngineTest(unittest.TestCase):
         # cap does not go below the cap that the fallback transcript had.
         from warm_compaction.engine import SUMMARY_RESERVE
         from warm_compaction.rows import estimate_tokens
-        self.llm = FakeLlm(text=FALLBACK_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
+        self.llm = FakeLlm(text=large_fallback_text(old_turns(4)) + "\n" + END_LINE)
         rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
@@ -759,8 +771,7 @@ class EngineTest(unittest.TestCase):
     def test_a_fallback_summary_without_room_for_the_cut_quote_stops_compaction(self):
         rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
-        self.llm.text = (FALLBACK_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 7_000)
-                         + "\n" + END_LINE)
+        self.llm.text = large_fallback_text(rows) + "\n" + END_LINE
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
@@ -1612,7 +1623,7 @@ class EngineTest(unittest.TestCase):
             (FakeLlm(text="synthetic answer\n" + END_LINE), "gate:heading_missing"),
             (FakeLlm(text=""), "gate:missing_end_marker"),
             (FakeLlm(text=HEADINGS_TEXT), "gate:missing_end_marker"),
-            (FakeLlm(text=FALLBACK_TEXT.replace("Finish the test task.", "x" * 30_000) + "\n" + END_LINE),
+            (FakeLlm(text=FALLBACK_TEXT.replace("- goal unknown", "x" * 30_000) + "\n" + END_LINE),
              "gate:byte_bound"),
         )
         for llm, reason in cases:

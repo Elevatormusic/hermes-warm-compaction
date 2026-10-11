@@ -55,9 +55,11 @@ HANDOFF = (
     "## Next step\nReport the code word BLUE-7."
 )
 HANDOFF_GOAL = "Finish the synthetic test task."
-FALLBACK_SUMMARY = (HANDOFF.replace("Finish the synthetic test task.", "Finish the synthetic test task (fallback).")
+FALLBACK_SUMMARY = (HANDOFF.replace("Finish the synthetic test task.", "- goal unknown")
                     .replace("- [OPEN] Report the code word.", "- progress unknown")
-                    .replace("- The code word is BLUE-7.", "- facts unknown"))
+                    .replace("- The code word is BLUE-7.", "- facts unknown")
+                    .replace('- "Answer in one short sentence."', "- instructions unknown")
+                    .replace("Report the code word BLUE-7.", "- next step unknown"))
 
 
 def fallback_reply(body, text=FALLBACK_SUMMARY):
@@ -834,7 +836,7 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
         checks["no_fallback_request"] = not by_kind(server, "fallback")
     if scenario == "manual_fallback":
         checks["one_fallback_request"] = len(by_kind(server, "fallback")) == 1
-        checks["fallback_in_summary"] = "(fallback)" in str(after[1].get("content"))
+        checks["fallback_in_summary"] = FALLBACK_SUMMARY in str(after[1].get("content"))
     saved = db.get_messages_as_conversation(agent.session_id)
     checks["history_saved"] = [row.get("content") for row in saved] == [row.get("content") for row in after]
     result["session_rotated"] = agent.session_id != f"wc-{scenario}"
