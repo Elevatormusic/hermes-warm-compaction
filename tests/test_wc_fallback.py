@@ -765,6 +765,98 @@ class AllFieldsSourceTest(unittest.TestCase):
                                  (expected, 321))
 
 
+class SourceContextTest(unittest.TestCase):
+    def test_memory_provider_unique_fact_is_kept_from_the_sent_context(self):
+        reported = "Memory setting for JOB-X3 is 28 V."
+        raw = facts_summary('- "JOB-X3 is 28 V."')
+        expected = facts_summary("- " + json.dumps(reported))
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [user("Continue JOB-X3.")], PREFIXES, memory_context=reported),
+                         (expected, 321))
+        self.assertIn(reported, llm.calls[0][0][0]["content"])
+        self.assertNotIn(reported, llm.calls[0][0][1]["content"])
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_embedded_ordinary_prior_wrapper_is_ambiguous(self):
+        wrapper = '- "not complete"'
+        prior = state_summary(wrapper)
+        raw = state_summary("- " + json.dumps(wrapper))
+        ordinary = 'Preserve the literal - "not complete" exactly.'
+        for row in (user(ordinary), tool("c1", ordinary)):
+            with self.subTest(role=row["role"]):
+                llm = FakeLlm(raw + "\n" + END_LINE)
+                self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True), row], PREFIXES),
+                                 (SUMMARY, 321))
+                self.assertEqual(len(llm.calls), 1)
+
+    def test_bounded_context_keeps_tail_fact_but_drops_missing_middle(self):
+        from warm_compaction.fallback import EXTRAS_CHARS, EXTRAS_TOKENS, _bound
+        from warm_compaction.handoff import extras
+        missing, kept = "Missing middle setting is 91 V.", "Tail setting is 28 V."
+        memory = "First setting.\n" + "x" * 7000 + "\n" + missing + "\n" + "y" * 7000 + "\n" + kept
+        bounded = _bound(extras(None, memory), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
+        raw = facts_summary("- " + json.dumps(missing) + "\n- " + json.dumps(kept))
+        expected = facts_summary("- " + json.dumps(kept) + "\n- facts unknown")
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [user("Check settings.")], PREFIXES, memory_context=memory),
+                         (expected, 321))
+        sent = llm.calls[0][0][0]["content"]
+        self.assertIn(bounded, sent)
+        self.assertIn(kept, sent)
+        self.assertNotIn(missing, sent)
+        self.assertLessEqual(len(bounded), EXTRAS_CHARS + len(MIDDLE_MARK))
+        self.assertLessEqual(estimate_tokens(bounded), EXTRAS_TOKENS)
+
+    def test_expansion_to_a_cut_memory_line_is_dropped(self):
+        raw = facts_summary('- "Memory prefix"')
+        memory = "Memory prefix " + "x" * 10000 + " ending."
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, [user("Check memory.")], PREFIXES, memory_context=memory), (SUMMARY, 321))
+        self.assertIn("[cut]", llm.calls[0][0][0]["content"])
+        self.assertEqual(len(llm.calls), 1)
+
+    def test_context_and_transcript_do_not_make_new_source_adjacency(self):
+        quoted = "Transcript report.\nMemory report."
+        raw = facts_summary("- " + json.dumps(quoted))
+        self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant("Transcript report.")], PREFIXES,
+                                     memory_context="Memory report."), (SUMMARY, 321))
+
+    def test_focus_and_memory_rendered_block_keeps_the_existing_request_reserve(self):
+        from warm_compaction.fallback import EXTRAS_CHARS, EXTRAS_TOKENS, _bound
+        from warm_compaction.handoff import extras
+        focus, memory = "JOB-X3", "Memory result is 28 V."
+        bounded = _bound(extras(focus, memory), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
+        rendered_focus = "Give more detail to this topic: JOB-X3"
+        raw = facts_summary('- "JOB-X3"\n- "Memory result is 28 V."')
+        expected = facts_summary("- " + json.dumps(rendered_focus) + '\n- "Memory result is 28 V."')
+        rows = [assistant("Row " + str(index) + " " + "r" * 3900) for index in range(20)]
+        llm = FakeLlm(raw + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, rows, PREFIXES, focus_topic=focus, memory_context=memory), (expected, 321))
+        self.assertIn(bounded, llm.calls[0][0][0]["content"])
+        original = llm.calls[0][0][1]["content"]
+        self.assertLessEqual(estimate_tokens(original) + estimate_tokens(bounded), TRANSCRIPT_TOKENS)
+        self.assertLessEqual(len(original) + len(bounded), TRANSCRIPT_CHARS)
+
+    def test_prior_report_duplicates_and_exact_ordinary_reports_stay_supported(self):
+        reported = "not complete"
+        body = state_summary("- " + json.dumps(reported))
+        rows = [assistant(body, _compressed_summary=True), assistant(reported), user("not complete later")]
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
+
+    def test_memory_wrapper_collision_records_unknown_without_logging_context(self):
+        wrapper = '- "not complete"'
+        prior = state_summary(wrapper)
+        raw = state_summary("- " + json.dumps(wrapper))
+        memory = 'Preserve the literal - "not complete" exactly; synthetic-private-memory.'
+        llm, failure = FakeLlm(raw + "\n" + END_LINE), {}
+        with patch("warm_compaction.fallback.logger") as logger:
+            self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES,
+                                         memory_context=memory, failure=failure), (SUMMARY, 321))
+        self.assertEqual(failure, {})
+        self.assertNotIn(memory, str(logger.method_calls) + str(failure))
+        logger.warning.assert_not_called()
+
+
 
 class PriorStateTest(unittest.TestCase):
     def assert_stable(self, reported, section=state_summary, prefix=None):

@@ -304,7 +304,7 @@ def _canonical_source_json(text: str) -> str:
 class _SourceTable:
     """Bounded source lines and one decoded layer from the known earlier summary only."""
 
-    def __init__(self, original: str, earlier: str = ""):
+    def __init__(self, original: str, earlier: str = "", extra: str = ""):
         lines = original.split("\n")
         excluded: set[int] = set()
         self.aliases: dict[str, set[str]] = {}
@@ -331,6 +331,10 @@ class _SourceTable:
                 chunk.append(line)
         if chunk:
             self.chunks.append("\n".join(chunk))
+        # The request's bounded focus and memory block stays separate from transcript source lines.
+        if extra:
+            self.chunks.append(extra)
+        self.ordinary_lines = {line for part in self.chunks for line in part.split("\n") if line.strip()}
         self.chunks.extend(decoded)
         self.lines = {line for part in self.chunks for line in part.split("\n") if line.strip()}
 
@@ -338,6 +342,8 @@ class _SourceTable:
         if not value.strip() or any(marker in value for marker in (CUT_MARK.strip(), MIDDLE_MARK)):
             return None
         matches = set(self.aliases.get(value, ()))
+        if matches:
+            matches.update(line for line in self.ordinary_lines if value in line)
         if any("\n" + value + "\n" in "\n" + part + "\n" for part in self.chunks):
             matches.add(value)
         if not matches:
@@ -439,7 +445,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     # The start (the focus line) and the end of a large memory context.
     extra = _bound(extras(focus_topic, memory_context), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
     original = transcript(messages, prefixes, len(extra), estimate_tokens(extra))
-    source = _SourceTable(original, _earlier_summary(messages, prefixes))
+    source = _SourceTable(original, _earlier_summary(messages, prefixes), extra)
     for attempt in range(1, 3):
         end_line = END_LINE.replace("{nonce}", secrets.token_hex(16))
         words = int(summary_words) if attempt == 1 else min(int(summary_words), 300)
