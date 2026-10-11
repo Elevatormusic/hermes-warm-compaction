@@ -205,7 +205,7 @@ def _complete_reply(raw: str, end_line: str) -> tuple[str | None, str]:
 def _reply_metadata(result: Any, raw: str, end_line: str, body: str, attempts: int) -> dict[str, Any]:
     """Return bounded counts and fixed codes. Do not return reply text or the nonce."""
     output = getattr(getattr(result, "usage", None), "output_tokens", None)
-    if not isinstance(output, int) or isinstance(output, bool) or not 0 <= output <= 2 ** 63 - 1:
+    if not isinstance(output, int) or isinstance(output, bool) or not 0 < output <= 2 ** 63 - 1:
         output = None
     visible = strip_think(raw).rstrip("\r\n")
     lines = visible.splitlines()

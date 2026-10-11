@@ -1,4 +1,7 @@
 {
+  "record_type": "Method and accuracy validation before the zero-usage metadata correction",
+  "tested_plugin_commit": "a7916dfd38d4bbb57d0f1f65503da73f8cfcff0f",
+  "revision_note": "The full local suite and final source hashes describe a7916df. Live accuracy phases used the separate source hashes recorded below. A later correction treats zero output usage as unknown; it does not change the prompt or acceptance checks. Use the current PR checks for current-head validation.",
   "issue": 30,
   "date": "2026-10-11",
   "synthetic_conversations_only": true,

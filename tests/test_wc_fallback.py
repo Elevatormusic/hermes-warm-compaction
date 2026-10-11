@@ -186,7 +186,7 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertLessEqual(estimate_tokens(extra) + estimate_tokens(messages[1]["content"]), TRANSCRIPT_TOKENS + 16)
 
     def test_reported_output_counts_are_telemetry_only(self):
-        for output in (2048, 8192, 7281, 300, None, True, -1, "fake-count", 2 ** 64):
+        for output in (2048, 8192, 7281, 300, 0, None, True, -1, "fake-count", 2 ** 64):
             with self.subTest(output=output):
                 self.assertEqual(llm_summary(FakeLlm(output_tokens=output), [user("hi")], PREFIXES), (SUMMARY, 321))
 
@@ -216,7 +216,7 @@ class LlmSummaryTest(unittest.TestCase):
 
     def test_oversized_body_is_refused_with_any_usage(self):
         for suffix in ("word " * 2_000, "\u76ee" * 2_200, "\U0001f600" * 2_200):
-            for output in (None, 1, 2048, 7281, 8192):
+            for output in (None, 0, 1, 2048, 7281, 8192):
                 with self.subTest(output=output, suffix=suffix[:5]):
                     body = SUMMARY + "\n" + suffix
                     failure = {}
@@ -237,12 +237,12 @@ class LlmSummaryTest(unittest.TestCase):
 
     def test_refusal_diagnostics_have_counts_and_fixed_codes_only(self):
         private = "synthetic-private-reply"
-        for output in (7281, 814, None, True, -1, "synthetic-private-count", 2 ** 64):
+        for output in (7281, 814, 0, None, True, -1, "synthetic-private-count", 2 ** 64):
             with self.subTest(output=output), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
                 failure = {}
                 llm = FakeLlm(text=SUMMARY + "\n" + private, output_tokens=output)
                 self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES, failure=failure), (None, None))
-            safe_output = output if type(output) is int and 0 <= output <= 2 ** 63 - 1 else None
+            safe_output = output if type(output) is int and 0 < output <= 2 ** 63 - 1 else None
             self.assertEqual(failure, {"reason": "gate:missing_end_marker", "output_tokens": safe_output,
                                       "requested_max_tokens": REQUEST_MAX_TOKENS, "end_marker": "missing",
                                       "attempts": 2, "body_tokens": estimate_tokens(SUMMARY + "\n" + private)})

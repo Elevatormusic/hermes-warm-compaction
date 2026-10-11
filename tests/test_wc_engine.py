@@ -1622,7 +1622,8 @@ class EngineTest(unittest.TestCase):
         from warm_compaction.rows import estimate_tokens
         for text, output, reason, marker in (
                 (HEADINGS_TEXT + "\n" + "word " * 2_000 + "\n" + END_LINE, 7_281, "body_token_limit", "present"),
-                (HEADINGS_TEXT, 814, "missing_end_marker", "missing")):
+                (HEADINGS_TEXT, 814, "missing_end_marker", "missing"),
+                (HEADINGS_TEXT, 0, "missing_end_marker", "missing")):
             with self.subTest(reason=reason):
                 def complete(messages, text=text, output=output, **kwargs):
                     end_line = messages[0]["content"].rstrip().splitlines()[-1]
@@ -1633,13 +1634,14 @@ class EngineTest(unittest.TestCase):
                 with self.assertLogs("warm_compaction", level="INFO") as logs:
                     self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], "gate:" + reason)
                 status = engine.get_status()["warm_last"]
-                self.assertEqual(status["fallback_output_tokens"], output)
+                expected_output = output if output > 0 else None
+                self.assertEqual(status["fallback_output_tokens"], expected_output)
                 self.assertEqual(status["fallback_requested_max_tokens"], 8192)
                 self.assertEqual(status["fallback_end_marker"], marker)
                 self.assertEqual(status["fallback_attempts"], 2)
                 self.assertEqual(status["fallback_body_tokens"], estimate_tokens(text.removesuffix("\n" + END_LINE)))
                 logged = "\n".join(logs.output)
-                self.assertIn(f"fallback_output_tokens={output}", logged)
+                self.assertIn(f"fallback_output_tokens={expected_output}", logged)
                 self.assertIn("fallback_requested_max_tokens=8192", logged)
                 self.assertIn(f"fallback_end_marker={marker}", logged)
                 self.assertIn("fallback_attempts=2", logged)

@@ -1,4 +1,8 @@
 {
+  "record_type": "Historical validation; not validation of the current PR head",
+  "tested_plugin_commit": "3e27da5baa276250227278e65872ab607494a51e",
+  "superseded_by": "issue-30-fallback-method-validation-20261011.json",
+  "revision_note": "The 2048 request limit and source hashes below describe the earlier diagnostic change. They do not describe the later 8192 method. Use the current PR checks for current-head validation.",
   "issue": 30,
   "synthetic": true,
   "hermes_commit": "d4d2ab7b5d104166e7e22a02cafd12f1fe456a31",
