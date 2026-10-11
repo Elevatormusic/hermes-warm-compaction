@@ -1612,6 +1612,27 @@ class EngineTest(unittest.TestCase):
                 engine = self.make(warm=False)
                 self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], reason)
 
+    def test_fallback_refusal_status_has_safe_counts_and_marker_code(self):
+        # These replies and counts are synthetic. History must stay unchanged.
+        for text, output, reason, marker in (
+                (HEADINGS_TEXT + "\n" + END_LINE, 7_281, "output_token_limit", "present"),
+                (HEADINGS_TEXT, 814, "missing_end_marker", "missing")):
+            with self.subTest(reason=reason):
+                self.llm = SimpleNamespace(complete=lambda *args, text=text, output=output, **kwargs: SimpleNamespace(
+                    text=text, usage=SimpleNamespace(input_tokens=50, output_tokens=output)))
+                engine = self.make(warm=False)
+                with self.assertLogs("warm_compaction", level="INFO") as logs:
+                    self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], "gate:" + reason)
+                status = engine.get_status()["warm_last"]
+                self.assertEqual(status["fallback_output_tokens"], output)
+                self.assertEqual(status["fallback_requested_max_tokens"], 2048)
+                self.assertEqual(status["fallback_end_marker"], marker)
+                logged = "\n".join(logs.output)
+                self.assertIn(f"fallback_output_tokens={output}", logged)
+                self.assertIn("fallback_requested_max_tokens=2048", logged)
+                self.assertIn(f"fallback_end_marker={marker}", logged)
+                self.assertNotIn(HEADINGS_TEXT, logged + json.dumps(status))
+
     def test_late_backup_errors_after_cancel_or_route_switch_keep_history(self):
         for action in ("cancel", "route", "session"):
             with self.subTest(action=action):

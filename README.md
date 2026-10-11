@@ -182,7 +182,24 @@ On Chat Completions routes, the warm request sends the whole earlier request aga
 
 ## Fallback model and keys
 
-The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` follows the main chat route. This task is separate from `auxiliary.compression`, which controls the built-in compressor. The fallback reply must end with the line `[END OF SUMMARY]`: the auxiliary route reports no finish reason, so a reply without that line counts as cut off. The error code is `missing_end_marker` when the final line is absent, or `output_token_limit` when the reported output count reaches the 2,048-token limit. A marker earlier in the reply does not pass the check. These cases stop the current compaction pass and preserve its input history; the plugin cannot confirm completion from the five headings alone. The fallback request is at most about 11,000 tokens: a transcript of about 8,000 tokens, the instruction, and a 2,048-token reply. The focus topic and the memory context are cut to about 1,000 tokens and take their size from the transcript. A fallback model needs a context window of at least 16,000 tokens. Hermes accepts main models with 64,000 tokens or more, so the default route has enough space.
+The fallback summary uses the auxiliary task `warm_compaction`. Set `auxiliary.warm_compaction.provider` and `auxiliary.warm_compaction.model` to use a different model. The default `auto` follows the main chat route. This task is separate from `auxiliary.compression`, which controls the built-in compressor. The fallback reply must end with the line `[END OF SUMMARY]`: the auxiliary route reports no finish reason, so a reply without that line counts as cut off. The error code is `missing_end_marker` when the final line is absent, or `output_token_limit` when the reported output count reaches the 2,048-token limit. A marker earlier in the reply does not pass the check. These cases stop the current compaction pass and preserve its input history; the plugin cannot confirm completion from the five headings alone. When the server applies the requested reply limit, the fallback request is at most about 11,000 tokens: a transcript of about 8,000 tokens, the instruction, and a 2,048-token reply. The focus topic and the memory context are cut to about 1,000 tokens and take their size from the transcript. A fallback model needs a context window of at least 16,000 tokens. Hermes accepts main models with 64,000 tokens or more, so the default route has enough space.
+
+### Reply limits on custom Chat Completions routes
+
+The plugin asks Hermes for a 2,048-token fallback reply. Hermes `d4d2ab7b` can omit that limit on a custom Chat Completions route. Then the server uses its own reply limit, and the fallback request can take longer or produce a reply that the plugin refuses. The 11,000-token request estimate above assumes that the server applies the requested reply limit.
+
+For a custom Chat Completions server that accepts `max_tokens`, set the limit in the auxiliary task body:
+
+```yaml
+auxiliary:
+  warm_compaction:
+    extra_body:
+      max_tokens: 2048
+```
+
+Keep other task options that your server needs. This workaround applies only to Chat Completions routes that accept `max_tokens`; do not use it for Responses, Anthropic Messages, or a model that requires `max_completion_tokens`. Restart Hermes after the configuration change. A loopback check verifies the request field on the named Hermes source. It does not prove that a real server applies the limit. A general correction needs Hermes to forward the limit from the plugin API.
+
+The token limit includes any thinking tokens that the server counts as output. A model can reach it before it finishes the summary. Set thinking options only as your server documents them. The plugin does not change them automatically. A reply without its final `[END OF SUMMARY]` line still fails the completion check, even when it is short; the plugin keeps the input history.
 
 For a custom endpoint that needs a key, put the key name in the model settings:
 
@@ -206,6 +223,7 @@ warm_compaction: path=warm reason=accepted elapsed_s=10.656 prompt_tokens=108021
 - A successful `path` is `warm` or `fallback`. `path=aborted` means that the pass failed without replacing its input history. `reason` records the warm refusal; `fallback_reason` records the safe fallback error code, such as `unavailable`, `gate:<code>`, `summary_too_large`, `quote_capacity`, `capacity`, or `error:<exception class>`. No raw exception text is reported.
 - `reason` is `accepted` or the refusal code of the warm request: `disabled`, `no_capture`, `provider_not_allowed`, `api_mode_unsupported`, `auth_unsupported`, `route_changed`, `settings_unsupported`, `request_not_mapping`, `request_options_unsupported`, `request_not_json`, `source_transform_unsupported`, `history_changed`, `capacity`, `cancelled`, `middleware_unavailable`, `middleware_refused`, `middleware_rewrite`, `middleware_repeated`, `middleware_after_capture`, `middleware_order_unknown`, `headers_unknown`, `tls_unknown`, `tls_unverified`, `middleware_changed_reply`, `provider_error`, `timeout`, `incomplete_response`, or `gate:<reason>`. The warm request goes through the Hermes `llm_request` and `llm_execution` middleware, as a main request does.
 - `cached_tokens` is `None` when the server does not report it. Then the cache reuse is unknown.
+- A refused fallback reply also reports `fallback_output_tokens`, `fallback_requested_max_tokens`, and `fallback_end_marker`. The output count is `None` when it is unavailable or invalid. The marker code is `present`, `missing`, `not_last`, or `empty`; it contains no reply text. The requested limit does not prove that Hermes sent it or that the server applied it.
 
 Capture refusal codes identify the failed check: `request_not_mapping` means that the request is not a mapping; `request_options_unsupported` means that extra headers, query options, or `extra_body` cannot be kept; `request_not_json` means that a body value cannot be sent as JSON (including NaN and infinity). `settings_unsupported` still applies to unsupported model settings. These codes contain no request values.
 

@@ -17,6 +17,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
+- Report the fallback output token count, requested reply limit, and a fixed end-marker status when a reply is refused. Keep summary text out of status and logs. Document a task configuration workaround for Hermes versions that omit the reply limit on custom Chat Completions routes; a general correction remains a Hermes dependency.
 - Match captured content with the stored `api_content` text for context-injected rows. Keep role, tool, and native replay checks. Report each history refusal stage and use the fallback when the capture is ahead of the live history.
 - Keep the original history when an indivisible native replay block exceeds the compaction budget. Check the threshold, reply reserve, and unknown request overhead before accepting the new history.
 - Match Copilot hostnames at a domain boundary. A lookalike hostname no longer gets Copilot replay handling.

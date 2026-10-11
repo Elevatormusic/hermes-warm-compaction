@@ -195,6 +195,23 @@ def _complete_reply(result: Any, raw: str) -> tuple[str | None, str]:
     return None, "\n".join(lines[:-1])
 
 
+def _reply_metadata(result: Any, raw: str) -> dict[str, Any]:
+    """Return bounded token counts and a fixed end-marker code. Do not return reply text."""
+    output = getattr(getattr(result, "usage", None), "output_tokens", None)
+    if not isinstance(output, int) or isinstance(output, bool) or not 0 <= output <= 2 ** 63 - 1:
+        output = None
+    lines = strip_think(raw).rstrip().splitlines()
+    if not lines:
+        marker = "empty"
+    elif lines[-1].strip() == END_LINE:
+        marker = "present"
+    elif any(line.strip() == END_LINE for line in lines):
+        marker = "not_last"
+    else:
+        marker = "missing"
+    return {"output_tokens": output, "requested_max_tokens": MAX_TOKENS, "end_marker": marker}
+
+
 def error_class(error: Exception) -> str:
     """Return a bounded exception class name without its message or data."""
     name = type(error).__name__
@@ -205,10 +222,10 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
                 ready: Callable[[], bool] | None = None,
-                failure: dict[str, str] | None = None) -> tuple[str | None, int | None]:
+                failure: dict[str, Any] | None = None) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready is the last check before the request starts: when it is false, no request is sent.
-    failure gets a refusal code or an exception class only. It never gets provider text."""
+    failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
     if llm is None:
@@ -243,9 +260,13 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     if reason is None:
         text, reason = gate({"content": body, "finish_reason": "stop"}, prefixes)
     if text is None:
+        metadata = _reply_metadata(result, raw)
         if failure is not None:
             failure["reason"] = f"gate:{reason}"
-        logger.warning("Warm compaction fallback summary refused (%s)", reason)
+            failure.update(metadata)
+        logger.warning("Warm compaction fallback summary refused (%s) output_tokens=%s requested_max_tokens=%s "
+                       "end_marker=%s", reason, metadata["output_tokens"], metadata["requested_max_tokens"],
+                       metadata["end_marker"])
         return None, None
     tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
     return text, tokens if isinstance(tokens, int) and tokens > 0 else None

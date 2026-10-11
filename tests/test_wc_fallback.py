@@ -199,6 +199,39 @@ class LlmSummaryTest(unittest.TestCase):
             self.assertIn("(output_token_limit)", logs.output[0])
         self.assertEqual(llm_summary(FakeLlm(output_tokens=300), [user("hi")], PREFIXES), (SUMMARY, 321))
 
+    def test_refusal_diagnostics_have_counts_and_marker_codes_only(self):
+        # Synthetic replies exercise the metadata without publishing their text.
+        private = "synthetic-private-reply"
+        cases = (
+            (SUMMARY + "\n" + END_LINE, 7_281, "present", "output_token_limit"),
+            (SUMMARY + "\n" + private, 814, "missing", "missing_end_marker"),
+            (SUMMARY + "\n" + END_LINE + "\n" + private, 814, "not_last", "missing_end_marker"),
+            ("<think>" + private + "</think>\n", 814, "empty", "missing_end_marker"),
+        )
+        for text, output, marker, reason in cases:
+            with self.subTest(marker=marker), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
+                failure = {}
+                self.assertEqual(llm_summary(FakeLlm(text=text, output_tokens=output),
+                                             [user("synthetic request")], PREFIXES, failure=failure), (None, None))
+            self.assertEqual(failure, {"reason": "gate:" + reason, "output_tokens": output,
+                                       "requested_max_tokens": MAX_TOKENS, "end_marker": marker})
+            logged = "\n".join(logs.output)
+            self.assertIn(f"output_tokens={output}", logged)
+            self.assertIn(f"requested_max_tokens={MAX_TOKENS}", logged)
+            self.assertIn(f"end_marker={marker}", logged)
+            self.assertNotIn(private, logged + str(failure))
+            self.assertNotIn(SUMMARY, logged + str(failure))
+
+    def test_refusal_diagnostics_do_not_publish_invalid_output_counts(self):
+        for output in (None, True, -1, "synthetic-private-count", 2 ** 64):
+            with self.subTest(output=output), self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
+                failure = {}
+                self.assertEqual(llm_summary(FakeLlm(text=SUMMARY, output_tokens=output),
+                                             [user("synthetic request")], PREFIXES, failure=failure), (None, None))
+            self.assertIsNone(failure["output_tokens"])
+            self.assertIn("output_tokens=None", "\n".join(logs.output))
+            self.assertNotIn("synthetic-private-count", "\n".join(logs.output))
+
     def test_task_none_uses_the_main_model_route(self):
         llm = FakeLlm()
         llm_summary(llm, [user("hi")], PREFIXES, task=None)
@@ -228,7 +261,11 @@ class LlmSummaryTest(unittest.TestCase):
                 failure = {"reason": "old"}
                 self.assertEqual(llm_summary(llm, [user("synthetic request")], PREFIXES, failure=failure),
                                  (None, None))
-                self.assertEqual(failure, {"reason": reason})
+                self.assertEqual(failure["reason"], reason)
+                if reason.startswith("gate:"):
+                    self.assertEqual(set(failure), {"reason", "output_tokens", "requested_max_tokens", "end_marker"})
+                else:
+                    self.assertEqual(failure, {"reason": reason})
                 self.assertNotIn(private, str(failure))
 
     def test_a_success_clears_old_failure_metadata(self):
