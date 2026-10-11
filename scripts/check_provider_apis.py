@@ -121,7 +121,8 @@ class FakeServer:
                     payload = {"id": "synthetic", "object": "chat.completion", "created": 0, "model": MODEL,
                                "choices": [{"index": 0, "finish_reason": "stop",
                                             "message": {"role": "assistant",
-                                                        "content": owner.fallback_reply(body, HANDOFF)}}],
+                                                        "content": owner.fallback_reply(body, HANDOFF.replace(
+                                                            "- [OPEN] Report the code word.", "- progress unknown"))}}],
                                "usage": {"prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80}}
                 if body.get("stream") and mode_for(owner.case) == "codex_responses":
                     event = "response.incomplete" if payload["status"] == "incomplete" else "response.completed"

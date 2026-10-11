@@ -13,8 +13,11 @@ from warm_compaction.fallback import END_LINE
 from wc_fixtures import HEADINGS_TEXT, ROUTE, SYSTEM, assistant, tool, user, wire
 
 
+FALLBACK_TEXT = HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- progress unknown")
+
+
 class FakeLlm:
-    def __init__(self, text=HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary.") + "\n" + END_LINE,
+    def __init__(self, text=FALLBACK_TEXT.replace("Finish the test task.", "Fallback summary.") + "\n" + END_LINE,
                  error=None):
         self.text, self.error, self.calls = text, error, []
 
@@ -605,7 +608,7 @@ class EngineTest(unittest.TestCase):
                             memory_context="MEMORY-FACT-42")
 
     def test_a_fallback_summary_above_the_room_stops_compaction(self):
-        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
+        self.llm = FakeLlm(text=FALLBACK_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
         engine = self.make(threshold=0.10, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
@@ -659,7 +662,7 @@ class EngineTest(unittest.TestCase):
         # cap does not go below the cap that the fallback transcript had.
         from warm_compaction.engine import SUMMARY_RESERVE
         from warm_compaction.rows import estimate_tokens
-        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
+        self.llm = FakeLlm(text=FALLBACK_TEXT.replace("Finish the test task.", "word " * 1_200) + "\n" + END_LINE)
         rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
@@ -755,7 +758,7 @@ class EngineTest(unittest.TestCase):
     def test_a_fallback_summary_without_room_for_the_cut_quote_stops_compaction(self):
         rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
-        self.llm.text = (HEADINGS_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 7_000)
+        self.llm.text = (FALLBACK_TEXT.replace("Finish the test task.", "Fallback summary. " + "z" * 7_000)
                          + "\n" + END_LINE)
         engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
@@ -1608,7 +1611,7 @@ class EngineTest(unittest.TestCase):
             (FakeLlm(text="synthetic answer\n" + END_LINE), "gate:heading_missing"),
             (FakeLlm(text=""), "gate:missing_end_marker"),
             (FakeLlm(text=HEADINGS_TEXT), "gate:missing_end_marker"),
-            (FakeLlm(text=HEADINGS_TEXT.replace("Finish the test task.", "x" * 30_000) + "\n" + END_LINE),
+            (FakeLlm(text=FALLBACK_TEXT.replace("Finish the test task.", "x" * 30_000) + "\n" + END_LINE),
              "gate:byte_bound"),
         )
         for llm, reason in cases:
@@ -1616,6 +1619,18 @@ class EngineTest(unittest.TestCase):
                 self.llm = llm
                 engine = self.make(warm=False)
                 self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], reason)
+
+    def test_unreported_fallback_state_preserves_history_after_two_refusals(self):
+        state = json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
+        self.llm = FakeLlm(text=HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- " + state)
+                          + "\n" + END_LINE)
+        engine = self.make(warm=False)
+        history = [user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")]
+        with self.assertLogs("warm_compaction", level="INFO") as logs:
+            self.assert_aborted(engine, history, "gate:current_state_unverified")
+        self.assertEqual(len(self.llm.calls), 2)
+        self.assertEqual(engine.warm_last["fallback_attempts"], 2)
+        self.assertNotIn(state, str(logs.output) + json.dumps(engine.get_status()))
 
     def test_fallback_refusal_status_has_safe_counts_and_marker_code(self):
         # These replies and counts are synthetic. History must stay unchanged.

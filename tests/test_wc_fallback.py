@@ -1,5 +1,7 @@
 """Tests for the fallback model summary and its bounded quotes."""
 
+import itertools
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,7 +17,8 @@ from wc_fixtures import assistant, tool, user
 PREFIXES = ("[HERMES PREFIX]", "[CONTEXT SUMMARY]:")
 
 
-SUMMARY = "## Goal\nG\n## User instructions\n- none\n## Current state\n- [OPEN] x\n## Key facts\n- y\n## Next step\nz"
+SUMMARY = ("## Goal\nG\n## User instructions\n- none\n## Current state\n- progress unknown\n"
+           "## Key facts\n- y\n## Next step\nz")
 
 
 class FakeLlm:
@@ -391,6 +394,121 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertEqual(failure, {"reason": "error:Exception"})
         self.assertNotIn("secret", str(logs.output))
         self.assertNotIn("private message", str(logs.output))
+
+
+def state_summary(state):
+    """Put a synthetic Current state section in the test summary."""
+    head, rest = SUMMARY.split("## Current state\n", 1)
+    _old, facts = rest.split("\n## Key facts\n", 1)
+    return head + "## Current state\n" + state + "\n## Key facts\n" + facts
+
+
+class CurrentStateSourceTest(unittest.TestCase):
+    def assert_refused(self, state, rows):
+        failure = {}
+        llm = FakeLlm(text=state_summary(state) + "\n" + END_LINE)
+        self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (None, None))
+        self.assertEqual(failure["reason"], "gate:current_state_unverified")
+        self.assertEqual(failure["attempts"], 2)
+        self.assertEqual(len(llm.calls), 2)
+        return llm, failure
+
+    def test_unreported_japanese_incomplete_state_is_refused(self):
+        state = "- " + json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
+        self.assert_refused(state, [user("PKG-17 \u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002")])
+
+    def test_a_completion_fragment_cannot_match_a_negative_source_line(self):
+        self.assert_refused('- "complete"', [assistant("not complete")])
+
+    def test_exact_reported_unfinished_state_is_accepted(self):
+        reported = "PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002"
+        body = state_summary("- " + json.dumps(reported))
+        self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), [assistant(reported)], PREFIXES),
+                         (body, 321))
+
+    def test_unknown_state_needs_no_reported_progress(self):
+        body = state_summary("- progress unknown")
+        self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), [user("Check PKG-17.")], PREFIXES),
+                         (body, 321))
+
+    def test_calibration_result_keeps_its_scope_without_a_parent_completion_label(self):
+        reported = "Calibration call_read_7 is complete."
+        rows = [user("Verify package PKG-17."), tool("call_read_7", reported)]
+        body = state_summary("- " + json.dumps(reported))
+        self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
+        self.assert_refused('- [COMPLETE] Verify package PKG-17: ' + json.dumps(reported), rows)
+        self.assert_refused("- " + json.dumps("Verify package PKG-17 is complete."), rows)
+
+    def test_json_escapes_and_multiline_source_quotes_are_kept_encoded(self):
+        reports = ('The result is "unfinished".', "C:\\synthetic\\report is unfinished.",
+                   "State one.\nState two.", "PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002", "A\tB")
+        for reported in reports:
+            for ascii_only in (True, False):
+                with self.subTest(reported=reported, ascii_only=ascii_only):
+                    body = state_summary("- " + json.dumps(reported, ensure_ascii=ascii_only))
+                    self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE),
+                                                 [assistant(reported)], PREFIXES), (body, 321))
+
+    def test_json_round_trip_preserves_complete_source_lines_across_escape_pairs(self):
+        # Include escapes next to one another, with fixed text at each source boundary.
+        for pair in itertools.product(('a', '"', "\\", "\n", "\t", "\u65e5", "\U0001f600"), repeat=2):
+            reported = "State: " + "".join(pair) + ": end."
+            for ascii_only in (True, False):
+                with self.subTest(pair=pair, ascii_only=ascii_only):
+                    body = state_summary("- " + json.dumps(reported, ensure_ascii=ascii_only))
+                    self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE),
+                                                 [assistant(reported)], PREFIXES), (body, 321))
+
+    def test_malformed_extra_prose_and_nonstring_values_are_refused(self):
+        for state in ('- "reported" later', '- [OPEN] "reported"', '- "reported', '- null', '- true', '- 1',
+                      '- []', '- {}', '- ""', '- "   "', 'reported', '- progress unknown later',
+                      '- ' + '[' * 1100 + '0' + ']' * 1100, '- ' + '1' * 5000):
+            with self.subTest(state=state[:30]):
+                self.assert_refused(state, [assistant("reported")])
+
+    def test_partial_source_lines_are_refused(self):
+        for reported, quote in (("not complete", "complete"), ("complete later", "complete"),
+                                ("scope complete later", "scope complete"), ("first\nsecond line", "first\nsecond")):
+            with self.subTest(reported=reported, quote=quote):
+                self.assert_refused("- " + json.dumps(quote), [assistant(reported)])
+
+    def test_cut_source_and_cut_markers_are_refused(self):
+        for reported in ("reported [cut] state", "reported" + MIDDLE_MARK + "state"):
+            with self.subTest(reported=reported):
+                self.assert_refused("- " + json.dumps(reported), [assistant(reported)])
+        rows = [user("Check progress."), assistant("start " + "p" * 15_000 + "\nMiddle state.\n" + "q" * 15_000)]
+        llm, _failure = self.assert_refused('- "Middle state."', rows)
+        self.assertNotIn("Middle state.", llm.calls[0][0][1]["content"])
+
+    def test_blank_lines_and_multiple_supported_bullets_are_accepted(self):
+        rows = [assistant("First state.\nSecond state.")]
+        body = state_summary('\n- "First state."\n\n- "Second state."\n- progress unknown\n')
+        self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
+
+    def test_an_invalid_state_gets_one_retry_with_the_same_source(self):
+        reported = "not complete"
+        good = state_summary("- " + json.dumps(reported))
+        bad = state_summary('- "complete"')
+
+        def reply(messages, kwargs, count):
+            return (bad if count == 1 else good) + "\n" + messages[0]["content"].rstrip().splitlines()[-1]
+
+        llm, failure = FakeLlm(text=reply), {}
+        self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES, failure=failure), (good, 321))
+        self.assertEqual(failure, {})
+        self.assertEqual(len(llm.calls), 2)
+        self.assertEqual(llm.calls[0][0][1], llm.calls[1][0][1])
+        self.assertNotEqual(llm.calls[0][0][0]["content"].splitlines()[-1],
+                            llm.calls[1][0][0]["content"].splitlines()[-1])
+
+    def test_refusal_metadata_does_not_include_the_quote_or_source(self):
+        state = '- "synthetic-private-state"'
+        with self.assertLogs("warm_compaction.fallback", level="WARNING") as logs:
+            llm, failure = self.assert_refused(state, [assistant("synthetic-private-source")])
+        published = str(failure) + "\n".join(logs.output)
+        self.assertNotIn("synthetic-private-state", published)
+        self.assertNotIn("synthetic-private-source", published)
+        self.assertNotIn(llm.calls[-1][0][0]["content"].splitlines()[-1], published)
 
 
 class CutQuoteTest(unittest.TestCase):

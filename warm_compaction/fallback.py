@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import json
 import logging
 import secrets
 import time
@@ -76,12 +77,12 @@ Each instruction, rule, or preference from the user that still applies, as a bul
 user in double quotes. Copy punctuation too.
 
 ## Current state
-One bullet for each task of the user. Start each bullet with [COMPLETE], [OPEN], [BLOCKED], or [CANCELLED].
-Use the reported state. If progress was not reported, state only "progress unknown" in the conversation language. \
-Do not infer "not performed" or "not started", even with words such as "appears" or "probably". [OPEN] does not \
-mean "not yet started". Do not add a start, completion, or compliance claim without a reported result.
-Apply [COMPLETE] only to the exact work reported complete. A successful tool call or subtask does not prove \
-completion of a broader task. Keep the remaining task progress as "progress unknown" unless it was reported.
+Each bullet must be one JSON string after "- ", or the exact line "- progress unknown".
+The decoded string must copy complete nonblank source lines from the transcript exactly, including punctuation. \
+Use JSON escapes for quotes and newlines. Do not add status labels or prose outside the JSON string. Do not \
+copy a line that contains "[cut]". Prefer the latest user correction or direct tool result. Keep the exact \
+reported scope; a completed tool call does not prove completion of a broader task. A source quote is evidence \
+of what was reported, not proof that it is currently true. Use "- progress unknown" when no usable state was reported.
 
 ## Key facts
 Identifiers, names, values, and results that the next step needs.
@@ -234,6 +235,32 @@ def error_class(error: Exception) -> str:
     return name if name.isascii() and name.isidentifier() and len(name) <= 80 else "Exception"
 
 
+def _source_current_state(text: str, original: str) -> bool:
+    """Check exact source lines in Current state. This does not prove current truth or the other sections."""
+    lines = text.splitlines()
+    start = next(index for index, line in enumerate(lines) if line.strip() == "## Current state") + 1
+    end = next(index for index, line in enumerate(lines) if line.strip() == "## Key facts")
+    source = "\n" + original + "\n"
+    seen = False
+    for line in lines[start:end]:
+        if not line.strip():
+            continue
+        seen = True
+        if line == "- progress unknown":
+            continue
+        if not line.startswith("- "):
+            return False
+        try:
+            quote = json.loads(line[2:])
+        except (ValueError, RecursionError):
+            return False
+        if (not isinstance(quote, str) or not quote.strip()
+                or any(marker in quote for marker in (CUT_MARK.strip(), MIDDLE_MARK))
+                or "\n" + quote + "\n" not in source):
+            return False
+    return seen
+
+
 def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topic: str | None = None,
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
@@ -301,6 +328,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
             text, reason = gate_content(body, prefixes)
             if text is not None and estimate_tokens(body) > MAX_TOKENS:
                 text, reason = None, "body_token_limit"
+            if text is not None and not _source_current_state(text, original):
+                text, reason = None, "current_state_unverified"
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None
