@@ -73,12 +73,15 @@ The current goal of the user, in one or two sentences.
 
 ## User instructions
 Each instruction, rule, or preference from the user that still applies, as a bullet with the exact words of the \
-user in double quotes.
+user in double quotes. Copy punctuation too.
 
 ## Current state
 One bullet for each task of the user. Start each bullet with [COMPLETE], [OPEN], [BLOCKED], or [CANCELLED].
-Use the reported state. If progress was not reported, say "progress unknown". [OPEN] does not mean \
-"not yet started". Do not add a start, completion, or compliance claim without a reported result.
+Use the reported state. If progress was not reported, state only "progress unknown" in the conversation language. \
+Do not infer "not performed" or "not started", even with words such as "appears" or "probably". [OPEN] does not \
+mean "not yet started". Do not add a start, completion, or compliance claim without a reported result.
+Apply [COMPLETE] only to the exact work reported complete. A successful tool call or subtask does not prove \
+completion of a broader task. Keep the remaining task progress as "progress unknown" unless it was reported.
 
 ## Key facts
 Identifiers, names, values, and results that the next step needs.
