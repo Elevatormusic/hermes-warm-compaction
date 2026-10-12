@@ -71,7 +71,8 @@ def worker(source: Path, run_dir: Path, configured: bool, reply_case: str) -> No
         context.register_auxiliary_task("warm_compaction", display_name="Synthetic fallback probe",
                                         description="Check a synthetic fallback reply limit.")
         failure = {}
-        summary, _tokens = llm_summary(context.llm, [{"role": "user", "content": "Synthetic question 1."},
+        summary, _tokens = llm_summary(context.llm, [{"role": "user", "content": "Synthetic question 1.\n"
+                                                                       "The code word is BLUE-7."},
                                                     {"role": "assistant", "content": "Synthetic answer 1."}],
                                       ("[CONTEXT SUMMARY]:",), failure=failure)
         requests = server.requests

@@ -22,7 +22,7 @@ SUMMARY = ("## Goal\n- goal unknown\n## User instructions\n- instructions unknow
 
 
 class FakeLlm:
-    def __init__(self, text=SUMMARY + "\n" + END_LINE, error=None, output_tokens=None):
+    def __init__(self, text=None, error=None, output_tokens=None):
         self.text, self.error, self.calls, self.output_tokens = text, error, [], output_tokens
 
     def complete(self, messages, **kwargs):
@@ -33,9 +33,22 @@ class FakeLlm:
         if self.output_tokens is not None:
             usage.output_tokens = self.output_tokens
         marker = messages[0]["content"].rstrip().splitlines()[-1]
-        text = (self.text(messages, kwargs, len(self.calls)) if callable(self.text)
-                else self.text.replace(END_LINE, marker))
+        if self.text is None:
+            lines = messages[1]["content"].split("\n")
+            value = next(line for index, line in enumerate(lines) if index and line.strip() and "[cut]" not in line
+                         and not line.startswith("(tool call ")
+                         and lines[index - 1].startswith(
+                             ("[first user message]", "[user", "[assistant", "[tool result"))
+                         and estimate_tokens("- " + json.dumps(line) + "\n- facts unknown") <= MAX_STATE_TOKENS)
+            text = useful_summary(value) + "\n" + marker
+        else:
+            text = (self.text(messages, kwargs, len(self.calls)) if callable(self.text)
+                    else self.text.replace(END_LINE, marker))
         return SimpleNamespace(text=text, usage=usage)
+
+
+def useful_summary(value):
+    return SUMMARY.replace("- facts unknown", "- " + json.dumps(value))
 
 
 class TranscriptTest(unittest.TestCase):
@@ -160,7 +173,7 @@ class LlmSummaryTest(unittest.TestCase):
         llm = FakeLlm()
         text, tokens = llm_summary(llm, [user("hi"), assistant("ok")], PREFIXES, focus_topic="db", memory_context="m")
         messages, kwargs = llm.calls[0]
-        self.assertEqual((text, tokens), (SUMMARY, 321))
+        self.assertEqual((text, tokens), (useful_summary("hi"), 321))
         self.assertEqual((kwargs["task"], kwargs["max_tokens"]), (TASK, REQUEST_MAX_TOKENS))
         self.assertGreater(kwargs["timeout"], 0)
         self.assertLessEqual(kwargs["timeout"], 120.0)
@@ -191,7 +204,8 @@ class LlmSummaryTest(unittest.TestCase):
     def test_reported_output_counts_are_telemetry_only(self):
         for output in (2048, 8192, 7281, 300, 0, None, True, -1, "fake-count", 2 ** 64):
             with self.subTest(output=output):
-                self.assertEqual(llm_summary(FakeLlm(output_tokens=output), [user("hi")], PREFIXES), (SUMMARY, 321))
+                self.assertEqual(llm_summary(FakeLlm(output_tokens=output), [user("hi")], PREFIXES),
+                                 (useful_summary("hi"), 321))
 
     def test_the_exact_fresh_marker_is_required_once_at_the_end(self):
         cases = (
@@ -214,8 +228,9 @@ class LlmSummaryTest(unittest.TestCase):
             self.assertNotIn(self.marker(llm.calls[-1][0]), str(logs.output) + str(failure))
 
     def test_thinking_is_removed_before_the_content_and_body_checks(self):
-        llm = FakeLlm(text="<think>" + "private-plan" * 4_000 + "</think>\n" + SUMMARY + "\n" + END_LINE + "\n")
-        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (SUMMARY, 321))
+        body = useful_summary("hi")
+        llm = FakeLlm(text="<think>" + "private-plan" * 4_000 + "</think>\n" + body + "\n" + END_LINE + "\n")
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (body, 321))
 
     def test_oversized_body_is_refused_with_any_usage(self):
         for suffix in ("word " * 2_000, "\u76ee" * 2_200, "\U0001f600" * 2_200):
@@ -271,12 +286,14 @@ class LlmSummaryTest(unittest.TestCase):
 
         def reply(messages, kwargs, count):
             clock[0] += 7.0
-            return "synthetic partial reply" if count == 1 else SUMMARY + "\n" + self.marker(messages)
+            return ("synthetic partial reply" if count == 1 else
+                    useful_summary("original synthetic input") + "\n" + self.marker(messages))
 
         llm, failure = FakeLlm(text=reply), {"reason": "old"}
         with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda clock=clock: clock[0]):
             self.assertEqual(llm_summary(llm, [user("original synthetic input")], PREFIXES,
-                                         summary_words=1200, timeout_s=20.0, failure=failure), (SUMMARY, 321))
+                                         summary_words=1200, timeout_s=20.0, failure=failure),
+                             (useful_summary("original synthetic input"), 321))
         self.assertEqual(failure, {})
         first, second = llm.calls
         self.assertNotEqual(self.marker(first[0]), self.marker(second[0]))
@@ -333,7 +350,7 @@ class LlmSummaryTest(unittest.TestCase):
         llm = FakeLlm()
         with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda: clock[0]), \
                 patch("warm_compaction.fallback.transcript", side_effect=slow_transcript):
-            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20), (SUMMARY, 321))
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20), (useful_summary("hi"), 321))
         self.assertEqual(llm.calls[0][1]["timeout"], 13.0)
 
     def test_deadline_before_retry_prevents_a_second_call(self):
@@ -382,7 +399,8 @@ class LlmSummaryTest(unittest.TestCase):
 
     def test_a_success_clears_old_failure_metadata(self):
         failure = {"reason": "old"}
-        self.assertEqual(llm_summary(FakeLlm(), [user("synthetic request")], PREFIXES, failure=failure), (SUMMARY, 321))
+        self.assertEqual(llm_summary(FakeLlm(), [user("synthetic request")], PREFIXES, failure=failure),
+                         (useful_summary("synthetic request"), 321))
         self.assertEqual(failure, {})
 
     def test_an_unsafe_exception_class_name_is_not_published(self):
@@ -408,9 +426,15 @@ class CurrentStateSourceTest(unittest.TestCase):
         failure = {}
         llm = FakeLlm(text=state_summary(state) + "\n" + END_LINE)
         body = state_summary(expected)
-        self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (body, 321))
-        self.assertEqual(failure, {})
-        self.assertEqual(len(llm.calls), 1)
+        result = llm_summary(llm, rows, PREFIXES, failure=failure)
+        if expected == "- progress unknown":
+            self.assertEqual(result, (None, None))
+            self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+            self.assertEqual(len(llm.calls), 2)
+        else:
+            self.assertEqual(result, (body, 321))
+            self.assertEqual(failure, {})
+            self.assertEqual(len(llm.calls), 1)
         return llm, failure
 
     def test_accepted_alternative_heading_separators_do_not_raise_during_construction(self):
@@ -425,7 +449,7 @@ class CurrentStateSourceTest(unittest.TestCase):
                 repaired = _construct_current_state(text, "[user]\nCheck progress.", PREFIXES)
                 self.assertEqual(gate_content(repaired, PREFIXES), (text, None))
 
-    def test_unreported_japanese_incomplete_state_becomes_unknown_without_retry(self):
+    def test_unreported_japanese_incomplete_state_is_not_retained_as_evidence(self):
         state = "- " + json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
         self.assert_repaired(state, [user("PKG-17 \u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002")])
 
@@ -439,7 +463,7 @@ class CurrentStateSourceTest(unittest.TestCase):
                          (body, 321))
 
     def test_unknown_state_needs_no_reported_progress(self):
-        body = state_summary("- progress unknown")
+        body = SUMMARY.replace("- goal unknown", '- "Check PKG-17."')
         self.assertEqual(llm_summary(FakeLlm(text=body + "\n" + END_LINE), [user("Check PKG-17.")], PREFIXES),
                          (body, 321))
 
@@ -594,7 +618,7 @@ class CurrentStateSourceTest(unittest.TestCase):
         self.assertNotIn("synthetic-private-state", published)
         self.assertNotIn("synthetic-private-source", published)
         self.assertNotIn(llm.calls[-1][0][0]["content"].splitlines()[-1], published)
-        logger.warning.assert_not_called()
+        logger.warning.assert_called_once()
 
 
 def facts_summary(facts):
@@ -642,16 +666,17 @@ class KeyFactsSourceTest(unittest.TestCase):
     def test_blank_lines_count_against_each_source_section_budget(self):
         for section, unknown in ((state_summary, "- progress unknown"), (facts_summary, "- facts unknown")):
             with self.subTest(section=section.__name__):
-                raw = section(unknown + "\n" * 1100)
+                raw = section(unknown + "\n" * 1100).replace("- goal unknown", '- "Check task."')
                 self.assertLessEqual(estimate_tokens(raw), MAX_TOKENS)
                 self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [user("Check task.")], PREFIXES),
-                                 (SUMMARY, 321))
+                                 (SUMMARY.replace("- goal unknown", '- "Check task."'), 321))
 
 
 class AllFieldsSourceTest(unittest.TestCase):
     def test_recovery_goal_drops_unconditional_publish_restriction(self):
         raw = SUMMARY.replace("- goal unknown", "Finish JOB-X3 without publishing.")
         rows = [user("Finish JOB-X3. Do not publish without written approval.")]
+        raw = raw.replace("- instructions unknown", "- " + json.dumps(rows[0]["content"]))
         llm = FakeLlm(raw + "\n" + END_LINE)
         text, tokens = llm_summary(llm, rows, PREFIXES)
         self.assertEqual(text.split("## Goal\n", 1)[1].split("\n## User instructions", 1)[0], "- goal unknown")
@@ -661,8 +686,8 @@ class AllFieldsSourceTest(unittest.TestCase):
     def test_next_step_discards_added_condition_and_unchecked_tail(self):
         raw = field_summary("## Next step", '- "Review JOB-X3 after approval."\nDo not perform it yet.')
         llm = FakeLlm(raw + "\n" + END_LINE)
-        self.assertEqual(llm_summary(llm, [user("Review JOB-X3.")], PREFIXES), (SUMMARY, 321))
-        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual(llm_summary(llm, [user("Review JOB-X3.")], PREFIXES), (None, None))
+        self.assertEqual(len(llm.calls), 2)
 
     def test_next_step_keeps_supported_action_and_records_lost_tail_condition(self):
         raw = field_summary("## Next step", '- "Review JOB-X3."\nDo not perform it yet.')
@@ -786,8 +811,8 @@ class SourceContextTest(unittest.TestCase):
             with self.subTest(role=row["role"]):
                 llm = FakeLlm(raw + "\n" + END_LINE)
                 self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True), row], PREFIXES),
-                                 (SUMMARY, 321))
-                self.assertEqual(len(llm.calls), 1)
+                                 (None, None))
+                self.assertEqual(len(llm.calls), 2)
 
     def test_bounded_context_keeps_tail_fact_but_drops_missing_middle(self):
         from warm_compaction.fallback import EXTRAS_CHARS, EXTRAS_TOKENS, _bound
@@ -811,15 +836,15 @@ class SourceContextTest(unittest.TestCase):
         raw = facts_summary('- "Memory prefix"')
         memory = "Memory prefix " + "x" * 10000 + " ending."
         llm = FakeLlm(raw + "\n" + END_LINE)
-        self.assertEqual(llm_summary(llm, [user("Check memory.")], PREFIXES, memory_context=memory), (SUMMARY, 321))
+        self.assertEqual(llm_summary(llm, [user("Check memory.")], PREFIXES, memory_context=memory), (None, None))
         self.assertIn("[cut]", llm.calls[0][0][0]["content"])
-        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual(len(llm.calls), 2)
 
     def test_context_and_transcript_do_not_make_new_source_adjacency(self):
         quoted = "Transcript report.\nMemory report."
         raw = facts_summary("- " + json.dumps(quoted))
         self.assertEqual(llm_summary(FakeLlm(raw + "\n" + END_LINE), [assistant("Transcript report.")], PREFIXES,
-                                     memory_context="Memory report."), (SUMMARY, 321))
+                                     memory_context="Memory report."), (None, None))
 
     def test_focus_and_memory_rendered_block_keeps_the_existing_request_reserve(self):
         from warm_compaction.fallback import EXTRAS_CHARS, EXTRAS_TOKENS, _bound
@@ -851,10 +876,189 @@ class SourceContextTest(unittest.TestCase):
         llm, failure = FakeLlm(raw + "\n" + END_LINE), {}
         with patch("warm_compaction.fallback.logger") as logger:
             self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES,
-                                         memory_context=memory, failure=failure), (SUMMARY, 321))
-        self.assertEqual(failure, {})
+                                         memory_context=memory, failure=failure), (None, None))
+        self.assertEqual(failure["reason"], "gate:no_useful_evidence")
         self.assertNotIn(memory, str(logger.method_calls) + str(failure))
-        logger.warning.assert_not_called()
+        logger.warning.assert_called_once()
+
+
+class UsefulEvidenceTest(unittest.TestCase):
+    def test_all_unknown_uses_one_retry_then_refuses_without_provider_text(self):
+        llm, failure = FakeLlm(SUMMARY + "\n" + END_LINE), {}
+        self.assertEqual(llm_summary(llm, [user("Check JOB-X3.")], PREFIXES, failure=failure), (None, None))
+        self.assertEqual(len(llm.calls), 2)
+        self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+        self.assertEqual(failure["attempts"], 2)
+        self.assertNotIn("Check JOB-X3.", str(failure))
+
+    def test_generated_labels_alone_do_not_count_as_useful_evidence(self):
+        for label in ("[user]", "[first user message]", "## Goal"):
+            with self.subTest(label=label):
+                body = facts_summary("- " + json.dumps(label))
+                rows = [assistant(SUMMARY, _compressed_summary=True), user("Check JOB-X3.")]
+                llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+                self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+                self.assertEqual(len(llm.calls), 2)
+
+    def test_copied_appendix_cannot_cut_a_core_fact_that_fits_the_existing_share(self):
+        fact = "JOB-X3 output is 28 V."
+        core = facts_summary("- " + json.dumps(fact)).replace("- goal unknown", "g" * 5200)
+        prior = core + "\n## Copied user messages\n" + "c" * 30000
+        sent = transcript([assistant(prior, _compressed_summary=True)], PREFIXES)
+        self.assertIn("## Key facts\n- " + json.dumps(fact), sent)
+        self.assertIn("## Next step\n- next step unknown", sent)
+
+    def test_all_unknown_first_reply_can_retry_to_one_useful_quote(self):
+        reported = "Check JOB-X3."
+        body = useful_summary(reported)
+
+        def reply(messages, _kwargs, count):
+            return (SUMMARY if count == 1 else body) + "\n" + messages[0]["content"].rstrip().splitlines()[-1]
+
+        llm, failure = FakeLlm(reply), {}
+        self.assertEqual(llm_summary(llm, [user(reported)], PREFIXES, failure=failure), (body, 321))
+        self.assertEqual(failure, {})
+        self.assertEqual(len(llm.calls), 2)
+        self.assertEqual(llm.calls[0][0][1], llm.calls[1][0][1])
+        self.assertNotEqual(llm.calls[0][0][0]["content"].splitlines()[-1],
+                            llm.calls[1][0][0]["content"].splitlines()[-1])
+        self.assertIn("## Current state\n- progress unknown", body)
+
+    def test_empty_tool_call_is_scaffold_but_the_same_user_literal_is_payload(self):
+        label = "(tool call c1 read: )"
+        body = useful_summary(label)
+        llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+        self.assertEqual(llm_summary(llm, [assistant("", [("c1", "read", "")])], PREFIXES, failure=failure),
+                         (None, None))
+        self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+        self.assertEqual(len(llm.calls), 2)
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user(label)], PREFIXES), (body, 321))
+
+    def test_nonempty_supplied_tool_argument_can_supply_evidence(self):
+        label = '(tool call c1 read: {"path":"synthetic.txt"})'
+        body = useful_summary(label)
+        rows = [assistant("", [("c1", "read", '{"path":"synthetic.txt"}')])]
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
+
+    def test_multiline_argument_prefix_does_not_count_but_real_argument_line_does(self):
+        arguments = '\n{"path":"synthetic.txt"}\n '
+        rows = [assistant("", [("c1", "read", arguments)])]
+        for label in ("(tool call c1 read: ", " )"):
+            with self.subTest(label=label):
+                body = useful_summary(label)
+                llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+                self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+        body = useful_summary('{"path":"synthetic.txt"}')
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), rows, PREFIXES), (body, 321))
+
+    def test_empty_attachment_marks_do_not_count_but_real_literals_do(self):
+        from warm_compaction.rows import visible_text
+        for part in ({"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                     {"type": "input_audio", "input_audio": {}}, {"type": "file", "file": {}},
+                     {"type": "unknown", "unknown": {}}):
+            with self.subTest(kind=part["type"]):
+                label = visible_text([part])
+                body = useful_summary(label)
+                llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+                self.assertEqual(llm_summary(llm, [user([part])], PREFIXES, failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+                self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user(label)], PREFIXES), (body, 321))
+
+    def test_attachment_filename_or_url_is_real_retained_data(self):
+        from warm_compaction.rows import visible_text
+        for part in ({"type": "image_url", "image_url": {"url": "https://example.invalid/synthetic.png"}},
+                     {"type": "file", "file": {"filename": "synthetic.txt"}}):
+            with self.subTest(kind=part["type"]):
+                body = useful_summary(visible_text([part]))
+                self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user([part])], PREFIXES), (body, 321))
+        for reference, label in (("   ", "[file attachment:    ]"), ("\nsynthetic.txt", "[file attachment: ")):
+            with self.subTest(reference=reference):
+                part = {"type": "file", "file": {"filename": reference}}
+                body = useful_summary(label)
+                llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+                self.assertEqual(llm_summary(llm, [user([part])], PREFIXES, failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+        part = {"type": "file", "file": {"filename": "\nsynthetic.txt"}}
+        body = useful_summary("synthetic.txt]")
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user([part])], PREFIXES), (body, 321))
+
+    def test_cut_actual_marker_cannot_bless_a_later_generated_identical_marker(self):
+        part = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+        content = [{"type": "text", "text": "start " + "x" * 6000 + "\n[image attachment]\n" + "y" * 6000}, part]
+        body = useful_summary("[image attachment]")
+        rows = [user("Check the attachment."), assistant(content)]
+        llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+        self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (None, None))
+        self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+        self.assertEqual(llm.calls[0][0][1]["content"].count("[image attachment]"), 1)
+
+    def test_ignored_multipart_values_do_not_change_payload_offsets(self):
+        content = [17, [], {"type": "text", "text": "JOB-X3 output is 28 V."}]
+        body = useful_summary("JOB-X3 output is 28 V.")
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user(content)], PREFIXES), (body, 321))
+
+    def test_empty_copied_quote_is_scaffold_but_copied_literal_and_user_literal_are_data(self):
+        prior = SUMMARY + "\n## Copied user messages\n>"
+        body = useful_summary(">")
+        llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+        self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES, failure=failure),
+                         (None, None))
+        self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user(">")], PREFIXES), (body, 321))
+        copied = SUMMARY + "\n## Copied user messages\n> >"
+        body = useful_summary("> >")
+        self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE),
+                                     [assistant(copied, _compressed_summary=True)], PREFIXES), (body, 321))
+
+    def test_padded_prior_structure_is_not_payload_but_user_literals_remain_payload(self):
+        prior = SUMMARY.replace("##", "  ##").replace("- ", "  - ")
+        for label in ("  ## Key facts", "  - facts unknown"):
+            with self.subTest(label=label):
+                body = useful_summary(label)
+                llm, failure = FakeLlm(body + "\n" + END_LINE), {}
+                self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES,
+                                             failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:no_useful_evidence")
+                self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE),
+                                             [user("First line.\n" + label + "\nLast line.")], PREFIXES), (body, 321))
+
+    def test_real_label_like_literal_stays_usable_in_known_prior_quotes(self):
+        body = useful_summary("[user]")
+        rows = [user("[user]")]
+        for attempt in range(4):
+            with self.subTest(attempt=attempt):
+                text, tokens = llm_summary(FakeLlm(body + "\n" + END_LINE), rows, PREFIXES)
+                self.assertEqual((text, tokens), (body, 321))
+                rows = [assistant(text, _compressed_summary=True)]
+
+    def test_core_can_use_more_than_three_quarters_and_dense_appendix_uses_only_remainder(self):
+        from warm_compaction.fallback import EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS
+        for goal in ("g" * 6800, "\u65e5" * 1200):
+            with self.subTest(goal=goal[:10]):
+                core = useful_summary("JOB-X3 is not complete.").replace("- goal unknown", goal)
+                prior = core + "\n## Copied user messages\n" + "\u5831" * 12000
+                sent = transcript([assistant(prior, _compressed_summary=True)], PREFIXES)
+                earlier = sent.removeprefix("[earlier summary]\n")
+                self.assertTrue(earlier.startswith(core))
+                self.assertLessEqual(len(earlier), EARLIER_SUMMARY_CHARS)
+                self.assertLessEqual(estimate_tokens(earlier), EARLIER_SUMMARY_TOKENS)
+
+    def test_unknown_legacy_summary_keeps_the_existing_whole_bound(self):
+        from warm_compaction.fallback import EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS, _bound
+        core = "Legacy text " + "x" * 9000 + "\n## Copied user messages\n" + "tail " * 6000
+        for prefix in PREFIXES:
+            with self.subTest(prefix=prefix):
+                row = assistant(prefix + "\n" + core + "\n--- END OF CONTEXT SUMMARY ---")
+                self.assertEqual(transcript([row], PREFIXES), "[earlier summary]\n"
+                                 + _bound(core.strip(), EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS, middle=True))
+
+    def test_literal_copy_heading_inside_json_is_not_an_appendix_boundary(self):
+        reported = "Reported line.\n## Copied user messages\nJOB-X3 is not complete."
+        core = useful_summary(reported)
+        row = assistant(core + "\n## Copied user messages\n> copied text", _compressed_summary=True)
+        self.assertEqual(llm_summary(FakeLlm(core + "\n" + END_LINE), [row], PREFIXES), (core, 321))
 
 
 
@@ -906,8 +1110,8 @@ class PriorStateTest(unittest.TestCase):
         raw = state_summary("- " + json.dumps(wrapper))
         llm = FakeLlm(raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True), user(wrapper)], PREFIXES),
-                         (SUMMARY, 321))
-        self.assertEqual(len(llm.calls), 1)
+                         (None, None))
+        self.assertEqual(len(llm.calls), 2)
 
     def test_no_one_layer_decode_from_arbitrary_user_or_tool_rows(self):
         prior = state_summary('- "Task not complete."')
@@ -922,7 +1126,7 @@ class PriorStateTest(unittest.TestCase):
         prior = state_summary('- "first"\n' + 'x' * 12000 + '\n- ' + json.dumps(reported)
                               + '\n' + 'y' * 12000 + '\n- "last"')
         llm = FakeLlm(state_summary("- " + json.dumps(reported)) + "\n" + END_LINE)
-        self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES), (SUMMARY, 321))
+        self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True)], PREFIXES), (None, None))
         self.assertNotIn(reported, llm.calls[0][0][1]["content"])
 
     def test_malformed_prior_heading_structure_does_not_decode_wrappers(self):

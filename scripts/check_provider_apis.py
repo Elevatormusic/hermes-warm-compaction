@@ -41,7 +41,7 @@ HANDOFF = (
     "## Next step\nReport the code word BLUE-7."
 )
 FALLBACK_HANDOFF = (HANDOFF.replace("- [OPEN] Report the code word.", "- progress unknown")
-                    .replace("- The code word is BLUE-7.", "- facts unknown")
+                    .replace("- The code word is BLUE-7.", '- "The code word is BLUE-7."')
                     .replace("Finish the synthetic task.", "- goal unknown")
                     .replace("- Keep the code word BLUE-7.", "- instructions unknown")
                     .replace("Report the code word BLUE-7.", "- next step unknown"))
@@ -78,6 +78,7 @@ def history_for(case):
     for index in range(6):
         rows += [{"role": "user", "content": f"Synthetic question {index}. " + ("Detail text. " * 40).rstrip()},
                  {"role": "assistant", "content": f"Synthetic answer {index}. " + ("Answer text. " * 40).rstrip()}]
+    rows[0]["content"] += "\nThe code word is BLUE-7."
     if case.endswith("_tool"):
         rows += [{"role": "assistant", "content": "", "tool_calls": [{"id": "call_old", "type": "function",
                   "function": {"name": TOOL_NAME, "arguments": "{}"}}]},

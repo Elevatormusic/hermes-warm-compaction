@@ -9,7 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import wc_hermes_stub
-from warm_compaction.fallback import END_LINE
+from warm_compaction.fallback import END_LINE, MAX_STATE_TOKENS
+from warm_compaction.rows import estimate_tokens
 from wc_fixtures import HEADINGS_TEXT, ROUTE, SYSTEM, assistant, tool, user, wire
 
 
@@ -30,8 +31,7 @@ def large_fallback_text(rows):
 
 
 class FakeLlm:
-    def __init__(self, text=FALLBACK_TEXT + "\n" + END_LINE,
-                 error=None):
+    def __init__(self, text=None, error=None):
         self.text, self.error, self.calls = text, error, []
 
     def complete(self, messages, **kwargs):
@@ -39,7 +39,17 @@ class FakeLlm:
         if self.error:
             raise self.error
         marker = messages[0]["content"].rstrip().splitlines()[-1]
-        return SimpleNamespace(text=self.text.replace(END_LINE, marker), usage=SimpleNamespace(input_tokens=50))
+        if self.text is None:
+            lines = messages[1]["content"].split("\n")
+            value = next(line for index, line in enumerate(lines) if index and line.strip() and "[cut]" not in line
+                         and not line.startswith("(tool call ")
+                         and lines[index - 1].startswith(
+                             ("[first user message]", "[user", "[assistant", "[tool result"))
+                         and estimate_tokens("- " + json.dumps(line) + "\n- facts unknown") <= MAX_STATE_TOKENS)
+            text = FALLBACK_TEXT.replace("- facts unknown", "- " + json.dumps(value)) + "\n" + marker
+        else:
+            text = self.text.replace(END_LINE, marker)
+        return SimpleNamespace(text=text, usage=SimpleNamespace(input_tokens=50))
 
 
 def fake_post(content=HEADINGS_TEXT, cached=900):
@@ -1635,6 +1645,7 @@ class EngineTest(unittest.TestCase):
     def test_unreported_fallback_state_is_repaired_without_a_second_call(self):
         state = json.dumps("PKG-17 \u306f\u672a\u5b8c\u4e86\u3067\u3059\u3002")
         self.llm = FakeLlm(text=HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- " + state)
+                          .replace('- "Use short names."', '- "Check PKG-17 progress."')
                           + "\n" + END_LINE)
         engine = self.make(warm=False)
         history = [user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")]
@@ -2091,6 +2102,13 @@ class EngineTest(unittest.TestCase):
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         self.assert_aborted(engine, rows, "error:RuntimeError")
+
+    def test_two_all_unknown_replies_preserve_history(self):
+        self.llm = FakeLlm(FALLBACK_TEXT + "\n" + END_LINE)
+        engine = self.engine = self.make(warm=False, tail_tokens=10)
+        rows = [*old_turns(4), user("Check JOB-X3."), assistant("done")]
+        self.assert_aborted(engine, rows, "gate:no_useful_evidence")
+        self.assertEqual(len(self.llm.calls), 2)
 
     def test_failed_summary_keeps_the_middles_that_the_tail_would_cut(self):
         self.llm.error = RuntimeError("synthetic failure")

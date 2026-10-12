@@ -57,7 +57,7 @@ HANDOFF = (
 HANDOFF_GOAL = "Finish the synthetic test task."
 FALLBACK_SUMMARY = (HANDOFF.replace("Finish the synthetic test task.", "- goal unknown")
                     .replace("- [OPEN] Report the code word.", "- progress unknown")
-                    .replace("- The code word is BLUE-7.", "- facts unknown")
+                    .replace("- The code word is BLUE-7.", '- "The code word is BLUE-7."')
                     .replace('- "Answer in one short sentence."', "- instructions unknown")
                     .replace("Report the code word BLUE-7.", "- next step unknown"))
 
@@ -382,7 +382,7 @@ def synthetic_history(pairs=30):
     for index in range(pairs):
         rows.append({"role": "user", "content": f"Synthetic question {index}. " + "Detail text. " * 160})
         rows.append({"role": "assistant", "content": f"Synthetic answer {index}. " + "Answer text. " * 160})
-    rows[0]["content"] = "Remember the code word BLUE-7. " + rows[0]["content"]
+    rows[0]["content"] = "Remember the code word BLUE-7. " + rows[0]["content"] + "\nThe code word is BLUE-7."
     return rows
 
 

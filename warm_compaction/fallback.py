@@ -16,7 +16,7 @@ from .handoff import (
 )
 from .layout import COPY_HEADING, CUT_NOTE, is_real_user, is_summary, quote
 from .rows import (  # noqa: F401 - MIDDLE_MARK is part of this module's names.
-    MIDDLE_MARK, cut_middle as _cut_middle,
+    MIDDLE_MARK, REFERENCE_CHARS, cut_middle as _cut_middle,
     api_content, attr, compact_json, estimate_tokens, plain_text, strip_think, tool_calls_of, visible_text,
 )
 
@@ -135,8 +135,28 @@ def _summary_text(row: Any, prefixes: tuple[str, ...]) -> str:
 
 def _earlier_summary(messages: list, prefixes: tuple[str, ...]) -> str:
     summaries = [row for row in messages if is_summary(row, prefixes)]
-    return (_bound(_summary_text(summaries[-1], prefixes), EARLIER_SUMMARY_CHARS,
-                   EARLIER_SUMMARY_TOKENS, middle=True) if summaries else "")
+    if not summaries:
+        return ""
+    text = _summary_text(summaries[-1], prefixes)
+    lines = text.split("\n")
+    if COPY_HEADING not in lines or len(_source_spans(lines, prior=True)) != len(SOURCE_SECTIONS):
+        return _bound(text, EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS, middle=True)
+    split = lines.index(COPY_HEADING)
+    core = _bound("\n".join(lines[:split]).rstrip(), EARLIER_SUMMARY_CHARS, EARLIER_SUMMARY_TOKENS, middle=True)
+    separator = "\n\n" + COPY_HEADING + "\n"
+    chars = EARLIER_SUMMARY_CHARS - len(core) - len(separator)
+    tokens = EARLIER_SUMMARY_TOKENS - estimate_tokens(core + separator) - MARK_TOKENS
+    if chars < MIN_PART_CHARS or tokens < MIN_PART_CHARS // 4:
+        return core
+    appendix = _bound("\n".join(lines[split + 1:]), chars, tokens, middle=True)
+    combined = core + separator + appendix
+    # Reduce only the appendix if encoding or separator costs exceed the remaining share.
+    while appendix and (len(combined) > EARLIER_SUMMARY_CHARS or estimate_tokens(combined) > EARLIER_SUMMARY_TOKENS):
+        chars -= max(1, len(combined) - EARLIER_SUMMARY_CHARS)
+        tokens -= max(1, estimate_tokens(combined) - EARLIER_SUMMARY_TOKENS)
+        appendix = _bound(appendix, max(chars, 0), max(tokens, 0), middle=True)
+        combined = core + separator + appendix
+    return combined if appendix else core
 
 
 def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
@@ -163,7 +183,81 @@ def render_row(row: Any, call_names: dict[str, str] | None = None) -> str:
     return "\n".join(lines)
 
 
-def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, reserve_tokens: int = 0) -> str:
+def _retained_ranges(full: str, shown: str, ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Map payload positions through retained prefix and suffix cuts."""
+    prefix = 0
+    while prefix < min(len(full), len(shown)) and full[prefix] == shown[prefix]:
+        prefix += 1
+    suffix = 0
+    while suffix < min(len(full), len(shown)) - prefix and full[-suffix - 1] == shown[-suffix - 1]:
+        suffix += 1
+    result = []
+    for base, end, target in ((0, prefix, 0), (len(full) - suffix, len(full), len(shown) - suffix)):
+        for start, stop in ranges:
+            first, last = max(start, base), min(stop, end)
+            if first < last:
+                result.append((target + first - base, target + last - base))
+    return result
+
+
+def _row_content(row: Any, full: str, shown: str) -> list[str]:
+    content = api_content(row)
+    raw = visible_text(content)
+    left = len(raw) - len(raw.lstrip())
+    body = raw.strip()
+    if isinstance(content, list):
+        ranges = []
+        offset = 0
+        for part in content:
+            if not isinstance(part, (str, dict)):
+                continue
+            piece = visible_text([part])
+            actual = isinstance(part, str) or (isinstance(part, dict) and isinstance(part.get("text"), str)
+                                             and part.get("type", "text") == "text")
+            first, last = offset, offset + len(piece)
+            if isinstance(part, dict) and not actual:
+                kind = str(part.get("type") or "unknown")
+                data = part.get(kind) if isinstance(part.get(kind), dict) else {}
+                reference = data.get("filename") if kind == "file" else data.get("url") if kind == "image_url" else None
+                actual = isinstance(reference, str) and bool(reference) and not reference.startswith("data:")
+                if actual:
+                    label = "file" if kind == "file" else "image"
+                    first = offset + len(f"[{label} attachment: ")
+                    last = first + len(reference[:REFERENCE_CHARS])
+            if actual:
+                ranges.append((max(first - left, 0), min(last - left, len(body))))
+            offset += len(piece) + 1
+    else:
+        ranges = [(0, len(body))]
+    visible = strip_think(body).strip() if attr(row, "role") == "assistant" else body
+    if not isinstance(content, list):
+        body, ranges = visible, [(0, len(visible))]
+    header = full.find("\n") + 1
+    displayed = _cut_middle(visible, TOOL_CHARS) if attr(row, "role") == "tool" else visible
+    eligible = [(header + start, header + stop) for start, stop in _retained_ranges(body, displayed, ranges)]
+    for call_id, name, arguments in tool_calls_of(row):
+        supplied = arguments if isinstance(arguments, str) else compact_json(arguments)
+        if supplied.strip() and supplied.strip() not in ("{}", "[]", "null"):
+            label = " ".join(part for part in (call_id, name) if part)
+            line = f"(tool call {label}: {_cut_middle(supplied, ARGUMENT_CHARS)})"
+            start = full.find(line, header + len(visible))
+            if start >= 0:
+                argument = start + len(f"(tool call {label}: ")
+                eligible.append((argument, start + len(line) - 1))
+    mapped = _retained_ranges(full, shown, eligible)
+    result = []
+    offset = 0
+    for line in shown.split("\n"):
+        end = offset + len(line)
+        if line.strip() and any(shown[max(start, offset):min(stop, end)].strip()
+                                for start, stop in mapped if start < end and stop > offset):
+            result.append(line)
+        offset = end + 1
+    return result
+
+
+def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, reserve_tokens: int = 0,
+               *, _content: list[str] | None = None) -> str:
     """Return a bounded transcript: the earlier summary, the first user message, then the newest rows.
 
     Each row entry keeps at most ROW_CHARS characters (its start and its end), so that one long row cannot
@@ -174,13 +268,16 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
     head = []
     earlier = _earlier_summary(messages, prefixes)
     if earlier:
-        # The start and the end: "## Key facts", "## Next step", and the newest copies are at the end.
+        # The known core gets its share before copied user messages use the remainder.
         head.append("[earlier summary]\n" + earlier)
     first = next((row for row in messages if is_real_user(row, prefixes)), None)
     if first is not None:
         # The start and the end: a long request often has the question or the output rules at the end.
         head.append("[first user message]\n" + _bound(visible_text(api_content(first)).strip(), FIRST_USER_CHARS,
                                                       FIRST_USER_TOKENS, middle=True))
+        if _content is not None:
+            full = "[first user message]\n" + visible_text(api_content(first)).strip()
+            _content.extend(_row_content(first, full, head[-1]))
     budget = TRANSCRIPT_CHARS - reserve_chars - sum(len(part) + 2 for part in head)
     tokens = TRANSCRIPT_TOKENS - reserve_tokens - sum(estimate_tokens(part) + 1 for part in head)
     # A tool row takes the names of the nearest earlier tool calls. Providers can use the same call id again
@@ -192,17 +289,26 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
             names = {call_id: name for call_id, name, _arguments in tool_calls_of(row) if call_id}
         turn_names.append(names)
     recent: collections.deque = collections.deque()
+
+    def add_content(row: Any, full: str, part: str) -> None:
+        if _content is not None:
+            _content.extend(_row_content(row, full, part))
+
     for index in range(len(messages) - 1, -1, -1):
         row = messages[index]
         if is_summary(row, prefixes):
             continue
-        part = _bound(render_row(row, turn_names[index]), ROW_CHARS, ROW_TOKENS, middle=True)
+        full = render_row(row, turn_names[index])
+        part = _bound(full, ROW_CHARS, ROW_TOKENS, middle=True)
         cost = estimate_tokens(part) + 1
         if len(part) + 2 > budget or cost > tokens:
             if budget - 2 >= MIN_PART_CHARS and tokens - 1 >= MIN_PART_CHARS // 4:
-                recent.appendleft(_bound(part, budget - 2, tokens - 1, middle=True))
+                part = _bound(part, budget - 2, tokens - 1, middle=True)
+                recent.appendleft(part)
+                add_content(row, full, part)
             break
         recent.appendleft(part)
+        add_content(row, full, part)
         budget -= len(part) + 2
         tokens -= cost
     return "\n\n".join([*head, *recent])
@@ -304,14 +410,21 @@ def _canonical_source_json(text: str) -> str:
 class _SourceTable:
     """Bounded source lines and one decoded layer from the known earlier summary only."""
 
-    def __init__(self, original: str, earlier: str = "", extra: str = ""):
+    def __init__(self, original: str, earlier: str = "", extra: str = "", content: Iterable[str] = ()):
         lines = original.split("\n")
         excluded: set[int] = set()
         self.aliases: dict[str, set[str]] = {}
         decoded: list[str] = []
+        payload = list(content)
         if earlier and original.startswith("[earlier summary]\n" + earlier):
             earlier_lines = earlier.split("\n")
-            for start, end, _unknown in _source_spans(earlier_lines, prior=True):
+            spans = _source_spans(earlier_lines, prior=True)
+            structural: set[int] = set()
+            for start, end, unknown in spans:
+                structural.add(start - 1)
+                if end < len(earlier_lines) and earlier_lines[end].strip() in HEADINGS:
+                    structural.add(end)
+                structural.update(index for index in range(start, end) if earlier_lines[index].strip() == unknown)
                 for index in range(start, end):
                     line = earlier_lines[index]
                     value = _json_quote(line)
@@ -319,6 +432,11 @@ class _SourceTable:
                         excluded.add(index + 1)
                         self.aliases.setdefault(line, set()).add(value)
                         decoded.append(value)
+            copied = earlier_lines.index(COPY_HEADING) if COPY_HEADING in earlier_lines else len(earlier_lines)
+            payload.append("\n".join(line for index, line in enumerate(earlier_lines)
+                                     if line.strip() and index not in structural and index != copied
+                                     and not (index > copied and line.strip() in (">", "(none)"))
+                                     and index + 1 not in excluded))
         # Do not join lines across an excluded wrapper: that would create new source adjacency.
         self.chunks: list[str] = []
         chunk: list[str] = []
@@ -334,8 +452,16 @@ class _SourceTable:
         # The request's bounded focus and memory block stays separate from transcript source lines.
         if extra:
             self.chunks.append(extra)
+            extra_lines = extra.split("\n")
+            label = "Also keep this context from the memory provider:"
+            if label in extra_lines:
+                extra_lines.remove(label)
+            payload.append("\n".join(extra_lines))
         self.ordinary_lines = {line for part in self.chunks for line in part.split("\n") if line.strip()}
         self.chunks.extend(decoded)
+        payload.extend(decoded)
+        self.content_lines = {line for part in payload for line in part.split("\n") if line.strip()
+                              and not any(marker in line for marker in (CUT_MARK.strip(), MIDDLE_MARK))}
         self.lines = {line for part in self.chunks for line in part.split("\n") if line.strip()}
 
     def resolve(self, value: str) -> str | None:
@@ -352,6 +478,10 @@ class _SourceTable:
             return None
         full = matches.pop()
         return None if any(marker in full for marker in (CUT_MARK.strip(), MIDDLE_MARK)) else full
+
+    def useful(self, value: str) -> bool:
+        """Count retained payload occurrences, including a literal that looks like a generated label."""
+        return self.resolve(value) == value and any(line in self.content_lines for line in value.split("\n"))
 
 
 def _source_current_state(text: str, original: str | _SourceTable) -> bool:
@@ -372,6 +502,12 @@ def _source_current_state(text: str, original: str | _SourceTable) -> bool:
             if value is None or source.resolve(value) != value:
                 return False
     return True
+
+
+def _has_useful_evidence(text: str, source: _SourceTable) -> bool:
+    lines = text.splitlines()
+    return any(source.useful(value) for start, end, _unknown in _source_spans(lines)
+               for line in lines[start:end] if (value := _json_quote(line)) is not None)
 
 
 def _construct_current_state(text: str, original: str | _SourceTable, prefixes: Iterable[str]) -> str:
@@ -444,8 +580,9 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     prefixes = tuple(prefixes)
     # The start (the focus line) and the end of a large memory context.
     extra = _bound(extras(focus_topic, memory_context), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
-    original = transcript(messages, prefixes, len(extra), estimate_tokens(extra))
-    source = _SourceTable(original, _earlier_summary(messages, prefixes), extra)
+    content: list[str] = []
+    original = transcript(messages, prefixes, len(extra), estimate_tokens(extra), _content=content)
+    source = _SourceTable(original, _earlier_summary(messages, prefixes), extra, content)
     for attempt in range(1, 3):
         end_line = END_LINE.replace("{nonce}", secrets.token_hex(16))
         words = int(summary_words) if attempt == 1 else min(int(summary_words), 300)
@@ -506,6 +643,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                     text, reason = None, "body_token_limit"
                 if text is not None and not _source_current_state(text, source):
                     text, reason = None, "current_state_unverified"
+                if text is not None and not _has_useful_evidence(text, source):
+                    text, reason = None, "no_useful_evidence"
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None
