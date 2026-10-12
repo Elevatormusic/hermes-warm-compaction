@@ -208,6 +208,27 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(new[-2:], [rows[-1], reply])
         self.assertEqual(self.llm.calls, [])
 
+    def test_mixed_reasoning_capture_keeps_the_warm_prefix_and_history(self):
+        rows = [assistant("Synthetic earlier summary.", _compressed_summary=True),
+                assistant("Synthetic compaction notice."), *old_turns(),
+                user("Synthetic question."), assistant("Synthetic answer.",
+                                                       reasoning="Synthetic thoughts.",
+                                                       reasoning_content="Synthetic thoughts."),
+                user("Synthetic next question.")]
+        reply = assistant("Synthetic final answer.")
+        self.seed(rows, reply)
+        messages = [*rows, reply]
+        before_messages = copy.deepcopy(messages)
+        before_capture = copy.deepcopy(self.store.latest("s1"))
+        self.engine.compress(messages)
+        self.assertEqual((self.engine.warm_last["path"], self.engine.warm_last["reason"]), ("warm", "accepted"))
+        prefix = before_capture["body"]["messages"]
+        sent = self.post.calls[0]["body"]["messages"]
+        self.assertEqual(json.dumps(sent[:len(prefix)], ensure_ascii=False),
+                         json.dumps(prefix, ensure_ascii=False))
+        self.assertEqual((messages, self.store.latest("s1")), (before_messages, before_capture))
+        self.assertEqual(self.llm.calls, [])
+
     def test_capture_ahead_uses_only_live_rows_for_fallback(self):
         rows = [*old_turns(), user("synthetic live question")]
         future = [assistant("synthetic unmatched future reply"), tool("future-call", "future result")]

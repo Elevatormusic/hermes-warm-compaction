@@ -203,10 +203,21 @@ def check_source(body: dict[str, Any], history_rows: list, base_url: Any = None,
         raise WarmRefusal("source_transform_unsupported")
     # The replayed fields follow the captured request only: the new rows do not change what Hermes sent.
     echo = needs_reasoning_echo(body, [])
-    expected = [wire_row(row, echo, body.get("model"), base_url, native_type) for row in history_rows]
-    if not all(_same_replay_fields(wire, want) and _no_extra_fields(wire, want)
-               for wire, want in zip(sent[offset:], expected)):
-        raise WarmRefusal("source_transform_unsupported")
+    for wire, row in zip(sent[offset:], history_rows):
+        want = wire_row(row, echo, body.get("model"), base_url, native_type)
+        # Hermes d4d2ab7b can send stored reasoning on local Chat Completions routes.
+        # Accept this field only when the sent assistant text equals the stored text.
+        reasoning = attr(row, "reasoning")
+        if (attr(row, "role") == "assistant" and isinstance(reasoning, str)
+                and attr(wire, "reasoning") == reasoning):
+            want["reasoning"] = reasoning
+        # A captured field on another row does not prove that every row needs a pad.
+        # Do not require a new pad when neither this sent row nor its source has reasoning.
+        if (attr(wire, "reasoning_content") is None and attr(row, "reasoning_content") is None
+                and reasoning is None):
+            want.pop("reasoning_content", None)
+        if not (_same_replay_fields(wire, want) and _no_extra_fields(wire, want)):
+            raise WarmRefusal("source_transform_unsupported")
 
 
 def needs_reasoning_echo(body: dict[str, Any], rows: list) -> bool:

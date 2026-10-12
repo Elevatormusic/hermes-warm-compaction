@@ -93,8 +93,8 @@ TOOL_PLUGIN = {
         '        "parameters": {"type": "object", "properties": {}, "required": []}})\n'
     ),
 }
-SCENARIOS = ("enable_manual_warm", "manual_context", "manual_whitespace", "manual_fallback", "manual_aborted",
-             "auto_tool_loop", "auto_context_tool", "auto_warm_failures", "rollback")
+SCENARIOS = ("enable_manual_warm", "manual_context", "manual_whitespace", "manual_reasoning", "manual_fallback",
+             "manual_aborted", "auto_tool_loop", "auto_context_tool", "auto_warm_failures", "rollback")
 # The scenarios with automatic compaction in a tool loop.
 AUTO_SCENARIOS = ("auto_tool_loop", "auto_context_tool", "auto_warm_failures")
 NOTICE_MARK = "Warm compaction unavailable"
@@ -239,6 +239,8 @@ class FakeServer:
                 step = self.main_replies.pop(0) if self.main_replies else {"content": "OK."}
                 payload = completion(step.get("content"), step.get("tool"),
                                      prompt_tokens=step.get("prompt_tokens", size))
+                if "reasoning_content" in step:
+                    payload[0]["reasoning_content"] = step["reasoning_content"]
             else:
                 payload = completion("Synthetic title", prompt_tokens=size)
         return entry["status"], payload
@@ -259,6 +261,8 @@ class FakeServer:
         delta = {"role": "assistant"}
         if message.get("content") is not None:
             delta["content"] = message["content"]
+        if "reasoning_content" in message:
+            delta["reasoning_content"] = message["reasoning_content"]
         if message.get("tool_calls"):
             delta["tool_calls"] = [{"index": index, **call} for index, call in enumerate(message["tool_calls"])]
         parts = [event([{"index": 0, "delta": delta, "finish_reason": None}]),
@@ -387,6 +391,9 @@ def synthetic_history(pairs=30):
 
 
 def plan_for(scenario):
+    if scenario == "manual_reasoning":
+        return {"main": [{"content": "The code word is BLUE-7.", "reasoning_content": "Synthetic first thoughts."},
+                         {"content": "Next: report BLUE-7.", "reasoning_content": "Synthetic next thoughts."}]}
     if scenario == "manual_whitespace":
         return {"main": [{"content": "The code word is BLUE-7."}, {"content": "Hello."},
                          {"content": "Hello again."}]}
@@ -555,7 +562,13 @@ def run_phase(spec, session_dir):
         statuses = []
         sid = f"wc-{scenario}"
         db.create_session(sid, "cli")
-        db.append_messages_batch(sid, synthetic_history())
+        initial = synthetic_history()
+        if scenario == "manual_reasoning":
+            initial[1].update(reasoning="Synthetic earlier thoughts.", reasoning_content="Synthetic earlier thoughts.")
+            initial[3]["content"] = "[CONTEXT SUMMARY]: Synthetic earlier summary."
+            initial[3]["_compressed_summary"] = True
+            initial[5]["display_kind"] = "compaction_notice"
+        db.append_messages_batch(sid, initial)
         agent = AIAgent(base_url=server.base_url, api_key="no-key-required", provider="custom",
                         api_mode="chat_completions", model=MODEL,
                         enabled_toolsets=["wc_test"] if scenario in AUTO_SCENARIOS else [],
@@ -576,6 +589,9 @@ def run_phase(spec, session_dir):
         elif scenario == "manual_whitespace":
             run_manual_whitespace(agent, engine, db, history, server, result, checks,
                                   _compress_session_history, finalize_context_engine_compression_notification)
+        elif scenario == "manual_reasoning":
+            run_manual_reasoning(agent, engine, db, history, server, result, checks,
+                                 _compress_session_history, finalize_context_engine_compression_notification)
         else:
             run_manual(agent, engine, db, history, server, result, checks, scenario,
                        _compress_session_history, finalize_context_engine_compression_notification, statuses)
@@ -914,6 +930,61 @@ def run_manual_aborted(agent, engine, db, session, capture, server, result, chec
     result["session_rotated"] = False
     result["compression_count"] = engine.compression_count
     result["automatic_stop_contract"] = "not checked: Hermes has no documented terminal plugin abort result"
+
+
+def run_manual_reasoning(agent, engine, db, history, server, result, checks, compress, finalize):
+    """Repeat compaction with synthetic reasoning, summary, and notice rows on the real route."""
+    from agent import message_sanitization
+
+    modern = callable(getattr(message_sanitization, "route_reasoning_carriers", None))
+    result["reasoning_carrier_policy"] = "route_carriers" if modern else "legacy_echo"
+    if modern:
+        pad, carriers = agent._reasoning_replay_route()
+        expected_keys = set(carriers or ()) & {"reasoning", "reasoning_content"}
+    else:
+        pad = agent._needs_thinking_reasoning_pad()
+        expected_keys = {"reasoning_content"} if pad else set()
+    result["host_reasoning_padding"] = bool(pad)
+    messages = history
+    for index, question in enumerate((SEED_QUESTION, NEXT_QUESTION), 1):
+        if index > 1:
+            messages = list(messages) + synthetic_history(20)
+        reply = agent.run_conversation(question, system_message=SYSTEM, conversation_history=messages)
+        messages = list(reply.get("messages") or [])
+        label = f"turn{index}"
+        checks[f"{label}_reply"] = bool(str(reply.get("final_response") or "").strip())
+        capture = engine._store.latest(engine._wc_session_id) or {}
+        captured = copy.deepcopy(capture.get("body", {}).get("messages") or [])
+        assistants = [row for row in captured if row.get("role") == "assistant"]
+        text_keys = {key for row in assistants for key in ("reasoning", "reasoning_content") if key in row}
+        checks[f"{label}_host_reasoning_carriers"] = text_keys == expected_keys
+        checks[f"{label}_captured_padding_matches_route"] = (
+            all(row.get("reasoning_content") for row in assistants) if pad else any(
+                "reasoning" not in row and "reasoning_content" not in row for row in assistants))
+        before = copy.deepcopy(messages)
+        session = {"agent": agent, "history": messages, "history_lock": threading.Lock(),
+                   "history_version": index, "session_key": agent.session_id}
+        warm_before = len(by_kind(server, "warm"))
+        removed, _usage = compress(session, "")
+        finalize(agent, committed=True)
+        checks[f"{label}_input_history_unchanged"] = messages == before
+        checks[f"{label}_warm_accepted"] = (engine.warm_last.get("path"), engine.warm_last.get("reason")) == (
+            "warm", "accepted")
+        checks[f"{label}_one_warm_request"] = len(by_kind(server, "warm")) == warm_before + 1
+        if checks[f"{label}_one_warm_request"]:
+            check_warm_request(server, checks, label)
+            sent = by_kind(server, "warm")[-1]["body"]["messages"]
+            checks[f"{label}_captured_prefix_unchanged"] = sent[:len(captured)] == captured
+            # The new reply keeps its synthetic text. Exact parity of all route carriers is a separate check.
+            checks[f"{label}_appended_reasoning_text"] = sent[len(captured)].get("reasoning_content") == (
+                "Synthetic first thoughts." if index == 1 else "Synthetic next thoughts.")
+            result[f"{label}_appended_reasoning_keys"] = sorted(
+                key for key in ("reasoning", "reasoning_content") if key in sent[len(captured)])
+        checks[f"{label}_removed_rows"] = removed > 0
+        messages = session["history"]
+        checks[f"{label}_summary_rows"] = summary_rows_ok(messages)
+    checks["two_compactions"] = engine.compression_count == 2
+    checks["no_fallback_request"] = not by_kind(server, "fallback")
 
 
 def run_manual_whitespace(agent, engine, db, history, server, result, checks, compress, finalize):

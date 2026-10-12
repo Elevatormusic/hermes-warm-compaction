@@ -466,6 +466,87 @@ class BuildRequestTest(unittest.TestCase):
                 self.build(capture, route)
             self.assertEqual(caught.exception.code, "source_transform_unsupported")
 
+    def test_stored_and_sent_reasoning_text_keeps_the_captured_prefix(self):
+        self.rows = [user("Synthetic question."), assistant(
+            "Synthetic answer.", reasoning="Synthetic thoughts.", reasoning_content="Synthetic thoughts.")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1")]
+        capture = capture_for(self.rows, self.reply)
+        before_capture, before_messages = copy.deepcopy(capture), copy.deepcopy(self.messages)
+        body = self.build(capture)
+        sent = capture["body"]["messages"]
+        self.assertEqual(body["messages"][:len(sent)], sent)
+        self.assertEqual((capture, self.messages), (before_capture, before_messages))
+
+    def test_reasoning_free_rows_need_no_captured_echo_padding(self):
+        for extra in ({"_compressed_summary": True}, {"display_kind": "compaction_notice"}, {}):
+            with self.subTest(extra=extra):
+                self.rows = [assistant("Synthetic summary or notice.", **extra), user("Synthetic question."),
+                             assistant("Synthetic answer.", reasoning_content="Synthetic thoughts.")]
+                self.messages = [*self.rows, self.reply, tool("c1", "r1")]
+                capture = capture_for(self.rows, self.reply)
+                # Hermes removes this local display field before sending the row.
+                capture["body"]["messages"][1].pop("display_kind", None)
+                before_capture, before_messages = copy.deepcopy(capture), copy.deepcopy(self.messages)
+                body = self.build(capture)
+                sent = capture["body"]["messages"]
+                self.assertEqual(body["messages"][:len(sent)], sent)
+                self.assertNotIn("reasoning_content", body["messages"][1])
+                self.assertEqual((capture, self.messages), (before_capture, before_messages))
+
+    def test_added_or_changed_reasoning_text_is_refused(self):
+        for stored in (None, "Synthetic thoughts."):
+            self.rows = [user("Synthetic question."), assistant(
+                "Synthetic answer.", **({"reasoning": stored} if stored is not None else {}))]
+            self.messages = [*self.rows, self.reply, tool("c1", "r1")]
+            for sent in ("Changed synthetic thoughts.", 1, True, ["Synthetic thoughts."], None):
+                with self.subTest(stored=stored, sent=sent):
+                    capture = capture_for(self.rows, self.reply)
+                    capture["body"]["messages"][2]["reasoning"] = sent
+                    with self.assertRaises(WarmRefusal) as caught:
+                        self.build(capture)
+                    self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_missing_stored_reasoning_content_is_refused_on_a_mixed_route(self):
+        for field in ("reasoning_content", "reasoning"):
+            with self.subTest(field=field):
+                self.rows = [assistant("Synthetic earlier answer.", **{field: "Synthetic thoughts."}),
+                             user("Synthetic question."),
+                             assistant("Synthetic answer.", reasoning_content="Synthetic other thoughts.")]
+                self.messages = [*self.rows, self.reply, tool("c1", "r1")]
+                capture = capture_for(self.rows, self.reply)
+                capture["body"]["messages"][1].pop("reasoning_content", None)
+                capture["body"]["messages"][1].pop("reasoning", None)
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
+    def test_mixed_reasoning_capture_refuses_changed_details_and_signatures(self):
+        route = ("gemini-3-pro", "https://openrouter.ai/api/v1", ROUTE[2])
+        stored = assistant("Synthetic answer.", [("c0", "read", "{}")],
+                           reasoning="Synthetic thoughts.", reasoning_content="Synthetic thoughts.",
+                           reasoning_details=[{"type": "reasoning.encrypted", "data": "synthetic-data"}])
+        stored["tool_calls"][0]["extra_content"] = {"google": {"thought_signature": "synthetic-signature"}}
+        self.rows = [assistant("Synthetic summary.", _compressed_summary=True), stored,
+                     tool("c0", "Synthetic result."), user("Synthetic question.")]
+        self.messages = [*self.rows, self.reply, tool("c1", "r1")]
+        self.build(capture_for(self.rows, self.reply, route=route), route)
+        changes = (
+            lambda row: row.update(reasoning="Changed synthetic thoughts."),
+            lambda row: row.update(reasoning_content="Changed synthetic thoughts."),
+            lambda row: row.pop("reasoning_details"),
+            lambda row: row.update(reasoning_details=[{"type": "reasoning.encrypted", "data": "changed"}]),
+            lambda row: row["tool_calls"][0].pop("extra_content"),
+            lambda row: row["tool_calls"][0].update(extra_content={"google": {"thought_signature": "changed"}}),
+            lambda row: row.update(untrusted_control="synthetic-value"),
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(change=index):
+                capture = capture_for(self.rows, self.reply, route=route)
+                change(capture["body"]["messages"][2])
+                with self.assertRaises(WarmRefusal) as caught:
+                    self.build(capture, route)
+                self.assertEqual(caught.exception.code, "source_transform_unsupported")
+
     def test_accepts_reformatted_arguments(self):
         capture = self._tool_round()
         sent = capture["body"]["messages"]
