@@ -1,0 +1,684 @@
+{
+  "schema_version": 1,
+  "synthetic_only": true,
+  "study": "Configured method comparison; two counterbalanced repeats; two compactions and two independent continuation checks per trial",
+  "semantic_review": {
+    "method": "Manual review of each fixed claim against the frozen rubric, with independent subagent review and primary review of source, stored summaries, and answers. No new model calls for scoring.",
+    "rubric_sha256": "47471110726d8791478ed35b1d51091211c4413b2586c6527a55e04de6823aa9",
+    "review_receipt_sha256": {
+      "manual-plugin-review.json": "2a0ffcb8eb8fa0a6e6adf813ba0982db5709e3af35b531af9f19c42542c9aa83",
+      "manual-lcm-review.json": "5219c8096ba711b0015c795ce8c534bff60958657fc77b41b0b8dc5e6130ea12",
+      "manual-langchain-review.json": "b4de41731806724cb02b74a56a4e590a982252ca98b7815c69c10baaacd12b7c"
+    },
+    "count_order": [
+      "pass",
+      "partial",
+      "missing",
+      "contradicted"
+    ],
+    "fixed_checks": {
+      "stage_1": {
+        "critical": 23,
+        "supporting": 3
+      },
+      "stage_2": {
+        "critical": 26,
+        "supporting": 4
+      }
+    },
+    "count_limits": [
+      "These are fixed-claim retention counts, not an overall quality percentage. Global unsupported-claim checks are separate below.",
+      "Summary-only and actual-active-context scores were assessed separately and coincide: scored facts are not in the retained neutral raw tails. Plugin copied-message appendices are empty.",
+      "QA omissions are recorded even when the fact is in active context. The QA request asks for one permitted next action, not a complete action list.",
+      "A correct fixture fact can lack active support; honest unknown after context loss is not a new false claim. QA attribution faults remain separate from value retention.",
+      "LCM and LangChain produced identical summary and answer bodies in both repeats. Their paired rows reuse scores only after body and raw-answer hash equality was verified."
+    ],
+    "stage_scores": [
+      {
+        "trials": "r1-plugin",
+        "stage": 1,
+        "summary_and_active": {
+          "critical": [
+            20,
+            1,
+            2,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            3,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            18,
+            3,
+            2,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            3,
+            0
+          ]
+        }
+      },
+      {
+        "trials": "r1-plugin",
+        "stage": 2,
+        "summary_and_active": {
+          "critical": [
+            25,
+            0,
+            1,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            4,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            22,
+            2,
+            1,
+            1
+          ],
+          "supporting": [
+            0,
+            0,
+            4,
+            0
+          ]
+        }
+      },
+      {
+        "trials": "r2-plugin",
+        "stage": 1,
+        "summary_and_active": {
+          "critical": [
+            21,
+            1,
+            1,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            3,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            20,
+            2,
+            1,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            3,
+            0
+          ]
+        }
+      },
+      {
+        "trials": "r2-plugin",
+        "stage": 2,
+        "summary_and_active": {
+          "critical": [
+            25,
+            0,
+            1,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            4,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            24,
+            1,
+            1,
+            0
+          ],
+          "supporting": [
+            0,
+            0,
+            4,
+            0
+          ]
+        }
+      },
+      {
+        "trials": "r1-lcm + r2-lcm",
+        "stage": 1,
+        "summary_and_active": {
+          "critical": [
+            23,
+            0,
+            0,
+            0
+          ],
+          "supporting": [
+            3,
+            0,
+            0,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            22,
+            0,
+            1,
+            0
+          ],
+          "supporting": [
+            3,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "trials": "r1-lcm + r2-lcm",
+        "stage": 2,
+        "summary_and_active": {
+          "critical": [
+            26,
+            0,
+            0,
+            0
+          ],
+          "supporting": [
+            4,
+            0,
+            0,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            25,
+            1,
+            0,
+            0
+          ],
+          "supporting": [
+            3,
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      {
+        "trials": "r1-langchain + r2-langchain",
+        "stage": 1,
+        "summary_and_active": {
+          "critical": [
+            23,
+            0,
+            0,
+            0
+          ],
+          "supporting": [
+            3,
+            0,
+            0,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            22,
+            0,
+            1,
+            0
+          ],
+          "supporting": [
+            2,
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      {
+        "trials": "r1-langchain + r2-langchain",
+        "stage": 2,
+        "summary_and_active": {
+          "critical": [
+            25,
+            1,
+            0,
+            0
+          ],
+          "supporting": [
+            4,
+            0,
+            0,
+            0
+          ]
+        },
+        "qa_fixture": {
+          "critical": [
+            24,
+            2,
+            0,
+            0
+          ],
+          "supporting": [
+            4,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "findings": {
+      "plugin": [
+        "All four stored summaries retained approval limits, active task states, and requested next actions.",
+        "Both first-stage summaries lost detailed calibration and failed-publish results. The first repeat also lost the current sensor value. Later summaries kept the new sensor correction but did not recover all older lost facts.",
+        "All 13 scored first-stage source rows reached the first-repeat model request. The reply used adjacent JSON strings on one bullet for sensor facts and fused generated headers with separate tool payload lines. The constructor discarded those malformed or unsupported quotes. This is a remaining format-recovery loss, not input trimming.",
+        "The first repeat's second QA answer contradicts itself about a retained owner. Both second QA answers place some user-reported facts in tool_results; those facts are not verified tool evidence.",
+        "No invented completion, historical compliance, added task-specific approval, or unreported review progress was found in the summaries."
+      ],
+      "lcm": [
+        "Cumulative summary nodes retained all fixed facts in this fixture, including explicit later corrections. This used more retained summary text at stage two.",
+        "Both first QA answers omit the unknown review-progress detail. Both second QA answers weaken the explicit preparation goal and omit the sensor location; the source facts remain in context.",
+        "No unsupported factual claim was identified in the reviewed summaries or answers. The native stale-ask warning is treated as a carrier execution guard, as it is for the plugin, not a new task-specific approval condition.",
+        "Public search and expansion recovered the exact role and entire content of the updated sensor source row in both repeats. Retrieval occurred after QA and did not improve the scored QA answers."
+      ],
+      "langchain": [
+        "Both first summaries retain all fixed facts; both second summaries weaken the explicit preparation goal while retaining the open review state.",
+        "All four summaries add unsupported certainty that no artifacts were created or changed. This fails the global no-invented-progress check even where all fixed retention checks pass.",
+        "Both first QA answers wrongly put the sensor location in its owner field and omit the unknown review-progress detail. Both second QA answers weaken the preparation goal and explicit separation of the unrelated threshold.",
+        "No other invented completion, added task-specific approval, or wrong correction precedence was found."
+      ]
+    },
+    "format": "All 12 answers contain one valid JSON object in a Markdown fence after a synthetic-data prefix. None passes the strict bare-JSON contract. Format failure is separate from meaning.",
+    "primary_adjudication": "Reviewed and accepted with the stated limits. Historical source statements are read with explicit later corrections; native execution guards are scored consistently across carriers. The known losses are not claimed fixed by the two new protections.",
+    "scope": "One invented session, repeated twice with two compactions. This does not establish general summary quality, a product winner, or performance."
+  },
+  "capture_scope": "Source cleanliness and identity fields refer to the completed live run at 439d2120c3eb06e1f72d92ff72f50b7c4123fc84. Later evidence-only commits are not new live runs. Full PR CI is linked separately in the PR.",
+  "source_pins": {
+    "plugin": {"commit": "439d2120c3eb06e1f72d92ff72f50b7c4123fc84", "version": "0.2.0", "fallback_lf_sha256": "4297ceebe3dda0c63b2b85a5c8d29d9479ff23d194ea0942f6f5b295fe8af9a4", "fallback_raw_sha256": "a8c4ae2efd4856247ac59f64ec8565d86a3ebc2bec802ba68ba4e424498086b2"},
+    "hermes": {"commit": "d4d2ab7b5d104166e7e22a02cafd12f1fe456a31", "python": "3.14.7"},
+    "lcm": {"commit": "8d1b1e6d3d63f5fc7b209e8d7ec1dc9b814f2e54", "version": "1.0.0-rc.1", "engine_sha256": "f680e61fbee21f0052b3df3a118c9d9abbe7c853480237dde9f0e6c1642e87ff"},
+    "langchain": {
+      "commit": "e4b143729ffb3c6307376909d3aa9921b360c1f5",
+      "version": "1.4.4",
+      "core_version": "1.6.9",
+      "installed_middleware_equals_pinned_source": true,
+      "middleware_sha256": "e73097878323d20d90fd0f5b585241f085d720d9f0ac5c42ff76542bd21dbf64",
+      "core_init_sha256": "fa4e54cbdf24eb2cfc4fd24776115853a9bc7977447b4d072a470f6765d2a781"
+    }
+  },
+  "isolated_dependencies": [
+    {"name": "annotated-types", "version": "0.8.0"},
+    {"name": "anyio", "version": "4.15.1"},
+    {"name": "certifi", "version": "2026.7.22"},
+    {"name": "charset-normalizer", "version": "3.5.2"},
+    {"name": "distro", "version": "1.9.0"},
+    {"name": "h11", "version": "0.16.0"},
+    {"name": "httpcore", "version": "1.0.9"},
+    {"name": "httpcore2", "version": "2.13.1"},
+    {"name": "httpx", "version": "0.28.1"},
+    {"name": "httpx2", "version": "2.13.1"},
+    {"name": "idna", "version": "3.20"},
+    {"name": "jsonpatch", "version": "1.35"},
+    {"name": "jsonpointer", "version": "3.2.1"},
+    {"name": "langchain", "version": "1.4.4"},
+    {"name": "langchain-core", "version": "1.6.9"},
+    {"name": "langchain-protocol", "version": "0.0.19"},
+    {"name": "langgraph", "version": "1.2.14"},
+    {"name": "langgraph-checkpoint", "version": "4.2.0"},
+    {"name": "langgraph-prebuilt", "version": "1.1.0"},
+    {"name": "langgraph-sdk", "version": "0.4.6"},
+    {"name": "langsmith", "version": "0.14.7"},
+    {"name": "orjson", "version": "3.13.0"},
+    {"name": "ormsgpack", "version": "1.12.2"},
+    {"name": "packaging", "version": "26.3"},
+    {"name": "pydantic", "version": "2.14.1"},
+    {"name": "pydantic_core", "version": "2.50.1"},
+    {"name": "PyYAML", "version": "6.0.3"},
+    {"name": "regex", "version": "2026.9.29"},
+    {"name": "requests", "version": "2.34.2"},
+    {"name": "requests-toolbelt", "version": "1.0.0"},
+    {"name": "sniffio", "version": "1.3.1"},
+    {"name": "tenacity", "version": "9.2.1"},
+    {"name": "tiktoken", "version": "0.14.0"},
+    {"name": "truststore", "version": "0.10.4"},
+    {"name": "typing-inspection", "version": "0.4.4"},
+    {"name": "typing_extensions", "version": "4.16.0"},
+    {"name": "urllib3", "version": "2.8.0"},
+    {"name": "uuid_utils", "version": "0.17.1"},
+    {"name": "websockets", "version": "16.1.1"},
+    {"name": "xxhash", "version": "4.0.1"},
+    {"name": "zstandard", "version": "0.25.0"}
+  ],
+  "dependency_limits": ["Dependencies were installed in comparison scratch only; production was unchanged.", "LangChain core uses its explicit pinned source directory; no editable .pth was executed.", "Isolated Pydantic2.14.1 overrides Hermes environment2.13.4 for this comparison."],
+  "commands": {
+    "working_directory": "<comparison-scratch>",
+    "offline": "<hermes-python> -B comparison.py --mode offline --expected-commit 439d2120c3eb06e1f72d92ff72f50b7c4123fc84 --max-requests 60",
+    "live": "<hermes-python> -B comparison.py --mode live --expected-commit 439d2120c3eb06e1f72d92ff72f50b7c4123fc84 --max-requests 60",
+    "reproduction_limit": "Requires the hash-pinned scratch harness, isolated dependencies, source copies and current configured paired route. Full receipts and invented inputs stay local. Private paths are placeholders."
+  },
+  "evidence_sha256": {
+    "original_report": "ee0e840bd91491373c340436b034a723a1b437020349e2b6c118ffbdb93b7641",
+    "consumed_receipt": "6bb7548dfe9c675b194955f18b09c2fb8ddfed4a0b25457fb947af33a20cab0a",
+    "executed_controller": "6a4cbecb5f83a59c592d3162a610973c259d13b629cb0a468744524a5027e412",
+    "executed_worker": "ce34ba37e7c3b1c2bc8a6ceb4ced02dd22caa805d68f972e155fca446df18c39",
+    "plugin_fallback": "a8c4ae2efd4856247ac59f64ec8565d86a3ebc2bec802ba68ba4e424498086b2",
+    "fixture": "16f7dab8cdc86f35a133e1a70244805eb9452e18c28dec692081d3b049cca27c",
+    "qa": "ecd137d4577b3e19e7d75fa7a8b4f8e3a0078e618d9d3569211306659023a78b",
+    "gold_controller_only": "9798acca6ca31032b9c65844f13213a7b4a92c224aaaa08de5cfacf4eb3b526f",
+    "semantic_rubric_controller_only": "47471110726d8791478ed35b1d51091211c4413b2586c6527a55e04de6823aa9",
+    "configured_plan": "7c1d2cedd021e936eb272d4ce5055cc1b5c755b0e3428a8e6f74743a082a6ac4",
+    "data_only_auditor": "f7fb2aee812ddd60f05fbf5d82b56242a76fd59fd37bfcef1eb6853830eae711",
+    "scored_lines_controller_only": "f271f3be2d20bad5fd94235d44daa82f18757777ea42d8d43761033095b1cc84",
+    "passing_preflight_report": "3a155b2764cf33c942aa9c6c2fc55fe7d0986541e46183fc0132f659bf88057b",
+    "failed_preflight_report": "e268a06c1419f52167fd856a84aba4a47212ed9e95e10ae789171e760a0a32cd",
+    "dependency_manifest": "307f70ba1bf081a328aa89a51e6e9191eaff4a9d53a088a0b2d0b90cbc0dc82a",
+    "paired_route_helper": "e34e5959478f52cdde20a7c47e038d730652b201b193ed4fbbf70a94e28f8b6e",
+    "full_local_metadata_summary": "d8f77677de7f125873c7681adef2557ded391927d1df562e4ca8ad5a2726d681",
+    "full_local_metadata_supplement": "655841e3d6c12d8509f643129341f045702a62e829941012552d20dccf4bc56d"
+  },
+  "fixture": {
+    "initial_rows": 100,
+    "append_rows": 58,
+    "initial_content_chars": 21378,
+    "append_content_chars": 12659,
+    "initial_scored_lines": 13,
+    "append_scored_lines": 6,
+    "gold_and_rubric_controller_only": true,
+    "qa_not_appended_to_next_stage": true,
+    "stage2_uses_actual_stage1_output_plus_append_only": true,
+    "same_engine_session_reused": true
+  },
+  "preflight": {
+    "setup_failures_retained": ["ensurepip new isolated venv failed", "Hermes Python has no pip module"],
+    "first": {
+      "physical_requests": 0,
+      "fake_requests": 8,
+      "passed": false,
+      "qualifications": ["Plugin compacted both stages.", "LCM second stage kept63 rows unchanged below public leaf_chunk_tokens4000; a native no-op, not a provider failure.", "LangChain import failed because target sys.path did not load its editable core source directory."]
+    },
+    "corrected": {
+      "physical_requests": 0,
+      "fake_requests": 13,
+      "passed": true,
+      "compacted_stages": 6,
+      "qualifications": [
+        "LCM public leaf_chunk_tokens changed to2000 for both stages; no lifecycle reset or source patch.",
+        "Explicit verified core source import added; installed middleware identity checked.",
+        "One intentional plugin all-unknown retry then useful protocol success; fake replies prove no meaning quality.",
+        "All methods completed both compactions and QA transport; LCM tokenizer, public grep/expand and drain succeeded.",
+        "Default LangChain keep20/trim4000 public tool-heavy/no-human checks returned placeholder with zero fake model calls.",
+        "Oversized v1 fixture preserved for offline input-loss diagnostics; live study uses only fixed v2."
+      ]
+    }
+  },
+  "separate_regression_checks": {"source_content_regressions": {"status": "passed", "count": 259, "authority": "Primary agent report; not rerun by this metadata collector"}, "full_pr_ci": "Separate qualification;259 source-content regressions are not the full PR suite"},
+  "settings": {
+    "plugin": {"actual_engine": "WarmCompactionEngine", "warm": false, "tail_tokens": 512, "user_copy_chars": 0, "summary_words": 600, "threshold": 0.5, "deviations": "Fallback-only for the repaired fallback path; copied user messages disabled."},
+    "lcm": {
+      "actual_engine": "LCMEngine with unmodified upstream auxiliary helper",
+      "fresh_tail_count": 4,
+      "fresh_tail_max_tokens": 512,
+      "leaf_chunk_tokens": 2000,
+      "context_threshold": 0.5,
+      "summary_timeout_ms": 120000,
+      "condensation_fanin": 4,
+      "incremental_max_depth": 3,
+      "l2_budget_ratio": 0.5,
+      "l3_truncate_tokens": 512,
+      "extraction_enabled": false,
+      "assertion_extraction_enabled": false,
+      "embeddings_enabled": false,
+      "temporal_rollups_enabled": false,
+      "deviations": "Short recent tail and small leaves for this bounded comparison; native prompts and escalation remain unchanged.",
+      "retrieval": "Separate mechanical full_text grep then expand by returned reference; no recovered data goes to scored QA.",
+      "first_offline_4000_observation": "Second native compaction legitimately kept63 rows unchanged below the configured leaf threshold; not a provider or product failure."
+    },
+    "langchain": {
+      "actual_method": "SummarizationMiddleware.before_model plus normal add_messages reducer",
+      "adapter": "BaseChatModel to documented ctx.llm.complete",
+      "trigger": ["tokens", 1],
+      "keep": ["messages", 4],
+      "trim_tokens_to_summarize": null,
+      "summary_prompt": "Unmodified upstream DEFAULT_SUMMARY_PROMPT",
+      "deviations": "Force a manual comparison and preserve4 messages; disable default4000-token trim. Default keep20/trim4000 tested separately offline.",
+      "core_source_import": "Explicit verified pinned core source directory; no editable .pth execution."
+    }
+  },
+  "common_settings": {
+    "model": "dgx-model",
+    "api_mode": "chat_completions",
+    "context_length": 131072,
+    "temperature": "Configured auxiliary0.3; actual plugin compaction request omits temperature and provider default is unknown. LCM/LangChain/QA requests observed0.3.",
+    "wire_max_tokens": 8192,
+    "task_extra_body": {"max_tokens": 8192},
+    "operation_wall_budget_s": 120,
+    "physical_generation_cap": 60,
+    "max_calls_per_compaction": 4,
+    "max_calls_per_continuation": 1,
+    "repeats": 2,
+    "stages_per_repeat": 2,
+    "orders": [["plugin", "lcm", "langchain"], ["langchain", "lcm", "plugin"]],
+    "native_semantic_prompt_budgets": "Method-native; record rather than silently alter them.",
+    "cache_control": "No cache clearing, explicit warming, deployment, or production changes.",
+    "cache_missing_metrics": "unknown",
+    "performance": "Descriptive timings from two runs; no general speed claim.",
+    "observed_sampling_limit": "Native request sampling differs; no assertion of equal actual temperature across methods."
+  },
+  "request_columns": ["trial", "stage", "action", "request_number", "elapsed_s", "wire_temperature", "prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "finish_reasons", "http_status", "wire_max_tokens", "operation_calls", "operation_cap", "input_chars"],
+  "requests": [
+    ["r1-plugin", 1, "compact", 1, 10.324, null, 5177, 430, 5607, 0, ["stop"], 200, 8192, 1, 4, 24214],
+    ["r1-plugin", 1, "qa", 2, 8.848, 0.3, 1442, 455, 1897, 0, ["stop"], 200, 8192, 1, 1, 6779],
+    ["r1-plugin", 2, "compact", 3, 11.493, null, 4097, 646, 4743, 0, ["stop"], 200, 8192, 1, 4, 18768],
+    ["r1-plugin", 2, "qa", 4, 12.231, 0.3, 1622, 679, 2301, 0, ["stop"], 200, 8192, 1, 1, 7214],
+    ["r1-lcm", 1, "compact", 5, 14.258, 0.3, 5708, 580, 6288, 0, ["stop"], 200, 8192, 1, 4, 24643],
+    ["r1-lcm", 1, "qa", 6, 14.882, 0.3, 774, 896, 1670, 0, ["stop"], 200, 8192, 1, 1, 3404],
+    ["r1-lcm", 2, "compact", 7, 17.248, 0.3, 3600, 786, 4386, 0, ["stop"], 200, 8192, 1, 4, 15638],
+    ["r1-lcm", 2, "qa", 8, 16.826, 0.3, 1602, 985, 2587, 0, ["stop"], 200, 8192, 1, 1, 6579],
+    ["r1-langchain", 1, "compact", 9, 14.895, 0.3, 5923, 658, 6581, 0, ["stop"], 200, 8192, 1, 4, 27614],
+    ["r1-langchain", 1, "qa", 10, 12.218, 0.3, 826, 723, 1549, 0, ["stop"], 200, 8192, 1, 1, 3484],
+    ["r1-langchain", 2, "compact", 11, 12.921, 0.3, 4431, 718, 5149, 0, ["stop"], 200, 8192, 1, 4, 20206],
+    ["r1-langchain", 2, "qa", 12, 11.699, 0.3, 886, 677, 1563, 0, ["stop"], 200, 8192, 1, 1, 3591],
+    ["r2-langchain", 1, "compact", 13, 11.262, 0.3, 5923, 658, 6581, 5888, ["stop"], 200, 8192, 1, 4, 27614],
+    ["r2-langchain", 1, "qa", 14, 12.176, 0.3, 826, 723, 1549, 0, ["stop"], 200, 8192, 1, 1, 3484],
+    ["r2-langchain", 2, "compact", 15, 10.143, 0.3, 4431, 718, 5149, 4416, ["stop"], 200, 8192, 1, 4, 20206],
+    ["r2-langchain", 2, "qa", 16, 11.688, 0.3, 886, 677, 1563, 0, ["stop"], 200, 8192, 1, 1, 3591],
+    ["r2-lcm", 1, "compact", 17, 10.674, 0.3, 5708, 580, 6288, 5696, ["stop"], 200, 8192, 1, 4, 24643],
+    ["r2-lcm", 1, "qa", 18, 15.208, 0.3, 774, 896, 1670, 0, ["stop"], 200, 8192, 1, 1, 3404],
+    ["r2-lcm", 2, "compact", 19, 15.186, 0.3, 3600, 786, 4386, 3584, ["stop"], 200, 8192, 1, 4, 15638],
+    ["r2-lcm", 2, "qa", 20, 15.704, 0.3, 1602, 985, 2587, 1600, ["stop"], 200, 8192, 1, 1, 6579],
+    ["r2-plugin", 1, "compact", 21, 12.312, null, 5176, 560, 5736, 0, ["stop"], 200, 8192, 1, 4, 24214],
+    ["r2-plugin", 1, "qa", 22, 12.445, 0.3, 1409, 688, 2097, 0, ["stop"], 200, 8192, 1, 1, 6645],
+    ["r2-plugin", 2, "compact", 23, 11.06, null, 4067, 601, 4668, 0, ["stop"], 200, 8192, 1, 4, 18634],
+    ["r2-plugin", 2, "qa", 24, 15.519, 0.3, 1596, 855, 2451, 0, ["stop"], 200, 8192, 1, 1, 7156]
+  ],
+  "operation_count_key": ["trial", "stage", "action"],
+  "counts": {
+    "current_commit_matches_tested_source": true,
+    "tracked_source_clean": true,
+    "current_plugin_bytes_match_receipt": true,
+    "executed_and_current_harness_hashes_match": true,
+    "all_six_trials_completed": true,
+    "all_twelve_stages_compacted": true,
+    "all_twenty_four_http_status_200": true,
+    "all_twenty_four_finish_reason_stop": true,
+    "all_twenty_four_wire_max_tokens_8192": true,
+    "blocked_requests": 0,
+    "physical_requests": 24,
+    "physical_cap": 60,
+    "cap_effect_observed": false,
+    "fake_requests": 0
+  },
+  "token_totals": {"prompt_tokens": 72086, "completion_tokens": 16960, "total_tokens": 89046},
+  "provider_cached_tokens": {"total": 21184, "reported_requests": 24, "nonzero_requests": 5, "server_cache_hit_counters": "unknown", "no_cache_speed_claim": true},
+  "size_tuple_columns": ["rows", "serialized_chars", "estimated_tokens"],
+  "history_flag_limit": "The original_history_preserved stage flag compares returned context with input context. False means compaction changed the returned context; it does not test mutation of the caller input object.",
+  "size_limit": "Estimated tokens are the frozen worker heuristic, not provider token counts. Configured recent tail can differ from native tool-group boundaries; raw rows can include backlog.",
+  "trials": [
+    {
+      "trial": "r1-plugin",
+      "method": "plugin",
+      "physical_requests": 4,
+      "worker_elapsed_s": 58.625,
+      "stages": [
+        [1, "compacted", 19.052, 8.942, [100, 25264, 6319], [12, 6236, 1609], [2, 4276, 1121], [10, 1960, 488], [10, 1960, 488], false, false, true, false, [6, 0, 6, 0, 0, 0, 0, 0]],
+        [2, "compacted", 11.515, 12.243, [70, 21131, 5334], [12, 6671, 1740], [2, 4711, 1252], [10, 1960, 488], [10, 1960, 488], false, false, true, false, [6, 4, 6, 4, 0, 0, 0, 0]]
+      ]
+    },
+    {
+      "trial": "r1-lcm",
+      "method": "lcm",
+      "physical_requests": 4,
+      "worker_elapsed_s": 74.432,
+      "stages": [
+        [1, "compacted", 21.344, 14.895, [100, 25264, 6319], [5, 2803, 727], [1, 2529, 659], [4, 274, 68], [4, 274, 68], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]],
+        [2, "compacted", 17.301, 16.84, [63, 17698, 4452], [5, 5978, 1561], [1, 5704, 1493], [4, 274, 68], [4, 274, 68], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]]
+      ]
+    },
+    {
+      "trial": "r1-langchain",
+      "method": "langchain",
+      "physical_requests": 4,
+      "worker_elapsed_s": 67.383,
+      "stages": [
+        [1, "compacted", 20.335, 12.229, [100, 25264, 6319], [5, 3166, 836], [1, 2708, 722], [4, 274, 68], [4, 458, 114], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]],
+        [2, "compacted", 12.931, 11.712, [63, 18061, 4561], [5, 3273, 860], [1, 2815, 746], [4, 274, 68], [4, 458, 114], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]]
+      ]
+    },
+    {
+      "trial": "r2-langchain",
+      "method": "langchain",
+      "physical_requests": 4,
+      "worker_elapsed_s": 59.384,
+      "stages": [
+        [1, "compacted", 17.618, 12.189, [100, 25264, 6319], [5, 3166, 836], [1, 2708, 722], [4, 274, 68], [4, 458, 114], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]],
+        [2, "compacted", 10.156, 11.699, [63, 18061, 4561], [5, 3273, 860], [1, 2815, 746], [4, 274, 68], [4, 458, 114], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]]
+      ]
+    },
+    {
+      "trial": "r2-lcm",
+      "method": "lcm",
+      "physical_requests": 4,
+      "worker_elapsed_s": 67.935,
+      "stages": [
+        [1, "compacted", 17.588, 15.222, [100, 25264, 6319], [5, 2803, 727], [1, 2529, 659], [4, 274, 68], [4, 274, 68], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]],
+        [2, "compacted", 15.244, 15.72, [63, 17698, 4452], [5, 5978, 1561], [1, 5704, 1493], [4, 274, 68], [4, 274, 68], false, false, true, false, [0, 0, 0, 0, 0, 0, 0, 0]]
+      ]
+    },
+    {
+      "trial": "r2-plugin",
+      "method": "plugin",
+      "physical_requests": 4,
+      "worker_elapsed_s": 63.701,
+      "stages": [
+        [1, "compacted", 19.479, 12.497, [100, 25264, 6319], [12, 6102, 1570], [2, 4142, 1082], [10, 1960, 488], [10, 1960, 488], false, false, true, false, [7, 0, 7, 0, 0, 0, 0, 0]],
+        [2, "compacted", 11.076, 15.531, [70, 20997, 5295], [12, 6613, 1720], [2, 4653, 1232], [10, 1960, 488], [10, 1960, 488], false, false, true, false, [4, 4, 4, 4, 0, 0, 0, 0]]
+      ]
+    }
+  ],
+  "provider_exact_source_reachability": [
+    {"trial": "r1-plugin", "stage": 1, "initial_lines_exact": 13, "append_lines_exact": 0, "input_messages_sha256": "3cf6f75d339b54c145faca4a51d9fce34bf225dd2436c353299130ac402a274f"},
+    {"trial": "r1-plugin", "stage": 2, "initial_lines_exact": 6, "append_lines_exact": 6, "input_messages_sha256": "53ad017c0411df0d2afc10d4c3761432dee2183a8c15ce0f5f80ade335602661"},
+    {"trial": "r1-lcm", "stage": 1, "initial_lines_exact": 13, "append_lines_exact": 0, "input_messages_sha256": "838a84bbd025e4aaf3d61a1bc626db40a20b7da9fe252e1f4d8c5faa8befeaa2"},
+    {"trial": "r1-lcm", "stage": 2, "initial_lines_exact": 0, "append_lines_exact": 6, "input_messages_sha256": "12ca9210da43b5d3a33d48f52c729062804c3c810c4b965d67d9efba9c86af94"},
+    {"trial": "r1-langchain", "stage": 1, "initial_lines_exact": 13, "append_lines_exact": 0, "input_messages_sha256": "58ac2c2292a4142f220d9c47148ba543d7a9d223e00ebfd0f362c6dd84457af3"},
+    {"trial": "r1-langchain", "stage": 2, "initial_lines_exact": 0, "append_lines_exact": 6, "input_messages_sha256": "84090a12b84316075640c0a5ea07f580984a23e00f6542818e111725052a2b1d"},
+    {"trial": "r2-langchain", "stage": 1, "initial_lines_exact": 13, "append_lines_exact": 0, "input_messages_sha256": "58ac2c2292a4142f220d9c47148ba543d7a9d223e00ebfd0f362c6dd84457af3"},
+    {"trial": "r2-langchain", "stage": 2, "initial_lines_exact": 0, "append_lines_exact": 6, "input_messages_sha256": "84090a12b84316075640c0a5ea07f580984a23e00f6542818e111725052a2b1d"},
+    {"trial": "r2-lcm", "stage": 1, "initial_lines_exact": 13, "append_lines_exact": 0, "input_messages_sha256": "838a84bbd025e4aaf3d61a1bc626db40a20b7da9fe252e1f4d8c5faa8befeaa2"},
+    {"trial": "r2-lcm", "stage": 2, "initial_lines_exact": 0, "append_lines_exact": 6, "input_messages_sha256": "12ca9210da43b5d3a33d48f52c729062804c3c810c4b965d67d9efba9c86af94"},
+    {"trial": "r2-plugin", "stage": 1, "initial_lines_exact": 13, "append_lines_exact": 0, "input_messages_sha256": "cd7986fa48af6fc148eaa2b01d461b87fa2c0104c9486d9cf30eb7abdc1b7357"},
+    {"trial": "r2-plugin", "stage": 2, "initial_lines_exact": 7, "append_lines_exact": 6, "input_messages_sha256": "77bb7e05ff83cfba26a7c28d56b1b488d8168b5811fc7f5f11e88b1902072b25"}
+  ],
+  "source_verification": {
+    "six_worker_exits_zero": true,
+    "six_public_host_source_checks_pass": true,
+    "six_trial_package_before_after_checks_pass": true,
+    "current_plugin_commit_and_all_bytes_match_live_receipt": true,
+    "tracked_plugin_source_clean_at_closeout": true,
+    "executed_and_current_harness_hashes_match": true,
+    "offline_identity_association_includes_harness_fixture_qa_gold_rubric_and_algorithms": true,
+    "all_twenty_four_wire_caps_8192": true,
+    "fixed_configured_destination_and_bound_key": true,
+    "redirects_refused": true,
+    "no_background_or_cleanup_generation_requests_observed": true
+  },
+  "qa_format": {
+    "strict_json_object_true": 0,
+    "fenced_json_valid": 12,
+    "total": 12,
+    "original_strict_flags_preserved": true,
+    "meaning_not_scored_by_format_parser": true,
+    "saved_file_format": "Known synthetic-data label, followed by a Markdown JSON fence containing one valid JSON object",
+    "strict_mismatch": "The complete saved reply has a label prefix and a Markdown fence. It is not a bare JSON object.",
+    "extra_text_flag_scope": "The stage flag measures additional text only after removal of the known synthetic label; it does not claim the original reply has no prefix."
+  },
+  "lcm_mechanical_recovery": {
+    "method": "Public full_text lcm_grep then public lcm_expand with a returned node_id; no embedding or model calls",
+    "not_supplied_to_scored_qa": true,
+    "trials": {
+      "r1-lcm": {"returned_source_rows": 58, "exact_append_scored_lines_recovered": 6, "exact_initial_scored_lines_in_selected_node": 0, "content_truncated_rows": 0, "pagination_has_more": false, "expanded_data_sha256": "2dee02fdd84c101ac253905fb0127e73837dad33f4403897346a0937df4bbd55"},
+      "r2-lcm": {"returned_source_rows": 58, "exact_append_scored_lines_recovered": 6, "exact_initial_scored_lines_in_selected_node": 0, "content_truncated_rows": 0, "pagination_has_more": false, "expanded_data_sha256": "2dee02fdd84c101ac253905fb0127e73837dad33f4403897346a0937df4bbd55"}
+    },
+    "limit": "One selected returned node per trial;58 append source rows recovered. This does not prove all original rows were recovered or improve immediate QA retention."
+  },
+  "limits": [
+    "Meaning review is in semantic_review and is separate from format, transport, exact-line, and recovery checks. No overall quality percentage is claimed.",
+    "Exact source reachability and exact retained lines are not semantic scores.",
+    "Missing lines can reflect paraphrase or input loss; review saved invented data.",
+    "All thirteen scored stage1 lines reached the first plugin compaction request.",
+    "Root observed fused quote lines in that reply were discarded by construction; this is not input trimming.",
+    "Strict QA JSON flags remain unchanged; fenced JSON validity is a separate format-only check.",
+    "Actual plugin compaction temperature was omitted; provider default is unknown.",
+    "Other observed request temperatures were0.3; native prompts and tail rules differ.",
+    "Cache tokens are provider-reported; server cache-hit counters are unknown.",
+    "Underlying served model revision and provider default sampling settings are unknown.",
+    "Timings are descriptive for two repeats; this is not a general speed claim.",
+    "Mechanical LCM retrieval is separate from immediate context or summary meaning.",
+    "No new model calls, private conversation reads, production changes, or cache clearing in this audit.",
+    "All scored source lines were outside each configured protected tail; zero exact scored lines were retained there in all12 stages.",
+    "Immediate context, summary-only content, raw backlog and mechanical retrieval must be reviewed separately.",
+    "Two repetitions do not establish general accuracy, performance, or a universal method ranking.",
+    "No production plugin, host, model deployment or cache changes; no real conversation input."
+  ],
+  "stage_columns": [
+    "stage",
+    "status",
+    "compaction_elapsed_s",
+    "qa_elapsed_s",
+    "input_full_context",
+    "output_full_context",
+    "summary_only",
+    "configured_recent_tail",
+    "raw_source_rows",
+    "original_history_preserved",
+    "strict_qa_json_object",
+    "fenced_json_valid",
+    "qa_extra_text_after_known_label_outside_fence",
+    "exact_line_location_counts"
+  ],
+  "exact_line_location_count_columns": ["active_initial", "active_append", "summary_initial", "summary_append", "raw_initial", "raw_append", "protected_tail_initial", "protected_tail_append"]
+}

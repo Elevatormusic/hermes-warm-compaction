@@ -1,0 +1,76 @@
+{
+  "data": "Invented synthetic fixtures and fake LLM replies only; metadata only.",
+  "code_commit": "439d2120c3eb06e1f72d92ff72f50b7c4123fc84",
+  "source": {
+    "file": "warm_compaction/fallback.py",
+    "lf_sha256": "4297ceebe3dda0c63b2b85a5c8d29d9479ff23d194ea0942f6f5b295fe8af9a4"
+  },
+  "change": "Require at least one verified retained payload quote after construction; retry once before safe refusal. Give a recognized earlier-summary core the existing budget before its copied-message appendix.",
+  "before": {
+    "commit": "fdfa8502a59dcd65fffe2d2ca78a343ec29a6b56",
+    "fallback": {
+      "methods": 3,
+      "expected_assertion_failures": 5,
+      "proved": "Old source accepted all-unknown and generated-only evidence, and an appendix displaced a core fact."
+    },
+    "corrected_engine": {
+      "isolated_exact_old_package": true,
+      "methods": 1,
+      "expected_assertion_failures": 1,
+      "fake_llm_calls": 1,
+      "path": "fallback",
+      "compaction_count": 1,
+      "pending_result": true,
+      "proved": "Old plugin accepted all-unknown output and staged a replacement compaction result; no Hermes host history commit was tested."
+    }
+  },
+  "corrections": [
+    "The first engine baseline kept all rows in its tail and did not reach fallback. The prior inference that it proved accepted compaction or history replacement was false and is corrected here.",
+    "The first affected round had two legacy trailing-space expectation failures and one engine tail setup failure. Two fixture-only corrections were made; runtime code was unchanged."
+  ],
+  "after": {
+    "fallback_tests": 123,
+    "engine_tests": 136,
+    "total_focused_tests": 259,
+    "result": "passed",
+    "proved": "Useful-evidence and core-priority fixtures pass. Two unusable replies safely refuse and preserve the plugin input history; useful payload can pass with unknown fields.",
+    "python": "3.14.5",
+    "ruff": "0.16.10",
+    "ruff_result": "passed on six affected Python files; passed again on the two corrected test files",
+    "environment": "worker_environment(home), fresh synthetic home for each subprocess, credential variables removed"
+  },
+  "commands": {
+    "note": "Code checks ran from the issue-30 worktree root with the isolated test Python. The saved runner files are local evidence helpers, not tracked project commands.",
+    "initial_baseline": "python -B .work/useful-evidence-run.py facts-baseline",
+    "corrected_engine_baseline": "python -B .work/useful-evidence-corrected-baseline.py",
+    "first_affected_round": "python -B .work/useful-evidence-run.py focused",
+    "final_affected_round": "python -B .work/useful-evidence-round2-run.py focused",
+    "checks": [
+      "python -B -m unittest discover -s tests -p test_wc_fallback.py",
+      "python -B -m unittest discover -s tests -p test_wc_engine.py",
+      "python -B -m ruff check warm_compaction/fallback.py tests/test_wc_fallback.py tests/test_wc_engine.py scripts/check_plugin_hermes.py scripts/check_provider_apis.py scripts/check_fallback_limit.py",
+      "python -B -m ruff check tests/test_wc_fallback.py tests/test_wc_engine.py",
+      "python -B -m ruff --version",
+      "git diff --check"
+    ],
+    "document_report": "<hermes-venv-python> -B .work/check_source_gate_docs.py docs-useful-evidence-report.json",
+    "document_report_cwd": "Parent workspace root; helper selects the issue-30 worktree.",
+    "document_base_diff": "git diff --check f1590bce8397678139e93d97a4c2660b60201238"
+  },
+  "documents": {
+    "local_markdown_links_checked": 45,
+    "missing_links": 0,
+    "issue_forms": "Both unchanged forms passed YAML parsing and GitHub form schema review.",
+    "agents_claude_byte_parity": "passed",
+    "diff_check": "passed",
+    "base_diff_check": "passed",
+    "python": "3.14.7",
+    "scope": "Read-only document and metadata checks; not the full code suite.",
+    "schema_source": "https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema"
+  },
+  "limits": [
+    "At capture, full unit, property, policy, lint, and four Hermes loopback suites were pending publication CI. This file records the focused checks only; full results for the publication commit are linked separately in the PR.",
+    "No live provider qualification, performance, cache, or deployed-version result is included.",
+    "Exact source support and one useful quote do not prove truth, current applicability, evidence selection, or complete retention. Recognized prior quotes retain the existing one-layer trust rule."
+  ]
+}
