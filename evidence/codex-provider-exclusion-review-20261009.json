@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-09",
+  "pr": 23,
+  "tested_parent_commit": "e88ac2215e3c7b886008ef1f3b598766b940f3a9",
+  "scope": "11 focused provider tests fail before with one expected regression and pass after; full engine module120 passed and one loopback test unavailable in this executor; complete current-head CI required",
+  "isolation": {
+    "image": "python@sha256:aa679aa4eed6eb56c1dc6ad3f1b98b7d2d788fd961596779d188fdedad97fb38",
+    "network": "none; AF_INET and AF_INET6 denied",
+    "credentials": "none",
+    "user": "65534:65534",
+    "candidate_tree": "read-only",
+    "containers_removed": true
+  },
+  "stages": [
+    {
+      "container_removed": true,
+      "elapsed_seconds": 2.904,
+      "exit_code": 1,
+      "expected_test_count": 11,
+      "log_sha256": "39ab39ed8bd5ad2e0e0941da8aa9de5384eb4aa37ae4e23097105c191b224b3c",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "before",
+      "timed_out": false
+    },
+    {
+      "container_removed": true,
+      "elapsed_seconds": 3.148,
+      "exit_code": 0,
+      "expected_test_count": 11,
+      "log_sha256": "24e32a68cea4af46f1da5fd8304b72eccf72f5c17f9ecb8ce5157902a1a73c0c",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "after",
+      "timed_out": false
+    },
+    {
+      "container_removed": true,
+      "elapsed_seconds": 8.091,
+      "exit_code": 1,
+      "expected_test_count": 121,
+      "log_sha256": "b662805f740e0885c7c1353cea922a278dccfb6b096084603226982fc590eee4",
+      "matched_expected_result": true,
+      "outcome": "unavailable",
+      "passed_tests": 120,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "engine",
+      "timed_out": false,
+      "unavailable_reason": "Loopback socket denied by executor policy; full current-head CI remains required",
+      "unavailable_tests": 1
+    }
+  ],
+  "changed_files": {
+    "tests/test_wc_engine.py": {
+      "base_sha256": "7f3a40248144c005264a86d45a10e7efd021c03c494a0ce8a63012fbc6f535dc",
+      "bytes": 113401,
+      "changed_sha256": "de38ea43a1455277658db0f24185a3b80c0d6c58eca040dfe8129eea64d9b81a"
+    },
+    "warm_compaction/engine.py": {
+      "base_sha256": "f77a6d526e940492868fbbc1eb74baa05c7cf70a8ecd957fa299395960b49edf",
+      "bytes": 51127,
+      "changed_sha256": "446ddf0905fbc616c0cb1cea394c01ae6089e498bc5f9ffa3c58226a70a5b320"
+    }
+  },
+  "patch_sha256": {
+    "fix.patch": "6b30625d4d2e8a3198909b4585efd4b5001a809a0bdb0e9df27f4e6b166c203f",
+    "tests.patch": "84206196bd6ae4505bf74ee7e6e80c8c186a575420b8a10e51b83529aa317290"
+  },
+  "runner_sha256": {
+    "pr23-container-runner.py": "74564a929d1e4ac29897d263cb919f90d0d6ef04643b44cba445807a9abb6c11",
+    "pr23-seccomp.json": "d602e7b6cc3b88932ea37a753f6bb0d77928f7a9ea1dccbcb0cd8f633589db7c"
+  },
+  "limits": [
+    "No live provider or performance test for this correction",
+    "Prior Hermes probes belong to parent e88ac22; new-head CI must test the correction",
+    "Remote review and required checks remain separate"
+  ],
+  "readme_local_links": {
+    "head": "e88ac2215e3c7b886008ef1f3b598766b940f3a9",
+    "readme_blob": "712d6414a10b8f2e0553a1a6e13b3e2811f07fb8",
+    "readme_sha256": "0af108a0357eb0b46873d207111b71ae56c9d7057b6f9dcdac4c8a8642a468bf",
+    "links_parsed": 39,
+    "relative_links_passed": 29,
+    "remote_links_skipped": 10,
+    "missing_count": 0,
+    "unknown_count": 0,
+    "passed": true
+  },
+  "commands": [
+    "python -B -m unittest discover -s tests -p test_wc_engine.py -k provider_",
+    "python -B -m unittest discover -s tests -p test_wc_engine.py"
+  ]
+}

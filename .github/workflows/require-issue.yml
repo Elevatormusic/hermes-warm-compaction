@@ -1,0 +1,39 @@
+name: Issue first
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to check without a write
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+env:
+  # Existing pull requests stay outside the policy after edits or reopening.
+  ISSUE_POLICY_ACTIVATED_AT: ${{ vars.ISSUE_POLICY_ACTIVATED_AT }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  issue-first:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read the trusted workflow source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check the PR requirements without a write
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/check_issue_policy.py

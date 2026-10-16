@@ -282,6 +282,30 @@ class CaptureLifecycleProperties(unittest.TestCase):
         wc_hermes_stub.install(self)
 
     @PROPERTIES
+    @given(histories(), TEXT, st.sampled_from((RESPONSES, MESSAGES)))
+    def test_summary_failure_keeps_native_history_capture_and_counters(self, rows, answer, route):
+        from warm_compaction.engine import CompactionAborted, WarmCompactionEngine
+        saved = capture(rows, assistant(answer), route)
+        store = CaptureStore()
+        engine = WarmCompactionEngine(store=store, settings={"warm": False, "tail_tokens": 1})
+        engine.update_model(route[0], 200_000, base_url=route[1], api_mode=route[2],
+                            provider="synthetic-provider", api_key="synthetic-key")
+        engine.on_session_start("synthetic-session")
+        saved["key_stamp"] = engine._key_stamp()
+        store._sessions["synthetic-session"] = copy.deepcopy(saved)
+        current = copy.deepcopy([*rows, assistant(answer)])
+        before = copy.deepcopy(current)
+        captured = copy.deepcopy(store.latest("synthetic-session"))
+        with self.assertRaises(CompactionAborted):
+            engine.compress(current)
+        self.assertEqual(current, before)
+        self.assertEqual(store.latest("synthetic-session"), captured)
+        self.assertEqual(engine.compression_count, 0)
+        self.assertIsNone(engine._pending_warm_result)
+        self.assertEqual(engine._warm_failures, 0)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["fallback_reason"]), ("aborted", "unavailable"))
+
+    @PROPERTIES
     @given(histories(), TEXT, st.sampled_from((RESPONSES, MESSAGES)),
            st.lists(st.sampled_from(("same", "route", "provider", "credential", "session", "history")),
                     min_size=1, max_size=12))

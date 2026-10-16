@@ -13,6 +13,7 @@ processes, and writes outside the scenario folder. The report has metadata only.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import inspect
 import json
@@ -38,8 +39,13 @@ SEED_QUESTION = "What is the code word?"
 NEXT_QUESTION = "What is the next step?"
 TOOL_QUESTION = "Call the note tool, then answer."
 TOOL_AGAIN_QUESTION = "Call the note tool again, then answer."
+CONTEXT_QUESTION = "Context check: what is the code word?"
+CONTEXT_TOOL_QUESTION = "Context check: call the note tool, then answer."
+CONTEXT_TOOL_AGAIN_QUESTION = "Context check: call the note tool again, then answer."
+INJECTED_CONTEXT = "Synthetic plugin context: keep the code word BLUE-7."
 WHITESPACE_QUESTIONS = ("Hello there ", "Hello there\n")
-QUESTIONS = (SEED_QUESTION, NEXT_QUESTION, TOOL_QUESTION, TOOL_AGAIN_QUESTION, "Hello there")
+QUESTIONS = (SEED_QUESTION, NEXT_QUESTION, TOOL_QUESTION, TOOL_AGAIN_QUESTION, "Hello there",
+             CONTEXT_QUESTION, CONTEXT_TOOL_QUESTION, CONTEXT_TOOL_AGAIN_QUESTION)
 HANDOFF = (
     "## Goal\nFinish the synthetic test task.\n\n"
     "## User instructions\n- \"Answer in one short sentence.\"\n\n"
@@ -54,21 +60,27 @@ TOOL_PLUGIN = {
     "plugin.yaml": (
         "manifest_version: 2\nname: wc_test_tools\nversion: 0.0.1\n"
         "description: \"Test tool for the warm_compaction integration check.\"\nkind: standalone\n"
+        "provides_hooks:\n  - pre_llm_call\n"
     ),
     "__init__.py": (
         '"""Test tool plugin for the warm_compaction integration check."""\n\nimport json\n\n\n'
         "def _note(args, **_kwargs):\n"
         '    return json.dumps({"note": "The test note says BLUE-7."})\n\n\n'
+        "def _context(user_message=None, **_kwargs):\n"
+        '    if isinstance(user_message, str) and user_message.startswith("Context check:"):\n'
+        f'        return {{"context": {INJECTED_CONTEXT!r}}}\n'
+        "    return None\n\n\n"
         "def register(ctx):\n"
+        '    ctx.register_hook("pre_llm_call", _context)\n'
         '    ctx.register_tool(name="wc_note", toolset="wc_test", handler=_note, schema={\n'
         '        "name": "wc_note", "description": "Return a fixed test note.",\n'
         '        "parameters": {"type": "object", "properties": {}, "required": []}})\n'
     ),
 }
-SCENARIOS = ("enable_manual_warm", "manual_whitespace", "manual_fallback", "manual_fixed", "auto_tool_loop",
-             "auto_warm_failures", "rollback")
+SCENARIOS = ("enable_manual_warm", "manual_context", "manual_whitespace", "manual_reasoning", "manual_fallback",
+             "manual_aborted", "auto_tool_loop", "auto_context_tool", "auto_warm_failures", "rollback")
 # The scenarios with automatic compaction in a tool loop.
-AUTO_SCENARIOS = ("auto_tool_loop", "auto_warm_failures")
+AUTO_SCENARIOS = ("auto_tool_loop", "auto_context_tool", "auto_warm_failures")
 NOTICE_MARK = "Warm compaction unavailable"
 NATIVE_NOTICE_MARK = "Hermes includes native warm handoff."
 # The rollback scenario has a third process: a new Hermes process with the built-in compressor.
@@ -115,7 +127,8 @@ def classify(body) -> str:
     if last.get("role") == "user" and str(last.get("content") or "").startswith(WARM_MARK):
         return "warm"
     users = [row for row in messages if row.get("role") == "user"]
-    if users and str(users[-1].get("content") or "") in QUESTIONS:
+    if users and str(users[-1].get("content") or "") in (
+            *QUESTIONS, *(question + "\n\n" + INJECTED_CONTEXT for question in QUESTIONS)):
         return "main"
     return "other"
 
@@ -210,6 +223,8 @@ class FakeServer:
                 step = self.main_replies.pop(0) if self.main_replies else {"content": "OK."}
                 payload = completion(step.get("content"), step.get("tool"),
                                      prompt_tokens=step.get("prompt_tokens", size))
+                if "reasoning_content" in step:
+                    payload[0]["reasoning_content"] = step["reasoning_content"]
             else:
                 payload = completion("Synthetic title", prompt_tokens=size)
         return entry["status"], payload
@@ -230,6 +245,8 @@ class FakeServer:
         delta = {"role": "assistant"}
         if message.get("content") is not None:
             delta["content"] = message["content"]
+        if "reasoning_content" in message:
+            delta["reasoning_content"] = message["reasoning_content"]
         if message.get("tool_calls"):
             delta["tool_calls"] = [{"index": index, **call} for index, call in enumerate(message["tool_calls"])]
         parts = [event([{"index": 0, "delta": delta, "finish_reason": None}]),
@@ -358,14 +375,17 @@ def synthetic_history(pairs=30):
 
 
 def plan_for(scenario):
+    if scenario == "manual_reasoning":
+        return {"main": [{"content": "The code word is BLUE-7.", "reasoning_content": "Synthetic first thoughts."},
+                         {"content": "Next: report BLUE-7.", "reasoning_content": "Synthetic next thoughts."}]}
     if scenario == "manual_whitespace":
         return {"main": [{"content": "The code word is BLUE-7."}, {"content": "Hello."},
                          {"content": "Hello again."}]}
-    if scenario in ("enable_manual_warm", "rollback"):
+    if scenario in ("enable_manual_warm", "manual_context", "rollback"):
         return {"main": [{"content": "The code word is BLUE-7."}, {"content": "Next: report BLUE-7."}]}
     if scenario == "manual_fallback":
         return {"warm_status": 500, "main": [{"content": "The code word is BLUE-7."}, {"content": "Next."}]}
-    if scenario == "manual_fixed":
+    if scenario == "manual_aborted":
         return {"warm_status": 500, "fallback_status": 500,
                 "main": [{"content": "The code word is BLUE-7."}, {"content": "Next."}]}
     if scenario == "auto_warm_failures":
@@ -375,7 +395,7 @@ def plan_for(scenario):
             main += [{"tool": {"id": f"call_{index + 1}", "name": "wc_note"}, "prompt_tokens": 150_000},
                      {"content": f"Done {index + 1}.", "prompt_tokens": 20_000}]
         return {"warm_fail_first": 3, "main": main}
-    if scenario == "auto_tool_loop":
+    if scenario in ("auto_tool_loop", "auto_context_tool"):
         return {"main": [
             {"tool": {"id": "call_1", "name": "wc_note"}, "prompt_tokens": 150_000},
             {"content": "Done.", "prompt_tokens": 20_000},
@@ -453,7 +473,7 @@ def install_phase(spec, session_dir):
         documented = scenario == "enable_manual_warm"
         cmd_install(spec["plugin_url"], enable=documented)
         names = ["warm_compaction"]
-        if scenario in AUTO_SCENARIOS:
+        if scenario in (*AUTO_SCENARIOS, "manual_context"):
             cmd_install(spec["tool_plugin_url"], enable=False)
             names.append("wc_test_tools")
         if not documented:
@@ -526,7 +546,13 @@ def run_phase(spec, session_dir):
         statuses = []
         sid = f"wc-{scenario}"
         db.create_session(sid, "cli")
-        db.append_messages_batch(sid, synthetic_history())
+        initial = synthetic_history()
+        if scenario == "manual_reasoning":
+            initial[1].update(reasoning="Synthetic earlier thoughts.", reasoning_content="Synthetic earlier thoughts.")
+            initial[3]["content"] = "[CONTEXT SUMMARY]: Synthetic earlier summary."
+            initial[3]["_compressed_summary"] = True
+            initial[5]["display_kind"] = "compaction_notice"
+        db.append_messages_batch(sid, initial)
         agent = AIAgent(base_url=server.base_url, api_key="no-key-required", provider="custom",
                         api_mode="chat_completions", model=MODEL,
                         enabled_toolsets=["wc_test"] if scenario in AUTO_SCENARIOS else [],
@@ -540,16 +566,19 @@ def run_phase(spec, session_dir):
                             "context_length": engine.context_length}
         checks["native_notice_not_logged_before_compaction"] = NATIVE_NOTICE_MARK not in read_agent_log(home)
         history = db.get_messages_as_conversation(sid)
-        if scenario == "auto_tool_loop":
+        if scenario in ("auto_tool_loop", "auto_context_tool"):
             run_auto(agent, engine, history, server, result, checks, statuses)
         elif scenario == "auto_warm_failures":
             run_auto_failures(agent, engine, history, server, result, checks, statuses, home)
         elif scenario == "manual_whitespace":
             run_manual_whitespace(agent, engine, db, history, server, result, checks,
                                   _compress_session_history, finalize_context_engine_compression_notification)
+        elif scenario == "manual_reasoning":
+            run_manual_reasoning(agent, engine, db, history, server, result, checks,
+                                 _compress_session_history, finalize_context_engine_compression_notification)
         else:
             run_manual(agent, engine, db, history, server, result, checks, scenario,
-                       _compress_session_history, finalize_context_engine_compression_notification)
+                       _compress_session_history, finalize_context_engine_compression_notification, statuses)
         check_native_notice(agent, engine, db, server, result, checks, statuses, home, config_before)
         if scenario == "auto_warm_failures":
             # The boundary probe uses a second engine. Check the main engine's log count first.
@@ -764,8 +793,9 @@ def check_native_notice(agent, engine, db, server, result, checks, statuses, hom
     checks["native_notice_not_in_saved_history"] = NATIVE_NOTICE_MARK not in json.dumps(saved)
 
 
-def run_manual(agent, engine, db, history, server, result, checks, scenario, compress, finalize):
-    seed = agent.run_conversation(SEED_QUESTION, system_message=SYSTEM, conversation_history=history)
+def run_manual(agent, engine, db, history, server, result, checks, scenario, compress, finalize, statuses):
+    question = CONTEXT_QUESTION if scenario == "manual_context" else SEED_QUESTION
+    seed = agent.run_conversation(question, system_message=SYSTEM, conversation_history=history)
     messages = seed.get("messages") or []
     checks["seed_turn"] = len(messages) == len(history) + 2
     session = {"agent": agent, "history": list(messages), "history_lock": threading.Lock(),
@@ -773,36 +803,40 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     # The capture keeps the prompt count that the server reported, through the real post_api_request hook.
     capture = engine._store.latest(engine._wc_session_id) or {}
     seed_request = by_kind(server, "main")[-1]
+    if scenario == "manual_context":
+        check_injected_context(messages, seed_request, checks, "manual", question)
     checks["capture_keeps_reported_prompt_tokens"] = capture.get("prompt_tokens") == len(
         json.dumps(seed_request["body"]["messages"])) // 4
+    if scenario == "manual_aborted":
+        run_manual_aborted(agent, engine, db, session, capture, server, result, checks, compress, finalize, statuses)
+        return
     begin = time.perf_counter()
     failures_before = engine._warm_failures
     removed, _usage = compress(session, "")
     checks["failure_streak_waits_for_manual_commit"] = engine._warm_failures == failures_before
     finalize(agent, committed=True)
-    expected_failures = failures_before + (scenario in ("manual_fallback", "manual_fixed"))
+    expected_failures = failures_before + (scenario == "manual_fallback")
     checks["failure_streak_after_manual_commit"] = engine._warm_failures == expected_failures
     checks["manual_commit_notification_one_time"] = finalize(agent, committed=True) is False
     result["compress_seconds"] = round(time.perf_counter() - begin, 3)
     warm_last = dict(engine.warm_last or {})
     result["warm_last"] = warm_last
-    expected = {"enable_manual_warm": ("warm", "accepted"), "manual_fallback": ("fallback", "provider_error"),
-                "manual_fixed": ("fixed", "provider_error"), "rollback": ("warm", "accepted")}[scenario]
+    expected = {"enable_manual_warm": ("warm", "accepted"), "manual_context": ("warm", "accepted"),
+                "manual_fallback": ("fallback", "provider_error"),
+                "rollback": ("warm", "accepted")}[scenario]
     checks["path_and_reason"] = (warm_last.get("path"), warm_last.get("reason")) == expected
     checks["removed_rows"] = removed > 0
     after = session["history"]
     checks["native_notice_not_in_manual_history"] = NATIVE_NOTICE_MARK not in json.dumps(after)
     checks["summary_rows"] = summary_rows_ok(after)
     checks["tail_starts_with_user"] = after[2].get("role") == "user"
-    if scenario == "enable_manual_warm":
+    if scenario in ("enable_manual_warm", "manual_context"):
         check_warm_request(server, checks, "warm")
         checks["handoff_in_summary"] = HANDOFF in str(after[1].get("content"))
         checks["no_fallback_request"] = not by_kind(server, "fallback")
     if scenario == "manual_fallback":
         checks["one_fallback_request"] = len(by_kind(server, "fallback")) == 1
         checks["fallback_in_summary"] = "(fallback)" in str(after[1].get("content"))
-    if scenario == "manual_fixed":
-        checks["fixed_in_summary"] = "Summary unavailable." in str(after[1].get("content"))
     saved = db.get_messages_as_conversation(agent.session_id)
     checks["history_saved"] = [row.get("content") for row in saved] == [row.get("content") for row in after]
     result["session_rotated"] = agent.session_id != f"wc-{scenario}"
@@ -817,6 +851,124 @@ def run_manual(agent, engine, db, history, server, result, checks, scenario, com
     # Information only: Hermes rebuilds the system prompt during /compress. This is host behavior.
     result["continuation_keeps_custom_system_text"] = bool(later) and SYSTEM in str(
         later[0]["body"]["messages"][0].get("content") or "")
+
+
+def run_manual_aborted(agent, engine, db, session, capture, server, result, checks, compress, finalize, statuses):
+    """Two failed synthetic model requests must stop the real manual history transaction."""
+    module = sys.modules[type(engine).__module__]
+    abort_type = getattr(module, "CompactionAborted", None)
+    checks["abort_type_from_installed_plugin"] = (
+        isinstance(abort_type, type) and issubclass(abort_type, RuntimeError)
+        and inside(inspect.getfile(abort_type), Path(os.environ["HERMES_HOME"]) / "plugins" / "warm_compaction"))
+    before_history = copy.deepcopy(session["history"])
+    history_object = session["history"]
+    before_saved = copy.deepcopy(db.get_messages_as_conversation(agent.session_id))
+    before_capture = copy.deepcopy(capture)
+    before_session = agent.session_id
+    before_engine_session = engine._wc_session_id
+    before_version = session["history_version"]
+    before_count = engine.compression_count
+    before_failures = engine._warm_failures
+    before_notice = engine._warm_notice
+    before_notice_issued = engine._warm_notice_issued
+    before_requests = len(server.requests)
+    before_statuses = len(statuses)
+    begin = time.perf_counter()
+    try:
+        compress(session, "")
+    except Exception as error:
+        checks["expected_abort_error"] = abort_type is not None and type(error) is abort_type
+        checks["abort_error_name"] = type(error).__name__ == "CompactionAborted"
+        # Compare the fixed public text in memory. Never copy arbitrary exception text to the report.
+        checks["abort_error_is_sanitized"] = str(error) == (
+            "Warm compaction stopped; history is unchanged "
+            "(warm: provider_error; fallback: error:InternalServerError).")
+        result["abort_error_type"] = type(error).__name__
+    else:
+        checks["expected_abort_error"] = False
+    result["compress_seconds"] = round(time.perf_counter() - begin, 3)
+    last = dict(engine.warm_last or {})
+    result["warm_last"] = last
+    checks["path_and_reason"] = (last.get("path"), last.get("reason"), last.get("fallback_reason")) == (
+        "aborted", "provider_error", "error:InternalServerError")
+    checks["manual_history_object_unchanged"] = session["history"] is history_object
+    checks["manual_history_unchanged"] = session["history"] == before_history
+    checks["saved_history_unchanged"] = db.get_messages_as_conversation(before_session) == before_saved
+    checks["capture_unchanged"] = engine._store.latest(before_engine_session) == before_capture
+    checks["session_id_unchanged"] = agent.session_id == before_session
+    checks["engine_session_unchanged"] = engine._wc_session_id == before_engine_session
+    checks["session_history_version_unchanged"] = session["history_version"] == before_version
+    checks["session_key_unchanged"] = session["session_key"] == before_session
+    checks["compression_count_unchanged"] = engine.compression_count == before_count
+    checks["failure_streak_unchanged"] = engine._warm_failures == before_failures
+    checks["failure_notice_unchanged"] = (
+        engine._warm_notice == before_notice and engine._warm_notice_issued == before_notice_issued)
+    checks["no_pending_successful_boundary"] = engine._pending_warm_result is None
+    checks["no_successful_boundary_notification"] = finalize(agent, committed=True) is False
+    checks["aborted_manual_has_no_compacted_status"] = not any(
+        kind == "compacted" for kind, _message in statuses[before_statuses:])
+    checks["no_generated_summary"] = not any(row.get("_compressed_summary") for row in session["history"])
+    attempted = server.requests[before_requests:]
+    checks["only_two_summary_requests"] = [(row["kind"], row["status"]) for row in attempted] == [
+        ("warm", 500), ("fallback", 500)]
+    result["session_rotated"] = False
+    result["compression_count"] = engine.compression_count
+    result["automatic_stop_contract"] = "not checked: Hermes has no documented terminal plugin abort result"
+
+
+def run_manual_reasoning(agent, engine, db, history, server, result, checks, compress, finalize):
+    """Repeat compaction with synthetic reasoning, summary, and notice rows on the real route."""
+    from agent import message_sanitization
+
+    modern = callable(getattr(message_sanitization, "route_reasoning_carriers", None))
+    result["reasoning_carrier_policy"] = "route_carriers" if modern else "legacy_echo"
+    if modern:
+        pad, carriers = agent._reasoning_replay_route()
+        expected_keys = set(carriers or ()) & {"reasoning", "reasoning_content"}
+    else:
+        pad = agent._needs_thinking_reasoning_pad()
+        expected_keys = {"reasoning_content"} if pad else set()
+    result["host_reasoning_padding"] = bool(pad)
+    messages = history
+    for index, question in enumerate((SEED_QUESTION, NEXT_QUESTION), 1):
+        if index > 1:
+            messages = list(messages) + synthetic_history(20)
+        reply = agent.run_conversation(question, system_message=SYSTEM, conversation_history=messages)
+        messages = list(reply.get("messages") or [])
+        label = f"turn{index}"
+        checks[f"{label}_reply"] = bool(str(reply.get("final_response") or "").strip())
+        capture = engine._store.latest(engine._wc_session_id) or {}
+        captured = copy.deepcopy(capture.get("body", {}).get("messages") or [])
+        assistants = [row for row in captured if row.get("role") == "assistant"]
+        text_keys = {key for row in assistants for key in ("reasoning", "reasoning_content") if key in row}
+        checks[f"{label}_host_reasoning_carriers"] = text_keys == expected_keys
+        checks[f"{label}_captured_padding_matches_route"] = (
+            all(row.get("reasoning_content") for row in assistants) if pad else any(
+                "reasoning" not in row and "reasoning_content" not in row for row in assistants))
+        before = copy.deepcopy(messages)
+        session = {"agent": agent, "history": messages, "history_lock": threading.Lock(),
+                   "history_version": index, "session_key": agent.session_id}
+        warm_before = len(by_kind(server, "warm"))
+        removed, _usage = compress(session, "")
+        finalize(agent, committed=True)
+        checks[f"{label}_input_history_unchanged"] = messages == before
+        checks[f"{label}_warm_accepted"] = (engine.warm_last.get("path"), engine.warm_last.get("reason")) == (
+            "warm", "accepted")
+        checks[f"{label}_one_warm_request"] = len(by_kind(server, "warm")) == warm_before + 1
+        if checks[f"{label}_one_warm_request"]:
+            check_warm_request(server, checks, label)
+            sent = by_kind(server, "warm")[-1]["body"]["messages"]
+            checks[f"{label}_captured_prefix_unchanged"] = sent[:len(captured)] == captured
+            # The new reply keeps its synthetic text. Exact parity of all route carriers is a separate check.
+            checks[f"{label}_appended_reasoning_text"] = sent[len(captured)].get("reasoning_content") == (
+                "Synthetic first thoughts." if index == 1 else "Synthetic next thoughts.")
+            result[f"{label}_appended_reasoning_keys"] = sorted(
+                key for key in ("reasoning", "reasoning_content") if key in sent[len(captured)])
+        checks[f"{label}_removed_rows"] = removed > 0
+        messages = session["history"]
+        checks[f"{label}_summary_rows"] = summary_rows_ok(messages)
+    checks["two_compactions"] = engine.compression_count == 2
+    checks["no_fallback_request"] = not by_kind(server, "fallback")
 
 
 def run_manual_whitespace(agent, engine, db, history, server, result, checks, compress, finalize):
@@ -868,9 +1020,27 @@ def run_manual_whitespace(agent, engine, db, history, server, result, checks, co
     checks["no_fallback_request"] = not by_kind(server, "fallback")
 
 
+def check_injected_context(messages, request, checks, label, question):
+    """Check the host's stored row and wire text after the real context hook runs."""
+    stored = [row for row in messages if row.get("role") == "user" and row.get("content") == question]
+    checks[f"{label}_display_question_exact"] = len(stored) == 1
+    effective = question + "\n\n" + INJECTED_CONTEXT
+    checks[f"{label}_context_sidecar_exact"] = len(stored) == 1 and stored[0].get("api_content") == effective
+    checks[f"{label}_context_sent_exact"] = any(
+        row.get("role") == "user" and row.get("content") == effective for row in request["body"]["messages"])
+
+
 def run_auto(agent, engine, history, server, result, checks, statuses):
+    from agent.conversation_compression import COMPACTION_DONE_STATUS
+
     checks["threshold_from_settings"] = engine.threshold_tokens == int(CONTEXT_LENGTH * 0.4)
-    first = agent.run_conversation(TOOL_QUESTION, system_message=SYSTEM, conversation_history=history)
+    context_case = result["scenario"] == "auto_context_tool"
+    question = CONTEXT_TOOL_QUESTION if context_case else TOOL_QUESTION
+    before_first_statuses = len(statuses)
+    first = agent.run_conversation(question, system_message=SYSTEM, conversation_history=history)
+    checks["first_automatic_compacted_status"] = [
+        message for kind, message in statuses[before_first_statuses:] if kind == "compacted"
+    ] == [COMPACTION_DONE_STATUS]
     first_notice_count = sum(NATIVE_NOTICE_MARK in message for _kind, message in statuses)
     checks["native_notice_on_first_automatic_compaction"] = (
         first_notice_count == int(result["native_warm_handoff"]["available"]))
@@ -881,11 +1051,20 @@ def run_auto(agent, engine, history, server, result, checks, statuses):
     if by_kind(server, "warm"):
         check_warm_request(server, checks, "auto1", tool_rows=1)
     after_first = first.get("messages") or []
+    if context_case:
+        check_injected_context(after_first, by_kind(server, "main")[0], checks, "auto1", question)
     checks["first_summary_rows"] = summary_rows_ok(after_first)
     checks["wait_flag_cleared"] = engine.awaiting_real_usage_after_compression is False
-    second = agent.run_conversation(TOOL_AGAIN_QUESTION, system_message=SYSTEM,
+    question = CONTEXT_TOOL_AGAIN_QUESTION if context_case else TOOL_AGAIN_QUESTION
+    before_second_statuses = len(statuses)
+    second = agent.run_conversation(question, system_message=SYSTEM,
                                     conversation_history=list(after_first))
+    checks["second_automatic_compacted_status"] = [
+        message for kind, message in statuses[before_second_statuses:] if kind == "compacted"
+    ] == [COMPACTION_DONE_STATUS]
     checks["second_turn_final"] = second.get("final_response") == "Done again."
+    if context_case:
+        check_injected_context(second.get("messages") or [], by_kind(server, "main")[-1], checks, "auto2", question)
     checks["native_notice_not_repeated"] = (
         sum(NATIVE_NOTICE_MARK in message for _kind, message in statuses) == first_notice_count)
     checks["native_notice_not_in_automatic_history"] = all(

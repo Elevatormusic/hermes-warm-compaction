@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-09",
+  "pr": 25,
+  "tested_parent_commit": "0fc0a75a458e424c4e2e412f0678726ba983831c",
+  "scope": "Synthetic focused regressions and the complete affected unit test module; full current-head CI required after publication",
+  "isolation": {
+    "image": "python@sha256:aa679aa4eed6eb56c1dc6ad3f1b98b7d2d788fd961596779d188fdedad97fb38",
+    "network": "none; AF_INET and AF_INET6 denied",
+    "credentials": "none",
+    "user": "65534:65534",
+    "candidate_tree": "read-only",
+    "containers_removed": true
+  },
+  "stages": [
+    {
+      "container_removed": true,
+      "elapsed_seconds": 1.983,
+      "exit_code": 1,
+      "expected_test_count": 2,
+      "log_sha256": "5f69515f553c01a84cb0dd301b1a3ef8afdf6f62a14d9891a10d17f3c911c9a8",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "before",
+      "timed_out": false
+    },
+    {
+      "container_removed": true,
+      "elapsed_seconds": 1.849,
+      "exit_code": 0,
+      "expected_test_count": 2,
+      "log_sha256": "158e15ebb8134268191dab4f0391b2a79cec5c9788f6a43f62a1bb98f0ff5840",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "after",
+      "timed_out": false
+    },
+    {
+      "container_removed": true,
+      "elapsed_seconds": 2.251,
+      "exit_code": 0,
+      "expected_test_count": 31,
+      "log_sha256": "3969d107db3651a7f946c5c4a467bced3c528976a69bb2249e21e21c78a4019b",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "responses",
+      "timed_out": false
+    }
+  ],
+  "changed_files": {
+    "tests/test_wc_responses.py": {
+      "base_sha256": "82338bb6a996e7a7c22de4bb1bbd96e145534500879d5cfd927cf3e550d17c04",
+      "bytes": 20730,
+      "changed_sha256": "4b3da5d4d3428fb3cee195dd8b10abd8079c064c149cc7440f98104ede48307d"
+    },
+    "warm_compaction/responses.py": {
+      "base_sha256": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+      "bytes": 19888,
+      "changed_sha256": "d6bdbb85ec2c70f67547505ea6810ecac4c94c96bcf35166acc2c55bd87f6c20"
+    }
+  },
+  "patch_sha256": {
+    "fix.patch": "f032299e5907c6ccb4b3800fbb0e69fa6c8573f65f156d2b8087f04ee279a474",
+    "tests.patch": "bc5cb6574a8fe2adef6c46c2121d8d72b13243b9d690d6e3dda96900f960fe33"
+  },
+  "runner_sha256": {
+    "issue25-container-runner.py": "34e7d32ff98e3381d999bf225c75020a75c6a1390a5037bc3d0d96c86d5a8305",
+    "issue25-seccomp.json": "d602e7b6cc3b88932ea37a753f6bb0d77928f7a9ea1dccbcb0cd8f633589db7c"
+  },
+  "limits": [
+    "No live provider or performance test for this correction",
+    "Prior live receipt belongs to parent commit0fc0a75; it does not test the new Responses bytes",
+    "Remote review and required checks remain separate"
+  ]
+}

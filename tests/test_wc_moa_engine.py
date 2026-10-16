@@ -100,11 +100,36 @@ class MoaEngineTest(unittest.TestCase):
         self.engine.compress(self.messages)
         self.assertEqual([call["body"]["model"] for call in self.helper.post.calls], ["aggregator"])
 
+    def test_aggregator_uses_the_selected_summary_word_count(self):
+        self.seed(reference=False)
+        self.engine._settings["summary_words"] = 1200
+        self.engine.compress(self.messages)
+        instruction = self.helper.post.calls[0]["body"]["messages"][-1]["content"]
+        self.assertIn("Use at most 1200 words.", instruction)
+        self.assertNotIn("Use at most 600 words.", instruction)
+
     def test_aggregator_failure_uses_one_fallback(self):
         self.seed(reference=False)
         self.engine._post = lambda *_args, **_kwargs: (500, b"{}")
         self.engine.compress(self.messages)
         self.assertEqual(self.engine.warm_last["path"], "fallback")
+        self.assertEqual(len(self.helper.llm.calls), 1)
+
+    def test_aggregator_and_fallback_failure_stop_without_changing_history(self):
+        self.seed(reference=False)
+        self.engine._post = lambda *_args, **_kwargs: (500, b"{}")
+        self.helper.llm.text = ""
+        before = copy.deepcopy(self.messages)
+        capture = copy.deepcopy(self.helper.store.latest("s1"))
+        from warm_compaction.engine import CompactionAborted
+        with self.assertRaises(CompactionAborted):
+            self.engine.compress(self.messages)
+        self.assertEqual(self.messages, before)
+        self.assertEqual(self.helper.store.latest("s1"), capture)
+        self.assertEqual(self.engine.compression_count, 0)
+        self.assertIsNone(self.engine._pending_warm_result)
+        self.assertEqual(self.engine.warm_last["path"], "aborted")
+        self.assertEqual(self.engine.warm_last["reason"], "provider_error")
         self.assertEqual(len(self.helper.llm.calls), 1)
 
     def test_cancel_after_reference_keeps_history_and_sends_no_aggregator(self):

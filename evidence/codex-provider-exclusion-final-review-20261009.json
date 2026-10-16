@@ -1,0 +1,153 @@
+{
+  "ai_agents": [
+    {
+      "harness": "Codex collaboration subagent",
+      "model": "gpt-6.1-sol",
+      "work": "Prepare conflict resolution, final regression, runner, and integration controller."
+    },
+    {
+      "harness": "Codex Desktop primary agent",
+      "model": "Exact identifier unavailable in this session.",
+      "work": "Review changes, execute Docker checks, inspect evidence, and publish."
+    }
+  ],
+  "checks": [
+    {
+      "container_removed": true,
+      "elapsed_seconds": 2.618,
+      "exit_code": 1,
+      "expected_test_count": 2,
+      "log_sha256": "4f4cca3cdefd102d69daa50d0232d2fc68a19f22db41a2fa06815cea6fb0ccfa",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "red",
+      "timed_out": false
+    },
+    {
+      "container_removed": true,
+      "elapsed_seconds": 2.754,
+      "exit_code": 0,
+      "expected_test_count": 2,
+      "log_sha256": "fd5ebb87e8addfdd7d0cada2a435b0c8fc18a90090149370a42c05310ad1be13",
+      "matched_expected_result": true,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "green",
+      "timed_out": false
+    },
+    {
+      "container_removed": true,
+      "elapsed_seconds": 8.927,
+      "exit_code": 1,
+      "expected_test_count": 127,
+      "log_sha256": "f17a283e6b913bf25e5430af2cfb9613a7338532eec894cdb429d7d17265eccd",
+      "matched_expected_result": true,
+      "outcome": "unavailable",
+      "passed_tests": 126,
+      "runner_python_implementation": "cpython",
+      "runner_python_version": "3.12.13 (main, Jun 16 2026, 00:21:10) [GCC 15.2.0]",
+      "runner_python_version_info": [
+        3,
+        12,
+        13,
+        "final",
+        0
+      ],
+      "source_and_runner_bytes_unchanged": true,
+      "stage": "engine",
+      "timed_out": false,
+      "unavailable_reason": "Loopback socket denied by executor policy; full current-head CI remains required",
+      "unavailable_tests": 1
+    }
+  ],
+  "commands": [
+    "python -B -m unittest discover -s tests -p test_wc_engine.py -k without_capture -v",
+    "python -B -m unittest discover -s tests -p test_wc_engine.py"
+  ],
+  "docker_image": "python@sha256:aa679aa4eed6eb56c1dc6ad3f1b98b7d2d788fd961596779d188fdedad97fb38",
+  "docker_result_sha256": "5e61ef61acab0b612168a391c533881c1bf8b6c85fb2197075489c835fdd4527",
+  "integration_main": "d719ec400bfa7cc9e2a56cc6d3c7b3be850dcc89",
+  "isolation": {
+    "containers_removed": true,
+    "credentials": "none",
+    "network": "none",
+    "non_root_uid": 65534,
+    "runner_read_only": true,
+    "source_read_only": true
+  },
+  "limits": [
+    "Full current-head CI and real Hermes loopback checks remain required.",
+    "The new commit preserves later policy bytes that these engine checks did not execute.",
+    "These checks do not prove deployed compatibility, cache reuse, or a performance gain."
+  ],
+  "prior_pr23_head": "e83dcdfb71a683f84daa89d4824a4bc6aa821a1c",
+  "result_summary": {
+    "after_fix": "2 tests passed",
+    "before_fix": "2 tests, 1 expected failure",
+    "engine": "127 tests: 126 passed, 1 unavailable under denied loopback sockets"
+  },
+  "runner_sha256": {
+    "pr23-final-container-runner.py": "8d091c8fb2313fb22167ba23cf0a049b4f491922510d9d68852645565e868a25",
+    "pr23-final-seccomp.json": "d602e7b6cc3b88932ea37a753f6bb0d77928f7a9ea1dccbcb0cd8f633589db7c"
+  },
+  "scope": "Synthetic provider-exclusion regression and integrated engine unit checks",
+  "source_archives": {
+    "final-tree.tar": {
+      "bytes": 1433600,
+      "sha256": "21d1d16c3dbeaed6403d9d557cd799e546df8631e4b5f09057a805081e6c920e",
+      "tree": "ae9083ea40e87dd2a82611356c158afe19581342"
+    },
+    "red-tree.tar": {
+      "bytes": 1433600,
+      "sha256": "b5e9a11834971e8cd5fc03044311548aa0d695050088278aeac3cdb83596a1f3",
+      "tree": "ecdad5bcc738606374b3959c5a103a9048e1d16d"
+    }
+  },
+  "source_files": {
+    "README.md": {
+      "bytes": 35245,
+      "git_blob": "d1c1d2267b4a04b97deed4ea4ce184749abfb3ad",
+      "sha256": "bf291222be56c7adae31640aa373127c626fe7f4998b0cd61dc699042dd891aa"
+    },
+    "tests/test_wc_engine.py": {
+      "bytes": 118459,
+      "git_blob": "35cea25993a7c4a694fa3f6943e15b1dd91b4163",
+      "sha256": "b518e3eb515e892cca6a996659d4bde815b20cb7bffd7ee16fd91f6b723580f2"
+    },
+    "warm_compaction/engine.py": {
+      "bytes": 51383,
+      "git_blob": "cfaf4b51456b188c1eb508bd3b54739d1e1f2c70",
+      "sha256": "ca54152b497b1d9cb2ad184b9c3da70f5aa54640de7cd9457787de42eb3e42be"
+    },
+    "warm_compaction/plugin.yaml": {
+      "bytes": 1312,
+      "git_blob": "f2002f6e4dc8eb40b2e0774fb76c771a014d538d",
+      "sha256": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c"
+    }
+  },
+  "source_manifest_sha256": {
+    "final": "bdad0e6acee61d6b02aa742f91218565728a5bd7c0f1bf5fa6b3ecb93fa0a4ed",
+    "red": "661ed785f5ff754ca31be9de78fb0000ad3c45cfafcea822c9dd53202d284e82"
+  },
+  "tested_source_trees": {
+    "after_fix": "ae9083ea40e87dd2a82611356c158afe19581342",
+    "before_fix": "ecdad5bcc738606374b3959c5a103a9048e1d16d"
+  }
+}

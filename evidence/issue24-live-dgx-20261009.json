@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-09",
+  "issue": 24,
+  "purpose": "Check synthetic manual and automatic compaction with real Hermes and the existing DGX route.",
+  "outcome": "passed",
+  "hermes_commit": "46d7718a52ff33accb15dc0501736fbdb6833cab",
+  "hermes_source_clean": true,
+  "runner_python": "3.14.5",
+  "worker_python": "3.14.5",
+  "mode": "fresh-profile one-shot CLI agent and gateway manual handler",
+  "provider": "custom",
+  "model": "dgx-model",
+  "api_mode": "chat_completions",
+  "route": "Existing DGX route through a fixed loopback relay",
+  "server_version": "unknown",
+  "context_window": 131072,
+  "reply_limit": 4096,
+  "settings": {
+    "threshold": 0.95,
+    "tail_tokens": 1200,
+    "user_copy_chars": 2000
+  },
+  "automatic_threshold_tokens": 8000,
+  "request_option_names": [
+    "seed",
+    "draft",
+    "chat_template_kwargs.enable_thinking",
+    "chat_template_kwargs.reasoning_effort"
+  ],
+  "synthetic_fixture": {
+    "seed_turns": 12,
+    "seed_prompt_tokens": 14202,
+    "context_hook": "Documented pre_llm_call hook adds synthetic text to each request.",
+    "main_reply_before_compaction": true,
+    "private_history_used": false
+  },
+  "plugin_sha256": {
+    "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+    "engine.py": "368b4ec95f31d0f6fc868f6184730d513e02f61764be60a1fabdb00cdececfd6",
+    "fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+    "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+    "warm.py": "153ea2d3add81cec6abf2ca5e3873a6d83ed9d5772f711fb1aefb60fe3e11662",
+    "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+  },
+  "plugin_sha256_scope": "Tested working bytes before Git LF normalization",
+  "plugin_lf_sha256": {
+    "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+    "engine.py": "368b4ec95f31d0f6fc868f6184730d513e02f61764be60a1fabdb00cdececfd6",
+    "fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "handoff.py": "fcab51def8fbcc2b1928957930c9a5c58a4ad202c949fd9f870a77f3b30276ae",
+    "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "plugin.yaml": "baa7820b3ce9a40d2a53f70a4d0525131860ea2ec670143d0a7742b59c4d937b",
+    "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+    "warm.py": "84c66a79dc6b3d4d5b641a8b48d1341e5e765d31f07126ff3fd6108ac01cb3b9",
+    "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+  },
+  "normalization": "Git stores LF. The recorded LF hashes differ only by CRLF-to-LF conversion.",
+  "runs": [
+    {
+      "mode": "manual",
+      "passed": true,
+      "checks": {
+        "real_source": true,
+        "isolated_plugin_selected": true,
+        "seed_completed": true,
+        "context_sidecar_present": true,
+        "seed_did_not_compact": true,
+        "manual_removed_rows": true,
+        "warm_accepted": true,
+        "one_compaction": true,
+        "continuation_code_retained": true,
+        "summary_in_history": true,
+        "summary_saved": true,
+        "plugin_no_blocked_calls": true
+      },
+      "prefix_exact": true,
+      "request_counts": {
+        "main": 2,
+        "warm": 1,
+        "fallback": 0
+      },
+      "warm_last": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 6.479,
+        "prompt_tokens": 14679,
+        "cached_tokens": 14144
+      },
+      "requests": [
+        {
+          "kind": "main",
+          "status": 200,
+          "elapsed_s": 9.699,
+          "usage": {
+            "prompt_tokens": 14202,
+            "completion_tokens": 6,
+            "total_tokens": 14208,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            }
+          },
+          "error_type": null
+        },
+        {
+          "kind": "warm",
+          "status": 200,
+          "elapsed_s": 6.402,
+          "usage": {
+            "prompt_tokens": 14679,
+            "completion_tokens": 267,
+            "total_tokens": 14946,
+            "prompt_tokens_details": {
+              "cached_tokens": 14144
+            }
+          },
+          "error_type": null
+        },
+        {
+          "kind": "main",
+          "status": 200,
+          "elapsed_s": 3.88,
+          "usage": {
+            "prompt_tokens": 4494,
+            "completion_tokens": 5,
+            "total_tokens": 4499,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            }
+          },
+          "error_type": null
+        }
+      ],
+      "saved_reload": {
+        "summary_saved": true,
+        "active_rows": 6
+      },
+      "saved_reload_audit": {
+        "original_receipt": "result.json",
+        "original_passed": false,
+        "reason": "The first checker omitted repair_alternation=True. Hermes returns summary markers with this option.",
+        "fresh_process_reload": true,
+        "new_model_requests": 0
+      }
+    },
+    {
+      "mode": "auto",
+      "passed": true,
+      "checks": {
+        "real_source": true,
+        "isolated_plugin_selected": true,
+        "seed_completed": true,
+        "context_sidecar_present": true,
+        "seed_did_not_compact": true,
+        "warm_accepted": true,
+        "one_compaction": true,
+        "continuation_code_retained": true,
+        "summary_in_history": true,
+        "summary_saved": true,
+        "plugin_no_blocked_calls": true
+      },
+      "prefix_exact": true,
+      "request_counts": {
+        "main": 2,
+        "warm": 1,
+        "fallback": 0
+      },
+      "warm_last": {
+        "path": "warm",
+        "reason": "accepted",
+        "elapsed_s": 5.706,
+        "prompt_tokens": 14691,
+        "cached_tokens": 14144
+      },
+      "requests": [
+        {
+          "kind": "main",
+          "status": 200,
+          "elapsed_s": 9.923,
+          "usage": {
+            "prompt_tokens": 14202,
+            "completion_tokens": 6,
+            "total_tokens": 14208,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            }
+          },
+          "error_type": null
+        },
+        {
+          "kind": "warm",
+          "status": 200,
+          "elapsed_s": 5.663,
+          "usage": {
+            "prompt_tokens": 14691,
+            "completion_tokens": 234,
+            "total_tokens": 14925,
+            "prompt_tokens_details": {
+              "cached_tokens": 14144
+            }
+          },
+          "error_type": null
+        },
+        {
+          "kind": "main",
+          "status": 200,
+          "elapsed_s": 3.34,
+          "usage": {
+            "prompt_tokens": 3422,
+            "completion_tokens": 5,
+            "total_tokens": 3427,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            }
+          },
+          "error_type": null
+        }
+      ],
+      "saved_reload": {
+        "summary_saved": true,
+        "active_rows": 4
+      },
+      "saved_reload_audit": {
+        "original_receipt": "result.json",
+        "original_passed": true,
+        "reason": "Check the saved summary again in a fresh process.",
+        "fresh_process_reload": true,
+        "new_model_requests": 0
+      }
+    }
+  ],
+  "server_cache_counters": "unknown",
+  "performance_qualified": false,
+  "limits": [
+    "One manual and one automatic run. No baseline or repeated comparison was run.",
+    "Cached tokens are response metadata. Independent server cache counters were not collected.",
+    "The provider saw the exact captured prefix. This does not qualify cache reuse or a speed gain.",
+    "The clean host capture retains display rows. The reported assembled-capture shape has a separate unit regression.",
+    "Saved synthetic histories were reloaded in fresh processes. This does not prove private-session compatibility.",
+    "The initial manual checker omitted the loader option for summary markers. The initial failed receipt was kept.",
+    "No host source, deployment, or production cache was changed."
+  ]
+}

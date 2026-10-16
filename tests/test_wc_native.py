@@ -89,6 +89,7 @@ class NativeNoticeTest(unittest.TestCase):
 
     def test_manual_compaction_logs_once_after_it_has_content(self):
         from warm_compaction.native import NOTICE
+        from warm_compaction.engine import CompactionAborted
         from wc_fixtures import assistant, user
         rows = [user("synthetic old request " + "x" * 500), assistant("synthetic old answer " + "y" * 500),
                 user("synthetic latest request")]
@@ -97,7 +98,8 @@ class NativeNoticeTest(unittest.TestCase):
         with patch("warm_compaction.engine.logger.info") as log:
             self.engine.compress([])
             log.assert_not_called()
-            self.engine.compress(rows)
-            self.engine.compress(rows)
+            for _ in range(2):
+                with self.assertRaises(CompactionAborted):
+                    self.engine.compress(rows)
         self.assertEqual(sum(call.args == (NOTICE,) for call in log.call_args_list), 1)
         self.assertEqual(self.status(), NOTICE)

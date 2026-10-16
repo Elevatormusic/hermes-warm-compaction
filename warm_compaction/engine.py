@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 NAME = "warm_compaction"
 DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
-                            "moa_routes": [], "moa_references": False}
+                            "moa_routes": [], "moa_references": False,
+                            "summary_words": handoff.DEFAULT_SUMMARY_WORDS, "warm_providers": ""}
 MOA_WARM_SECONDS = 120.0
 REFERENCE_SECONDS = 20.0
 AGGREGATOR_RESERVE_SECONDS = 30.0
@@ -33,8 +34,6 @@ TAIL_MAX = 25_000
 CARRIER_TOKENS = 500
 # The summary size that the tail cap keeps free before the fallback summary is known: two times its reply
 # limit, because the estimate and the server count do not use the same tokenizer.
-# Rounds of the fixed path: cut the tail, quote the cut, and size the cap again.
-FIXED_ROUNDS = 10
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
@@ -48,6 +47,7 @@ FAILURE_HINTS = {
     "provider_error": "the server refused the warm request (a provider error, or a gateway that needs a cookie)",
     "timeout": "the warm request took longer than its time limit",
     "api_mode_unsupported": "this API format has no supported warm path",
+    "provider_not_allowed": "this provider is not in the warm_providers list",
     "auth_unsupported": "the warm path cannot keep the authentication of this route",
     "settings_unsupported": "the main request uses a setting that the warm request cannot keep",
     "request_not_mapping": "the main request is not a mapping",
@@ -68,13 +68,25 @@ HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below
 HERMES_DB_MARKER = "_db_persisted"
 
 
+class CompactionAborted(RuntimeError):
+    """A summary failure that stops compaction before history changes."""
+
+    def __init__(self, reason: str, fallback_reason: str) -> None:
+        super().__init__("Warm compaction stopped; history is unchanged "
+                         f"(warm: {reason}; fallback: {fallback_reason}).")
+
+
 def _valid(key: str, value: Any) -> bool:
     if key == "moa_routes":
         return isinstance(value, list)
     if key in ("warm", "moa_references"):
         return isinstance(value, bool)
+    if key == "warm_providers":
+        return isinstance(value, str)
     if isinstance(value, bool):
         return False
+    if key == "summary_words":
+        return isinstance(value, int) and value >= 1
     if key == "threshold":
         return isinstance(value, (int, float)) and THRESHOLD_RANGE[0] <= float(value) <= THRESHOLD_RANGE[1]
     return isinstance(value, int) and value >= 0
@@ -97,6 +109,15 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
         else:
             logger.warning("Invalid warm_compaction setting %s; using the default %r", key, default)
     return settings
+
+
+def provider_allowed(setting: Any, provider: Any) -> bool:
+    """True when the warm path may run for this provider. An empty setting allows every provider.
+    The names are comma-separated and matched without case."""
+    names = {part.strip().lower() for part in str(setting or "").split(",") if part.strip()}
+    if not names:
+        return True
+    return str(provider or "").strip().lower() in names
 
 
 def tail_budget(setting: int, context_length: int, threshold_tokens: int = 0) -> int:
@@ -350,19 +371,22 @@ class WarmCompactionEngine(ContextEngine):
             layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed, policy)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
-            # The plugin API has no request on a fixed route (an override needs a trust setting), and the auto
+            # The plugin API has no request on a set route (an override needs a trust setting), and the auto
             # task follows the main route. The last check runs just before the request starts: after a switch,
             # the old transcript does not go to the new route.
+            failure: dict[str, str] = {}
             summary, _tokens = fallback.llm_summary(
                 self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
-                task=self._task, ready=lambda: not self._cancelled() and self._attempt() == attempt)
+                task=self._task, summary_words=self._settings["summary_words"],
+                ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure)
+            if summary is None:
+                record["fallback_reason"] = failure.get("reason", "unavailable")
             if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
                                         or not self._summary_fits(summary, overhead, reserve)):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
                 # transcript had. Or above the room (a large system prompt and a low threshold): the next request
-                # would compact again at once. The fixed summary quotes what the final tail cuts, in the room.
-                logger.warning("Warm compaction fallback summary is above its token reserve or the free context; "
-                               "using the fixed summary")
+                # would compact again at once. Keep history when the summary does not fit.
+                record["fallback_reason"] = "summary_too_large"
                 summary = None
             if summary is not None:
                 record["path"] = "fallback"
@@ -376,11 +400,8 @@ class WarmCompactionEngine(ContextEngine):
             record.update(path="cancelled", reason="route_changed")
             self._finish(record, started, attempt[-1])
             return messages
-        # The fixed summary takes at most the reserve, and at most the room.
-        fixed_budget = self._fixed_budget(overhead, reserve)
         if summary is None:
-            summary = fallback.fixed_summary([*messages[:start], *removed], prefixes, focus_topic, memory, fixed_budget)
-            record["path"] = "fixed"
+            return self._abort(messages, record, started, attempt)
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum. The room is after the
         # tail as the cap cuts it: an uncut large tool result would leave no room.
@@ -400,7 +421,7 @@ class WarmCompactionEngine(ContextEngine):
                     # left (the tail cap stays at least the cap of the fallback transcript); the room keeps space
                     # for it.
                     left = max(0, min(fallback.CUT_QUOTE_CHARS // 4,
-                                      self._fixed_budget(overhead, reserve) - estimate_tokens(summary) - 4))
+                                      self._summary_budget(overhead, reserve) - estimate_tokens(summary) - 4))
                     fitted = layout.fit_user_row(prepend, allowed - left, cut)
                     block = fallback.cut_quote(cut, left)
                     if block or not fallback.cut_quote(cut, fallback.CUT_QUOTE_CHARS // 4):
@@ -408,35 +429,11 @@ class WarmCompactionEngine(ContextEngine):
                         if block:
                             summary = summary.rstrip() + "\n\n" + block
                     else:
-                        # No quote fits after the summary: the cut middle would be lost. The fixed summary has
-                        # the room for it.
-                        logger.warning("No room for the cut quote after the fallback summary; using the fixed "
-                                       "summary")
-                        record["path"] = "fixed"
-                        cut = []
-                if record["path"] == "fixed":
-                    # The row is not copied and the fixed summary does not have it: its cut middle goes into the
-                    # summary as a quote. The room keeps space for that quote.
-                    prepend = layout.fit_user_row(prepend, allowed - fallback.CUT_QUOTE_CHARS // 4, cut)
-                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory,
-                                                    fixed_budget)
+                        # A required cut quote cannot fit. Keep the complete input history.
+                        record["fallback_reason"] = "quote_capacity"
+                        return self._abort(messages, record, started, attempt)
         prepend_tokens = sent_tokens(prepend, policy) if prepend is not None else 0
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
-        if record["path"] == "fixed":
-            # The fixed summary quotes what the tail cuts: cut and quote at the same cap. A larger summary makes a
-            # smaller cap, and the cap only goes down. When the rounds stop before the cap is stable, the tail is
-            # cut at the cap that the summary quotes: a little above the room, but no cut text is lost.
-            for _round in range(FIXED_ROUNDS):
-                final: list = []
-                layout.bound_tail(messages[start:], tail_tokens, final, policy)
-                if final != removed:
-                    removed = final
-                    summary = fallback.fixed_summary([*messages[:start], *removed, *cut], prefixes, focus_topic, memory,
-                                                    fixed_budget)
-                lower = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
-                if lower >= tail_tokens or _round == FIXED_ROUNDS - 1:
-                    break
-                tail_tokens = lower
         # The copies get the room after the tail as build cuts it: the uncut tail can be much larger.
         copy_tokens = 0 if overhead is None else self._copy_tokens(
             layout.bound_tail(messages[start:], tail_tokens, policy=policy), summary, overhead, reserve, policy)
@@ -464,14 +461,29 @@ class WarmCompactionEngine(ContextEngine):
                 return messages
             if native_overflow:
                 # An indivisible native replay block cannot be cut to make a valid signed request.
-                record.update(path="unchanged", reason="capacity")
-                self._finish(record, started, attempt[-1])
-                return messages
+                record["fallback_reason"] = "capacity"
+                return self._abort(messages, record, started, attempt)
             self.compression_count += 1
             self._finish(record, started, attempt[-1])
             # The host can still reject this candidate. Only its successful boundary updates the failure streak.
             self._pending_warm_result = (attempt[3], self.compression_count, dict(record))
         return new
+
+    def _abort(self, messages: list, record: dict[str, Any], started: float, attempt: tuple) -> list:
+        """Stop a current attempt with safe metadata. A cancelled or stale attempt keeps its input."""
+        with self._wc_result_lock:
+            cancelled = self._cancelled()
+            if cancelled or self._attempt() != attempt:
+                record.update(path="cancelled", reason="cancelled" if cancelled else "route_changed")
+                self._finish(record, started, attempt[-1])
+                return messages
+            record["path"] = "aborted"
+            reason = str(record.get("reason") or "unavailable")
+            fallback_reason = str(record.get("fallback_reason") or "unavailable")
+            self._finish(record, started, attempt[-1])
+            logger.warning("Warm compaction stopped (warm=%s fallback=%s); history is unchanged",
+                           reason, fallback_reason)
+            raise CompactionAborted(reason, fallback_reason) from None
 
     def _policy(self, messages: list) -> SendPolicy:
         """The route-dependent fields that warm.wire_row sends: reasoning_details on a route that replays them,
@@ -536,6 +548,11 @@ class WarmCompactionEngine(ContextEngine):
         try:
             if not self._settings["warm"]:
                 raise warm.WarmRefusal("disabled")
+            # A provider that is not in the list never sends a warm request. A route that rotates its upstream
+            # can miss the prefix cache, and the warm request would then pay for the whole prompt. The
+            # fallback summary, which sends a small transcript, runs in its place.
+            if not provider_allowed(self._settings.get("warm_providers"), attempt[2]):
+                raise warm.WarmRefusal("provider_not_allowed")
             if capture is None:
                 raise warm.WarmRefusal("no_capture")
             # The capture belongs to the key that sent it. Hermes can give the key as a function whose value
@@ -545,7 +562,7 @@ class WarmCompactionEngine(ContextEngine):
                 raise warm.WarmRefusal("credential_changed")
             if attempt[2] == "moa" or str(attempt[0][1]).startswith("moa://"):
                 return self._moa_summary(capture, messages, focus_topic, memory, prefixes, record, attempt)
-            instruction = handoff.build_instruction(focus_topic, memory)
+            instruction = handoff.build_instruction(focus_topic, memory, self._settings["summary_words"])
             body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction,
                                       warm.native_details_type(attempt[2]))
             if self._cancelled():
@@ -561,7 +578,7 @@ class WarmCompactionEngine(ContextEngine):
             record["reason"] = refusal.code
             return None
         except Exception as error:
-            record["reason"] = f"error:{type(error).__name__}"
+            record["reason"] = f"error:{fallback.error_class(error)}"
             return None
         record.update(path="warm", reason="accepted")
         return text
@@ -579,7 +596,8 @@ class WarmCompactionEngine(ContextEngine):
             if getattr(self._store._moa, "native_available", True) is False:
                 raise warm.WarmRefusal("moa_native_observer_unavailable")
         deadline = self._clock() + MOA_WARM_SECONDS
-        instruction = base_instruction = handoff.build_instruction(focus_topic, memory)
+        instruction = base_instruction = handoff.build_instruction(
+            focus_topic, memory, self._settings["summary_words"])
         body, route = moa.build_aggregator(capture, messages, attempt[0], attempt[4], instruction)
         key = moa.resolve_key(route)
         slots: list[dict] = []
@@ -822,15 +840,14 @@ class WarmCompactionEngine(ContextEngine):
         return limit - (overhead + estimate_tokens(sent_rows(tail_rows, policy)) + estimate_tokens(summary)
                         + CARRIER_TOKENS)
 
-    def _fixed_budget(self, overhead: int | None, reserve: int) -> int:
-        """The token budget of the fixed summary: the summary reserve, and at most the free room (half of it with
+    def _summary_budget(self, overhead: int | None, reserve: int) -> int:
+        """The token budget of the model summary and its quotes: at most the free room (half of it with
         an unknown overhead)."""
         free = self._room([], "", overhead or 0, reserve)
         if free is None:
             return SUMMARY_RESERVE
         if overhead is None:
             free //= 2
-        # Not above a small room: the headings take less, and the quotes then have no share.
         return max(0, min(SUMMARY_RESERVE, free))
 
     def _summary_fits(self, summary: str, overhead: int | None, reserve: int) -> bool:
@@ -897,16 +914,17 @@ class WarmCompactionEngine(ContextEngine):
                 return
             record["elapsed_s"] = round(self._clock() - started, 3)
             self.warm_last = record
-            logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s",
+            logger.info("warm_compaction: path=%s reason=%s elapsed_s=%s prompt_tokens=%s cached_tokens=%s "
+                        "fallback_reason=%s",
                         record["path"], record["reason"], record["elapsed_s"], record["prompt_tokens"],
-                        record["cached_tokens"])
+                        record["cached_tokens"], record.get("fallback_reason"))
             for slot in record.get("moa_slots", []):
                 logger.info("warm_compaction: moa_role=%s route=%s path=%s reason=%s elapsed_s=%s "
                             "prompt_tokens=%s cached_tokens=%s", slot["role"], slot["name"], slot["path"],
                             slot["reason"], slot["elapsed_s"], slot["prompt_tokens"], slot["cached_tokens"])
 
     def _clear_warm_failures(self) -> None:
-        self._warm_failures, self._warm_fixed = 0, 0
+        self._warm_failures = 0
         self._warm_failure_reasons: list[str] = []
         self._warm_notice: str | None = None
         self._warm_notice_issued = False
@@ -917,18 +935,18 @@ class WarmCompactionEngine(ContextEngine):
         A host compatibility refusal starts the notice at the first failure. Other failures wait for
         WARM_FAILURE_STREAK. A first host refusal can update a pending notice or start one after a displayed
         generic notice. The next automatic compaction status shows each notice once. Until then, later failures
-        update it. A warm compaction ends the streak. A cancelled attempt and the warm setting off do not count."""
+        update it. A warm compaction ends the streak. A cancelled attempt and the warm setting off do not count.
+        A provider excluded by settings does not count when the fallback summary succeeds."""
         path, reason = record["path"], str(record["reason"])
         if path == "warm":
             if self._warm_notice_issued:
                 logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
             self._clear_warm_failures()
             return
-        if path not in ("fallback", "fixed") or reason == "disabled":
+        if path != "fallback" or reason in ("disabled", "provider_not_allowed"):
             return
         logger.warning("Warm compaction skipped (%s); used the %s summary", reason, path)
         self._warm_failures += 1
-        self._warm_fixed += path == "fixed"
         self._warm_failure_reasons.append(reason)
         first_notice = ((not self._warm_notice_issued and self._warm_failures >= WARM_FAILURE_STREAK)
                         or (reason in HOST_COMPATIBILITY_REFUSALS and not self._warm_compatibility_notice_issued))
@@ -937,14 +955,8 @@ class WarmCompactionEngine(ContextEngine):
             hints = "; ".join(
                 f"{item}: {FAILURE_HINTS.get(item.split(':', 1)[0], 'see the Limits section of the plugin README')}"
                 for item in dict.fromkeys(self._warm_failure_reasons))
-            # The fixed summary has no model request: when the fallback also failed, the notice says so.
-            if self._warm_fixed:
-                continues = (f"Compaction continues, but the fallback summary could not be used {self._warm_fixed} of "
-                             f"{self._warm_failures} times, so those used the fixed summary (no model, less detail)")
-                log_continues = f"compaction continues, {self._warm_fixed} of them with the fixed summary"
-            else:
-                continues = "Compaction continues with the fallback summary"
-                log_continues = "compaction continues with the fallback summary"
+            continues = "Compaction continues with the fallback summary"
+            log_continues = "compaction continues with the fallback summary"
             # The Hermes warning style on screen: the sign, the subject, what continues, and where to look.
             compatibility = ("Hermes compatibility check failed; "
                              if HOST_COMPATIBILITY_REFUSALS.intersection(self._warm_failure_reasons) else "")

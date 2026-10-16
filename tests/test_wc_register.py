@@ -161,6 +161,41 @@ class RegisterTest(unittest.TestCase):
                 self.plugin.register(ctx)
         self.assertIsNone(engine_of(ctx)._store._moa)
 
+    def test_missing_native_hooks_keep_chat_moa_available(self):
+        route = {"name": "synthetic", "provider": "openai-codex", "model": "gpt-6-luna",
+                 "base_url": "https://chatgpt.com/backend-api/codex", "api_mode": "codex_responses",
+                 "context_length": 200000}
+        ctx = FakeContext(config={"moa_routes": [route]})
+        ctx.llm.complete_native = lambda **kwargs: None
+        hooks = wc_hermes_stub.PLUGINS.VALID_HOOKS | set(self.plugin.MOA_HOOKS)
+        with patch.object(wc_hermes_stub.PLUGINS, "VALID_HOOKS", hooks):
+            with self.assertLogs("warm_compaction", level="WARNING") as logs:
+                self.plugin.register(ctx)
+        self.assertFalse(engine_of(ctx)._store._moa.native_available)
+        registered = [call[1] for call in ctx.calls if call[0] == "hook"]
+        self.assertTrue(all(hook in registered for hook in self.plugin.MOA_HOOKS))
+        self.assertFalse(any(hook in registered for hook in self.plugin.MOA_NATIVE_HOOKS))
+        self.assertTrue(any("native MOA APIs are missing" in line for line in logs.output))
+
+    def test_native_hooks_need_both_the_hooks_and_the_completion_method(self):
+        route = {"name": "synthetic", "provider": "openai-codex", "model": "gpt-6-luna",
+                 "base_url": "https://chatgpt.com/backend-api/codex", "api_mode": "codex_responses",
+                 "context_length": 200000}
+        hooks = (wc_hermes_stub.PLUGINS.VALID_HOOKS | set(self.plugin.MOA_HOOKS)
+                 | set(self.plugin.MOA_NATIVE_HOOKS))
+        for available in (False, True):
+            with self.subTest(complete_native=available):
+                ctx = FakeContext(config={"moa_routes": [route]})
+                if available:
+                    ctx.llm.complete_native = lambda **kwargs: None
+                with patch.object(wc_hermes_stub.PLUGINS, "VALID_HOOKS", hooks):
+                    self.plugin.register(ctx)
+                tracker = engine_of(ctx)._store._moa
+                self.assertEqual(tracker.native_available, available)
+                registered = [call[1] for call in ctx.calls if call[0] == "hook"]
+                for hook in self.plugin.MOA_NATIVE_HOOKS:
+                    self.assertEqual(hook in registered, available)
+
     def test_manifest_declares_the_settings(self):
         text = (ROOT / "warm_compaction" / "plugin.yaml").read_text(encoding="utf-8")
         for line in ("manifest_version: 2", "name: warm_compaction", "config_schema:", "  threshold:",
