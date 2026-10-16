@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = Path(__file__).resolve().parents[1]
 CASES = ("responses_text", "responses_tool", "responses_incomplete",
          "responses_codex", "responses_codex_reasoning", "anthropic_text", "anthropic_tool",
-         "anthropic_refusal", "anthropic_signed")
+         "anthropic_refusal", "anthropic_signed", "anthropic_blank_text")
 MODEL = "synthetic-model"
 KEY = "synthetic-api-key"
 SYSTEM = "You are a synthetic test agent. Keep the code word BLUE-7."
@@ -96,6 +96,11 @@ def history_for(case):
     elif case == "anthropic_signed":
         rows[1]["reasoning_details"] = [{"type": "thinking", "thinking": "Synthetic earlier thought.",
                                           "signature": "synthetic-old-signature"}]
+    elif case == "anthropic_blank_text":
+        rows[1]["content"] = " \t\n"
+        rows[3]["content"] = [{"type": "text", "text": " \n"},
+                              {"type": "text", "text": "  Synthetic nonblank text.\n"},
+                              {"type": "text", "text": ""}]
     return rows
 
 
@@ -321,6 +326,12 @@ def worker(source, case, dependency_paths):
             checks["main_instructions_exact"] = main["body"].get("instructions") == SYSTEM
         else:
             checks["main_system_exact"] = main["body"].get("system") == SYSTEM
+        if case == "anthropic_blank_text":
+            native_rows = main["body"]["messages"]
+            checks["stock_empty_assistant_placeholder"] = native_rows[1]["content"] == [
+                {"type": "text", "text": "(empty)"}]
+            checks["stock_drops_only_blank_text_blocks"] = native_rows[3]["content"] == [
+                {"type": "text", "text": "  Synthetic nonblank text.\n"}]
         row = {"role": "assistant", "content": normalized.content or ""}
         row.update(normalized.provider_data or {})
         if normalized.tool_calls:

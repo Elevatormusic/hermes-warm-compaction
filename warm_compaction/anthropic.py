@@ -25,11 +25,14 @@ def _text(content: Any, *, empty: str = "") -> list[dict]:
     if content is None:
         content = ""
     if isinstance(content, str):
-        return [{"type": "text", "text": content or empty}] if content or empty else []
+        text = content if content.strip() else empty
+        return [{"type": "text", "text": text}] if text else []
     if isinstance(content, list) and all(isinstance(p, dict) and p.get("type") == "text"
                                          and isinstance(p.get("text"), str)
                                          and set(p) <= {"type", "text", "cache_control"} for p in content):
-        return [{"type": "text", "text": p["text"]} for p in content]
+        # Hermes 6e7b83a drops blank text blocks. Keep all bytes of each nonblank block.
+        blocks = [{"type": "text", "text": p["text"]} for p in content if p["text"].strip()]
+        return blocks or ([{"type": "text", "text": empty}] if empty else [])
     _refuse()
 
 
@@ -137,7 +140,7 @@ def _rows(rows: list, *, new: bool = False, base_url: Any = None) -> list[dict]:
                 seen.add(call_id)
             if role == "assistant":
                 content = _assistant_blocks(row, content, calls, base_url)
-            content = content or [{"type": "text", "text": "(empty message)"}]
+            content = content or [{"type": "text", "text": "(empty)" if role == "assistant" else "(empty message)"}]
         else:
             _refuse()
         if result and result[-1]["role"] == role:

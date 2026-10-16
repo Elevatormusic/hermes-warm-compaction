@@ -24,6 +24,8 @@ Native server compaction checkpoints, stateful `previous_response_id` or convers
 
 The request keeps the captured native `messages` prefix, system blocks, tools, cache markers, tool choice, and thinking settings. The warm request uses `/v1/messages`. Native replies use their stop reason and content blocks; the reader also accepts complete native SSE replies.
 
+For text rows, the adapter follows the blank-text rules in Hermes `6e7b83a`: omit blank text blocks, use `(empty)` for an empty assistant turn, and use `(empty message)` for an empty user turn. It keeps every byte of nonblank text and of the captured prefix. Other changes that the adapter cannot match safely to stored history still use the fallback. A `source_transform_unsupported` code alone does not prove that a plugin or middleware changed the rows.
+
 The adapter uses `x-api-key`, `anthropic-version`, the checked Hermes beta defaults, and custom provider headers. Claude Code OAuth or subscription authentication, bearer routes (MiniMax, Kimi, CommandCode, Palantir, and Nous), Azure/Entra authentication, and Bedrock remain on the fallback. Custom `Authorization` headers also refuse. Their authentication and final-client transformations need separate integration work.
 
 Forced or server tools, media, structured output, unknown request controls, and unproved replay blocks use the fallback. Signed thinking is replayed only on the native Anthropic host. A manual thinking budget stays unchanged; the output limit leaves at least 2,048 tokens after that budget. A request that then exceeds the window uses the fallback.

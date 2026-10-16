@@ -661,6 +661,78 @@ class EngineTest(unittest.TestCase):
         self.assert_aborted(engine, [*rows, reply], "summary_too_large")
         self.assertEqual(len(self.llm.calls), 1)
 
+    def test_known_zero_summary_room_stops_before_either_model_request(self):
+        for settings in ({"threshold": 0.15, "prefix": "fixed " * 30_000, "max_tokens": 4096},
+                         {"threshold": 0.95, "prefix": "Synthetic rule.", "max_tokens": 131_072}):
+            with self.subTest(settings={key: value for key, value in settings.items() if key != "prefix"}):
+                engine = self.make(threshold=settings["threshold"])
+                engine.update_model(model=ROUTE[0], context_length=131_072, base_url=ROUTE[1], api_key="k",
+                                    provider="custom", api_mode=ROUTE[2])
+                rows, reply = old_turns(8), assistant("final")
+                self.seed(rows, reply, system={"role": "system", "content": settings["prefix"]},
+                          extra={"max_tokens": settings["max_tokens"]})
+                self.assert_aborted(engine, [*rows, reply], "summary_too_large")
+                self.assertEqual(engine.warm_last["reason"], "summary_too_large")
+                self.assertEqual(self.post.calls, [])
+                self.assertEqual(self.llm.calls, [])
+
+    def test_known_summary_room_still_uses_the_warm_request(self):
+        engine = self.make(threshold=0.5, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=131_072, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        rows, reply = old_turns(8), assistant("final")
+        self.seed(rows, reply, system={"role": "system", "content": "fixed " * 5_000},
+                  extra={"max_tokens": 4096})
+        history = [*rows, reply]
+        self.assertIsNot(engine.compress(history), history)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("warm", "accepted"))
+        self.assertEqual(len(self.post.calls), 1)
+        self.assertEqual(self.llm.calls, [])
+
+    def test_unknown_overhead_does_not_refuse_from_a_large_host_count(self):
+        engine = self.make(threshold=0.15, tail_tokens=2_000)
+        engine.update_model(model=ROUTE[0], context_length=131_072, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        history = [*old_turns(8), assistant("final")]
+        self.assertIsNone(self.store.latest("s1"))
+        self.assertIsNot(engine.compress(history, current_tokens=46_234), history)
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]), ("fallback", "no_capture"))
+        self.assertEqual(self.post.calls, [])
+        self.assertEqual(len(self.llm.calls), 1)
+
+    def test_known_zero_summary_room_keeps_cancellation_and_route_guards(self):
+        for change in ("cancel", "route"):
+            with self.subTest(change=change):
+                engine = self.make(threshold=0.15)
+                engine.update_model(model=ROUTE[0], context_length=131_072, base_url=ROUTE[1], api_key="k",
+                                    provider="custom", api_mode=ROUTE[2])
+                rows, reply = old_turns(8), assistant("final")
+                self.seed(rows, reply, system={"role": "system", "content": "fixed " * 30_000},
+                          extra={"max_tokens": 4096})
+                if change == "cancel":
+                    engine._compression_cancelled_check = lambda: True
+                else:
+                    summary_budget = engine._summary_budget
+
+                    def switch(overhead, reserve):
+                        result = summary_budget(overhead, reserve)
+                        engine.threshold_tokens += 1
+                        return result
+
+                    engine._summary_budget = switch
+                history = [*rows, reply]
+                before = copy.deepcopy(history)
+                captured = self.store.latest("s1")
+                self.assertIs(engine.compress(history), history)
+                self.assertEqual(history, before)
+                self.assertEqual(self.store.latest("s1"), captured)
+                self.assertEqual((engine.warm_last["path"], engine.warm_last["reason"]),
+                                 ("cancelled", "cancelled" if change == "cancel" else "route_changed"))
+                self.assertEqual(engine.compression_count, 0)
+                self.assertIsNone(engine._pending_warm_result)
+                self.assertEqual(self.post.calls, [])
+                self.assertEqual(self.llm.calls, [])
+
     def test_a_switch_before_the_result_is_used_discards_it(self):
         # The check covers the whole compaction: a switch while the new history is built also stops it.
         from warm_compaction import layout

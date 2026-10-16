@@ -51,14 +51,14 @@ FAILURE_HINTS = {
     "request_not_json": "the main request has a value that cannot be sent as JSON",
     "credential_changed": "the API key changed after the last main request",
     "capacity": "the warm request does not fit in the context window",
-    "summary_too_large": "the handoff did not fit in the free room of the context window",
+    "summary_too_large": "the handoff did not fit below the compaction threshold or the context limit",
     "gate": "the warm reply failed the handoff checks",
     "headers_unknown": "the route headers could not be read",
     "tls_unknown": "the TLS settings of the route could not be read",
     "middleware_after_capture": "another plugin middleware runs after the capture and can change the request",
     "middleware_order_unknown": "the order of the plugin middleware could not be read",
     "middleware_unavailable": "the Hermes middleware API could not be loaded",
-    "source_transform_unsupported": "a hook or middleware changed the stored rows in the request",
+    "source_transform_unsupported": "the request rows could not be matched safely to the stored history",
 }
 HERMES_END_MARKER = "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---"
 HERMES_DB_MARKER = "_db_persisted"
@@ -350,6 +350,10 @@ class WarmCompactionEngine(ContextEngine):
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
+        if budget is not None and overhead is not None and self._summary_budget(overhead, reserve) == 0:
+            # A usable capture proves that no summary can fit. Do not send either summary request.
+            record.update(reason="summary_too_large", fallback_reason="summary_too_large")
+            return self._abort(messages, record, started, attempt)
         summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record, attempt)
         if summary is not None and not self._summary_fits(summary, overhead, reserve):
             # A dense handoff can pass the byte gate and still not fit below the threshold: the next request would
