@@ -12,6 +12,10 @@ Requests that cannot pass the source, route, credential, middleware, or capacity
 
 ## Responses
 
+The table above describes solo requests. For Mixture of Agents, see
+[MOA support](moa.md). Native Codex MOA also needs the Hermes native auxiliary
+request API; the plugin falls back when that API is absent.
+
 The request keeps the captured `input` prefix, `instructions`, tools, reasoning settings, and cache controls. New rows and the host handoff instruction follow the prefix. The warm request uses `/responses` and streaming. Only a terminal, completed response can pass the handoff gate. Partial text, a failed or incomplete response, tool calls, and refusals cannot become a warm summary.
 
 Supported session headers stay in memory and are sent as HTTP headers. The official consumer Codex route keeps the Hermes identity and account headers. A key change after capture still refuses the attempt.

@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 TASK = "warm_compaction"
 HOOKS = ("pre_api_request", "post_api_request", "on_session_finalize", "on_session_reset")
+MOA_HOOKS = ("pre_auxiliary_call", "post_auxiliary_call")
+MOA_NATIVE_HOOKS = ("pre_auxiliary_native_request", "post_auxiliary_native_request")
 MIDDLEWARE = "llm_execution"
 CONTEXT_METHODS = (
     "register_context_engine", "register_hook", "register_middleware", "register_auxiliary_task", "get_config",
@@ -76,8 +78,20 @@ def register(ctx: Any) -> None:
         task = None
         logger.warning("warm_compaction could not register its auxiliary task (%s); the fallback summary uses "
                        "the main model route", type(error).__name__)
-    store = CaptureStore()
-    engine = WarmCompactionEngine(store=store, llm=ctx.llm, settings=read_settings(ctx.get_config), task=task)
+    settings = read_settings(ctx.get_config)
+    moa_store = None
+    if settings["moa_routes"]:
+        available_hooks = _read("hermes_cli.plugins", "VALID_HOOKS") or ()
+        if all(hook in available_hooks for hook in MOA_HOOKS):
+            from .moa import MoaStore
+            try:
+                moa_store = MoaStore(settings["moa_routes"], include_references=settings["moa_references"])
+            except ValueError:
+                logger.warning("warm_compaction: invalid MOA routes; MOA compaction uses the fallback.")
+        else:
+            logger.warning("warm_compaction: auxiliary hooks are missing; MOA compaction uses the fallback.")
+    store = CaptureStore(moa=moa_store)
+    engine = WarmCompactionEngine(store=store, llm=ctx.llm, settings=settings, task=task)
     if ctx.register_context_engine(engine) is None:
         logger.warning("Hermes did not accept the warm_compaction context engine; the plugin registers no hooks")
         return
@@ -86,6 +100,17 @@ def register(ctx: Any) -> None:
     ctx.register_hook("post_api_request", store.on_post_api_request)
     ctx.register_hook("on_session_finalize", store.forget)
     ctx.register_hook("on_session_reset", store.forget)
+    if moa_store is not None:
+        ctx.register_hook("pre_auxiliary_call", moa_store.on_pre_auxiliary_call)
+        ctx.register_hook("post_auxiliary_call", moa_store.on_post_auxiliary_call)
+        native_hooks = _read("hermes_cli.plugins", "VALID_HOOKS") or ()
+        moa_store.native_available = (all(hook in native_hooks for hook in MOA_NATIVE_HOOKS)
+                                      and callable(getattr(ctx.llm, "complete_native", None)))
+        if moa_store.native_available:
+            ctx.register_hook("pre_auxiliary_native_request", moa_store.on_pre_auxiliary_native_request)
+            ctx.register_hook("post_auxiliary_native_request", moa_store.on_post_auxiliary_native_request)
+        elif any(route["api_mode"] == "codex_responses" for route in moa_store.routes):
+            logger.warning("warm_compaction: native MOA APIs are missing; native MOA uses the fallback.")
 
 
 __all__ = ["engine_loader_context", "missing_apis", "register"]

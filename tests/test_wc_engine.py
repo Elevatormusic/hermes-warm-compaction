@@ -2076,6 +2076,7 @@ class SettingsTest(unittest.TestCase):
 
     def test_valid_values(self):
         values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
+                  "moa_routes": [], "moa_references": False,
                   "summary_words": 1200, "warm_providers": "opencode-go,commandcode"}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 

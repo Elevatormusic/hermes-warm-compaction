@@ -1,0 +1,938 @@
+{
+  "synthetic": true,
+  "live_provider": false,
+  "cache_reuse_proved": false,
+  "privacy": "metadata only",
+  "hermes": {
+    "commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+    "clean": true
+  },
+  "public_plugin_base": "c4103189ed8bfa3f3a2663ca21ea741e9b5c46c6",
+  "harness_python": "3.11.14",
+  "hermes_declared_python": ">=3.11,<3.15",
+  "native_fixture_sha256": "dbd3652a15b94e4921a95daa87a2531e6b41e1bb63b789ad7f34c6fd5f1bb907",
+  "moa_script_sha256": "c997d0ef9a6560863a138b0594817c5d7dcc95e2b16319946f0e5d80b873d3fd",
+  "checks": [
+    {
+      "check": "Chat MOA",
+      "report": "moa-new-host-final.json",
+      "report_sha256": "09cfdabde7c3e62cc0831698e3cf207b60554e5436ec87fff9c0fce8848ac5d1",
+      "selected_cases": [
+        {
+          "name": "moa_manual",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_references_off",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_auto_tool_loop",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_fallback",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_unconfigured",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "plugin_snapshot_matches_current": true
+    },
+    {
+      "check": "native MOA",
+      "report": "moa-native-candidate-final.json",
+      "report_sha256": "04a88b2b9128ebd31d32d58b6c43f522cddb4ff4440523b1b97a0acd846add2d",
+      "selected_cases": [
+        {
+          "name": "moa_native_manual",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_native_auto_tool",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_native_references_off",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "moa_native_fallback",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "plugin_snapshot_matches_current": true
+    },
+    {
+      "check": "plugin integration retained passes",
+      "report": "plugin-new-host-final.json",
+      "report_sha256": "9d1fa150ccf57549194f28067c7584be48dd3bb884af4d153dffd892d5027701",
+      "selected_cases": [
+        {
+          "name": "manual_whitespace",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "manual_fallback",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "manual_fixed",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "auto_tool_loop",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "rollback",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {},
+      "plugin_snapshot_matches_current": true
+    },
+    {
+      "check": "plugin integration short-path retry",
+      "report": "plugin-new-host-short-path-retry.json",
+      "report_sha256": "be4987581d21976a0b874e3b63e9edaacf1be78325c50e6d8b4a24fff6754022",
+      "selected_cases": [
+        {
+          "name": "enable_manual_warm",
+          "status": "passed",
+          "python": "3.14.7"
+        },
+        {
+          "name": "auto_warm_failures",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {},
+      "plugin_snapshot_matches_current": true
+    },
+    {
+      "check": "native providers",
+      "report": "provider-new-host-final.json",
+      "report_sha256": "80cbc368064f801c1251e870683166a9c6168b802b8b6c4b9b3762b003b7df3f",
+      "selected_cases": [
+        {
+          "name": "responses_text",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "responses_tool",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "responses_incomplete",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "responses_codex",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "responses_codex_reasoning",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "anthropic_text",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "anthropic_tool",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "anthropic_refusal",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "anthropic_signed",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "script_unchanged": true
+      },
+      "plugin_snapshot_matches_current": true
+    },
+    {
+      "check": "native conversations and reload",
+      "report": "native-loop-new-host-final.json",
+      "report_sha256": "cff7c880d9403800ecf740b1d17f631256e6d9f87f9cf4ceeda3c26aba28adef",
+      "selected_cases": [
+        {
+          "name": "responses_manual",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "responses_auto_tool",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "anthropic_manual",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "anthropic_auto_tool",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "plugin_snapshot_matches_current": true
+    },
+    {
+      "check": "Hermes compatibility",
+      "report": "compatibility-new-host-final.json",
+      "report_sha256": "50b6b243478a4a984310e3761033d699a6ab878b39bc5c6deaf07abd070fc17c",
+      "selected_cases": [
+        {
+          "name": "capture_last",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "earlier_rewrite",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "later_rewrite",
+          "status": "passed",
+          "python": "3.11.14"
+        },
+        {
+          "name": "unknown_order",
+          "status": "passed",
+          "python": "3.11.14"
+        }
+      ],
+      "selected_cases_passed": true,
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "script_unchanged": true
+      },
+      "plugin_snapshot_matches_current": true
+    }
+  ],
+  "all_selected_cases_passed": true,
+  "resolved_fixture_failure": {
+    "report": "moa-native-auto-diagnosis.json",
+    "class": "invalid_tool_name",
+    "structured_error_code": null,
+    "cause": "tool_search auto hides direct plugin tool name",
+    "fix": "tools.tool_search.enabled=off, as in existing native conversation fixture"
+  },
+  "resolved_install_failure": {
+    "report": "plugin-new-host-final.json",
+    "class": "Windows filename too long during local git clone",
+    "retry_report": "plugin-new-host-short-path-retry.json",
+    "work": "<short-work-root>"
+  },
+  "baseline_receipt": "moa-baseline-receipt.json",
+  "prior_failed_reports_preserved": true,
+  "limits": "Loopback behavior only. No live provider, cache reuse, deployed compatibility, or performance qualification.",
+  "tested_plugin_commit": "7c221dcb987494a335c73a39a24278eede751e3d",
+  "identity_note": "Loopbacks tested the recorded working-file bytes in a clean checkout at the code commit. Git normalizes some Windows CRLF files to LF in stored blobs; both identities are recorded.",
+  "evidence_source": "Local synthetic loopbacks; separate local test receipts are listed under local_checks.",
+  "retained_passes_note": "The first combined report passed all five Chat cases and failed four native fixture cases. Keep those Chat passes. After shared native fixture corrections, all four native cases passed together. The first plugin integration report passed five scenarios; two install failures passed on a short-path retry. Do not count failed attempts as successful runs.",
+  "plugin_files_sha256": {
+    "warm_compaction/__init__.py": "0b50df27220aa82164c8392ac4947f8f1dd0158f6c3134150c05102f2ab29021",
+    "warm_compaction/anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "warm_compaction/capture.py": "85e4727f39ee3d85d5c2c7bc6b921d0e79affbde0ee3f33f12535270b8cc4c7a",
+    "warm_compaction/engine.py": "57bc1f0b9dccab64b96a7d09642d440d0e61d8d677fdb6eaddd69b7379324fd0",
+    "warm_compaction/fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "warm_compaction/handoff.py": "1c1b3eb2d70b25571b8d8241685141e9bf0b164b8fff25f5ba1ba032678b6d5c",
+    "warm_compaction/layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "warm_compaction/moa.py": "b4880206afebbb876a9a75a02dc97f860751e02af8df182465cf9e9a6c435790",
+    "warm_compaction/moa_native.py": "70b7c82502d11dc94572c057bc99164963123ffba613b045bbe096ff869e3571",
+    "warm_compaction/native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "warm_compaction/plugin.yaml": "6fbece6d586a6037c30d98916c77ae080568788c967f125a728c5d86514b93b9",
+    "warm_compaction/protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "warm_compaction/responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "warm_compaction/rows.py": "2f5d9bd1e1d72c620354c4ec317526b4bca56033e9f080dde9967feff4bdb50c",
+    "warm_compaction/warm.py": "6b5cacd003acfa5027b871a73d3ca34ec1612ac70b7497e24cd8ecb74e9025d2"
+  },
+  "helper_files_sha256": {
+    "check_plugin_hermes.py": "47dd18b7a403c298eebbc1fbc5e6f0d41b926ac22b541da275f155c77d4485ec",
+    "check_native_conversations.py": "05c8eb9bf37ab1a322f4f3255946c9015614def0dea9372f8a732d0e18fa9828",
+    "check_hermes_compatibility.py": "641b1acb9a311ebad570c4a06800ff866030471db3b4d745148244b2e8ca75c0",
+    "moa_native_fixture.py": "dbd3652a15b94e4921a95daa87a2531e6b41e1bb63b789ad7f34c6fd5f1bb907"
+  },
+  "baseline": {
+    "hermes_commit": "05eecbcd972c8737ebc7722ea08aab47fb538043",
+    "public_plugin_base": "c4103189ed8bfa3f3a2663ca21ea741e9b5c46c6",
+    "python": "3.11.14",
+    "dependencies": {
+      "openai": "2.24.0",
+      "httpx": "0.28.1",
+      "pydantic": "2.13.4",
+      "pytest": "9.1.1",
+      "PyYAML": "6.0.3",
+      "ruamel.yaml": "0.18.17",
+      "anthropic": "0.87.0"
+    },
+    "checks": [
+      {
+        "check": "public base native providers",
+        "report": "c410-provider-05eec.json",
+        "passed": true,
+        "cases": [
+          {
+            "case": "responses_text",
+            "status": "passed"
+          },
+          {
+            "case": "responses_tool",
+            "status": "passed"
+          },
+          {
+            "case": "responses_incomplete",
+            "status": "passed"
+          },
+          {
+            "case": "responses_codex",
+            "status": "passed"
+          },
+          {
+            "case": "responses_codex_reasoning",
+            "status": "passed"
+          },
+          {
+            "case": "anthropic_text",
+            "status": "passed"
+          },
+          {
+            "case": "anthropic_tool",
+            "status": "passed"
+          },
+          {
+            "case": "anthropic_refusal",
+            "status": "passed"
+          },
+          {
+            "case": "anthropic_signed",
+            "status": "passed"
+          }
+        ],
+        "source_guards_passed": true,
+        "report_sha256": "3940f4fea638e8f1015ca962e0e8619dd36da13a159288321c0a55f9eca89f6e",
+        "script_sha256": "acae5d374986f4bca21f5bac2c8eefc6bac1c2e665fea58a3e11793eadc3d546",
+        "source_guards": {
+          "hermes_source_unchanged": true,
+          "plugin_source_unchanged": true,
+          "script_unchanged": true
+        },
+        "plugin_snapshot_sha256": "4c8aab26f677666263c55bb378e4de10e6a54433f4c0bad8fe8973d1d27aa604"
+      },
+      {
+        "check": "public base native conversations",
+        "report": "c410-native-loop-05eec.json",
+        "passed": true,
+        "cases": [
+          {
+            "case": "responses_manual",
+            "status": "passed"
+          },
+          {
+            "case": "responses_auto_tool",
+            "status": "passed"
+          },
+          {
+            "case": "anthropic_manual",
+            "status": "passed"
+          },
+          {
+            "case": "anthropic_auto_tool",
+            "status": "passed"
+          }
+        ],
+        "source_guards_passed": true,
+        "report_sha256": "d65c36a44199ecea8e847e6d0df40129157239220efcfcc250ffd3664907dee9",
+        "script_sha256": "05c8eb9bf37ab1a322f4f3255946c9015614def0dea9372f8a732d0e18fa9828",
+        "source_guards": {
+          "hermes_source_unchanged": true,
+          "plugin_source_unchanged": true,
+          "helpers_unchanged": true,
+          "script_unchanged": true
+        },
+        "plugin_snapshot_sha256": "4c8aab26f677666263c55bb378e4de10e6a54433f4c0bad8fe8973d1d27aa604"
+      },
+      {
+        "check": "public base MOA counterfactual",
+        "report": "c410-moa-counterfactual-05eec.json",
+        "passed": false,
+        "cases": [
+          {
+            "case": "moa_manual",
+            "status": "failed"
+          }
+        ],
+        "expected_failure": true,
+        "outcome": {
+          "path": "fallback",
+          "reason": "source_transform_unsupported"
+        },
+        "source_guards_passed": true,
+        "report_sha256": "2b58391f53334399ca1b4cbb3a4063291c8ad13aac3dc213c6fc684262819630",
+        "script_sha256": "89ac136411297453dc6930ba7e396c327497761110430b7701c32a69da8e582f",
+        "source_guards": {
+          "hermes_source_unchanged": true,
+          "plugin_source_unchanged": true,
+          "helpers_unchanged": true,
+          "script_unchanged": true
+        },
+        "plugin_snapshot_sha256": "4c8aab26f677666263c55bb378e4de10e6a54433f4c0bad8fe8973d1d27aa604"
+      },
+      {
+        "check": "candidate old-host compatibility",
+        "report": "moa-old-host-compatibility-final.json",
+        "passed": true,
+        "cases": [
+          {
+            "case": "moa_manual",
+            "status": "passed"
+          },
+          {
+            "case": "moa_references_off",
+            "status": "passed"
+          },
+          {
+            "case": "moa_fallback",
+            "status": "passed"
+          },
+          {
+            "case": "moa_unconfigured",
+            "status": "passed"
+          },
+          {
+            "case": "moa_old_auto_tool_refusal",
+            "status": "passed"
+          }
+        ],
+        "source_guards_passed": true,
+        "report_sha256": "73455a09a0ae6e077ca363544f6d9a23bd7a3694a751b8ac9d2028a025bdfcf6",
+        "script_sha256": "c997d0ef9a6560863a138b0594817c5d7dcc95e2b16319946f0e5d80b873d3fd",
+        "source_guards": {
+          "hermes_source_unchanged": true,
+          "plugin_source_unchanged": true,
+          "helpers_unchanged": true,
+          "script_unchanged": true
+        },
+        "plugin_snapshot_sha256": "ae85d685ec5c67e69a09ba8ce6f184e6d5e284c5ed2d21387e28444f7141d681"
+      }
+    ],
+    "scope_note": "The c410 native provider and conversation baselines passed. The c410 MOA manual counterfactual failed as expected with source_transform_unsupported. Old-host automatic MOA is an explicit safe-refusal case with moa_payload_incomplete; it is not a successful warm result. Old-host results are tied to their recorded earlier plugin/helper hashes."
+  },
+  "failed_attempts": [
+    {
+      "report": "moa-chat-05eec.json",
+      "report_sha256": "fc8dff59f8d7dc5e6e8d31ef5550e83c2488c6b71ee092382437b43827745c32",
+      "overall_status": "failed",
+      "explanation": "Early harness expected unchanged output caps and non-streaming references. Those expectations did not match the public warm spec or host behavior. Old-host tool-schema capture also safely refused. Plugin source changed during the run, so this is not qualifying evidence.",
+      "hermes": {
+        "commit": "05eecbcd972c8737ebc7722ea08aab47fb538043",
+        "clean": true
+      },
+      "script_sha256": "0a578cffed9dfad0e4314073ffd2588f2cf64439699a45dfd4a99b918eec726c",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": false,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "moa_manual",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "manual_reference-b_settings_exact",
+            "manual_reference-a_settings_exact",
+            "manual_aggregator_settings_exact",
+            "normal_references_nonstreamed"
+          ]
+        },
+        {
+          "name": "moa_references_off",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "manual_aggregator_settings_exact",
+            "normal_references_nonstreamed"
+          ]
+        },
+        {
+          "name": "moa_auto_tool_loop",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "auto1_warm_accepted",
+            "auto1_aggregator_once",
+            "auto1_reference_destinations",
+            "auto1_references_before_aggregator",
+            "auto1_aggregator_status",
+            "auto1_reference_status",
+            "auto2_warm_accepted",
+            "auto2_aggregator_once",
+            "auto2_reference_destinations",
+            "auto2_references_before_aggregator",
+            "auto2_aggregator_status",
+            "auto2_reference_status",
+            "continuation_sends_summary",
+            "normal_references_nonstreamed"
+          ]
+        },
+        {
+          "name": "moa_fallback",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "normal_references_nonstreamed"
+          ]
+        },
+        {
+          "name": "moa_unconfigured",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "normal_references_nonstreamed"
+          ]
+        }
+      ]
+    },
+    {
+      "report": "moa-chat-05eec-manual-py311.json",
+      "report_sha256": "b8f298a677998a35a9d1da99c2705282f744bad4cd2fe67b9083c16e9135bb2f",
+      "overall_status": "failed",
+      "explanation": "Early harness worker failed with NameError. It did not complete a valid case.",
+      "hermes": {
+        "commit": "05eecbcd972c8737ebc7722ea08aab47fb538043",
+        "clean": true
+      },
+      "script_sha256": "6651dc0aa5f51a17498ff16d1705d7b3d879d0e87c3cd5430d6b30175efba01a",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": null,
+          "error": "worker_runtime_failed",
+          "error_class": "NameError",
+          "failed_checks": []
+        }
+      ]
+    },
+    {
+      "report": "moa-chat-05eec-final.json",
+      "report_sha256": "eea5e821fda98b266a6876f4cf95c4ed4e45d3950e3ae69dac0c907ae089b9c0",
+      "overall_status": "failed",
+      "explanation": "Old-host automatic MOA safely refused incomplete tool-schema preview. Plugin source changed during the run, so this is not qualifying evidence.",
+      "hermes": {
+        "commit": "05eecbcd972c8737ebc7722ea08aab47fb538043",
+        "clean": true
+      },
+      "script_sha256": "9687ac74544e765ed4d54114baab57407ffdea9373cc1941bf24b40289955812",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": false,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "moa_auto_tool_loop",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "auto1_warm_accepted",
+            "auto1_aggregator_once",
+            "auto1_reference_destinations",
+            "auto1_references_before_aggregator",
+            "auto1_aggregator_status",
+            "auto1_reference_status",
+            "auto2_warm_accepted",
+            "auto2_aggregator_once",
+            "auto2_reference_destinations",
+            "auto2_references_before_aggregator",
+            "auto2_aggregator_status",
+            "auto2_reference_status",
+            "continuation_sends_summary"
+          ]
+        }
+      ]
+    },
+    {
+      "report": "moa-chat-old-host-compatible.json",
+      "report_sha256": "05f76fa4c6f930e18f06529488980da3842980dd7df5463f6edf93a74fbfa179",
+      "overall_status": "failed",
+      "explanation": "Cases passed, but the harness changed during the run. The failed script guard excludes this report from qualifying evidence.",
+      "hermes": {
+        "commit": "05eecbcd972c8737ebc7722ea08aab47fb538043",
+        "clean": true
+      },
+      "script_sha256": "45a98b858ba7904bfbfd4302a688136ac9b2b25907832c0232975629397c8c68",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": false
+      },
+      "error_class": null,
+      "failed_cases": []
+    },
+    {
+      "report": "moa-current-main-manual.json",
+      "report_sha256": "291f4822441bb6d6a6ed54f299d6c44fb89415e82f494b1473f35a5e314038d4",
+      "overall_status": "failed",
+      "explanation": "The source guard refused a non-clean host checkout before the worker ran.",
+      "hermes": null,
+      "script_sha256": null,
+      "source_guards": {},
+      "error_class": "ValueError",
+      "failed_cases": []
+    },
+    {
+      "report": "moa-new-host-final.json",
+      "report_sha256": "09cfdabde7c3e62cc0831698e3cf207b60554e5436ec87fff9c0fce8848ac5d1",
+      "overall_status": "failed",
+      "explanation": "All five Chat cases passed. Native fixture grants omitted the required narrow provider/model overrides, and the automatic fixture prompt counter exceeded the native reserve. Four native cases failed.",
+      "hermes": {
+        "commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+        "clean": true
+      },
+      "script_sha256": "c997d0ef9a6560863a138b0594817c5d7dcc95e2b16319946f0e5d80b873d3fd",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "moa_native_manual",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "one_native_acting_handoff",
+            "native_reference_count",
+            "references_before_acting_handoff",
+            "expected_compaction_outcome"
+          ]
+        },
+        {
+          "name": "moa_native_auto_tool",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "one_native_acting_handoff",
+            "native_reference_count",
+            "references_before_acting_handoff",
+            "expected_compaction_outcome"
+          ]
+        },
+        {
+          "name": "moa_native_references_off",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "one_native_acting_handoff",
+            "references_before_acting_handoff",
+            "expected_compaction_outcome"
+          ]
+        },
+        {
+          "name": "moa_native_fallback",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "one_native_acting_handoff",
+            "native_reference_count",
+            "references_before_acting_handoff",
+            "expected_compaction_outcome"
+          ]
+        }
+      ]
+    },
+    {
+      "report": "moa-native-new-host-final.json",
+      "report_sha256": "6195a02ea4b419c755604e30648156290b7f2a1e3cbf5c2c62b5a9712b34f303",
+      "overall_status": "failed",
+      "explanation": "Manual and references-off passed. The automatic fixture counter was below the compaction trigger. The fallback assertion used the wrong expected refusal reason.",
+      "hermes": {
+        "commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+        "clean": true
+      },
+      "script_sha256": "c997d0ef9a6560863a138b0594817c5d7dcc95e2b16319946f0e5d80b873d3fd",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "moa_native_auto_tool",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "one_native_acting_handoff",
+            "native_reference_count",
+            "references_before_acting_handoff",
+            "expected_compaction_outcome",
+            "summary_rows",
+            "acting_summary_retained"
+          ]
+        },
+        {
+          "name": "moa_native_fallback",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "expected_compaction_outcome"
+          ]
+        }
+      ]
+    },
+    {
+      "report": "moa-native-failed-case-retry.json",
+      "report_sha256": "b3f3b5bf01aaeb28102b84efcb0b6474a65418d2fe57a7e663633a75da8816e8",
+      "overall_status": "failed",
+      "explanation": "Fallback passed. Automatic compaction accepted the warm result, but the direct tool name was hidden by Tool Search and the successful tool-result assertion failed.",
+      "hermes": {
+        "commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+        "clean": true
+      },
+      "script_sha256": "c997d0ef9a6560863a138b0594817c5d7dcc95e2b16319946f0e5d80b873d3fd",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "moa_native_auto_tool",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "real_tool_result_replayed"
+          ]
+        }
+      ]
+    },
+    {
+      "report": "moa-native-auto-diagnosis.json",
+      "report_sha256": "c43ebca019637e06574b266f8ccb14ed9389dfcc561e1ecbdfa529915546c44d",
+      "overall_status": "failed",
+      "explanation": "Tool Search auto hides direct plugin tool names. The fake provider emitted wc_note without the search bridge. Hermes rejected it as invalid_tool_name; no structured code was returned.",
+      "hermes": {
+        "commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+        "clean": true
+      },
+      "script_sha256": "c997d0ef9a6560863a138b0594817c5d7dcc95e2b16319946f0e5d80b873d3fd",
+      "source_guards": {
+        "hermes_source_unchanged": true,
+        "plugin_source_unchanged": true,
+        "helpers_unchanged": true,
+        "script_unchanged": true
+      },
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "moa_native_auto_tool",
+          "error": null,
+          "error_class": null,
+          "failed_checks": [
+            "test_tool_registered",
+            "real_tool_result_replayed"
+          ]
+        }
+      ]
+    },
+    {
+      "report": "plugin-new-host-final.json",
+      "report_sha256": "9d1fa150ccf57549194f28067c7584be48dd3bb884af4d153dffd892d5027701",
+      "overall_status": "failed",
+      "explanation": "Five scenarios passed. Two install attempts failed because a local git clone exceeded the Windows path limit. Both passed on the short-path retry.",
+      "hermes": {
+        "commit": "3a088a310a73d8fd1aad2d9bd5ddec6ddff044f7",
+        "clean": true
+      },
+      "script_sha256": "47dd18b7a403c298eebbc1fbc5e6f0d41b926ac22b541da275f155c77d4485ec",
+      "source_guards": {},
+      "error_class": null,
+      "failed_cases": [
+        {
+          "name": "enable_manual_warm",
+          "error": "no_run_result",
+          "error_class": null,
+          "failed_checks": []
+        },
+        {
+          "name": "auto_warm_failures",
+          "error": "no_run_result",
+          "error_class": null,
+          "failed_checks": []
+        }
+      ]
+    }
+  ],
+  "commands": {
+    "working_directory": "Clean plugin checkout at tested_plugin_commit. Each <clean-hermes> placeholder must name the stated clean host commit.",
+    "candidate_chat": "<hermes-python> -B scripts/check_moa_hermes.py --hermes-source <clean-hermes> --report .work/moa-chat-report.json",
+    "candidate_native": "<hermes-python> -B scripts/check_moa_hermes.py --hermes-source <clean-hermes> --case moa_native_manual --case moa_native_auto_tool --case moa_native_references_off --case moa_native_fallback --report .work/moa-native-report.json",
+    "candidate_all_moa": "<hermes-python> -B scripts/check_moa_hermes.py --hermes-source <clean-hermes> --native --report .work/moa-report.json",
+    "plugin_integration": "<hermes-python> -B scripts/check_plugin_hermes.py --hermes-source <clean-hermes> --work <short-work-root> --report .work/plugin-report.json",
+    "plugin_failed_install_retry": "<hermes-python> -B scripts/check_plugin_hermes.py --hermes-source <clean-hermes> --scenario enable_manual_warm --scenario auto_warm_failures --work <short-work-root> --report .work/plugin-retry-report.json",
+    "provider_apis": "<hermes-python> -B scripts/check_provider_apis.py --hermes-source <clean-hermes> --dependency-path <anthropic-deps> --report .work/provider-report.json",
+    "native_conversations": "<hermes-python> -B scripts/check_native_conversations.py --hermes-source <clean-hermes> --dependency-path <anthropic-deps> --report .work/native-conversation-report.json",
+    "compatibility": "<hermes-python> -B scripts/check_hermes_compatibility.py --hermes-source <clean-hermes> --report .work/compatibility-report.json",
+    "old_host_compatibility": "<hermes-python> -B scripts/check_moa_hermes.py --hermes-source <clean-hermes> --case moa_manual --case moa_references_off --case moa_fallback --case moa_unconfigured --case moa_old_auto_tool_refusal --report .work/old-host-report.json",
+    "counterfactual_setup": "Export warm_compaction from public_plugin_base into <short-work-root>/c410-plugin. Use the current harness and clean old host for the following expected failure.",
+    "counterfactual": "<hermes-python> -B scripts/check_moa_hermes.py --hermes-source <clean-hermes> --plugin-source <short-work-root>/c410-plugin --case moa_manual --report .work/c410-counterfactual-report.json"
+  },
+  "loopback_subagent_checks": [
+    {
+      "check": "Ruff on both new scripts",
+      "status": "passed",
+      "version": "0.16.10"
+    },
+    {
+      "check": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "required_check_status": "All selected candidate loopback cases passed. Earlier failed attempts and expected counterfactual failure remain listed. Parent-supplied required local checks passed.",
+  "git_blob_sha256": {
+    "warm_compaction/__init__.py": "e4fc1bbfa33e1c39fb8b136a217ec69c3e57d143c7297b9b032e405b59a362ee",
+    "warm_compaction/anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+    "warm_compaction/capture.py": "d4b2a5ca10e73c28a2165472862b970c6e78cc4204fdc3feec362733732a75fd",
+    "warm_compaction/engine.py": "a266d8e1521245f585010eaf932a20791248c55275d585d853b929ae0bb3f45c",
+    "warm_compaction/fallback.py": "9b2d0529767ff157bbe0d1cbf096ca6ac35217118f81eee769adf41d50189a9a",
+    "warm_compaction/handoff.py": "e0e906696367d1ceb671e0f7b7c64964f8d45ae1275c50ac4edf76488ec62b78",
+    "warm_compaction/layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+    "warm_compaction/moa.py": "e8714eca3bba03f8c829afebf813fef188d7d9d3b53c4aeb905be5299f970651",
+    "warm_compaction/moa_native.py": "757d4f1d28b9ce985b0816f0d715dfae3c4854dddb199cebb4c9abf636c1bad4",
+    "warm_compaction/native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+    "warm_compaction/plugin.yaml": "b3a47e699e38da83adb59bfeb521cef3451fdb32d9573ecc2a76a0f1ef802a4a",
+    "warm_compaction/protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+    "warm_compaction/responses.py": "70c8c912b39b377945488f4fb68f032ca0aa9be5a4340df0c1af7fd5961ee103",
+    "warm_compaction/rows.py": "2f5d9bd1e1d72c620354c4ec317526b4bca56033e9f080dde9967feff4bdb50c",
+    "warm_compaction/warm.py": "6b5cacd003acfa5027b871a73d3ca34ec1612ac70b7497e24cd8ecb74e9025d2"
+  },
+  "working_file_line_ending_variants": [
+    "warm_compaction/__init__.py",
+    "warm_compaction/capture.py",
+    "warm_compaction/engine.py",
+    "warm_compaction/handoff.py",
+    "warm_compaction/moa.py",
+    "warm_compaction/moa_native.py",
+    "warm_compaction/plugin.yaml"
+  ],
+  "commands_note": "Portable reproductions. Selected report sections identify the actual completed runs and retries; the initial combined MOA command failed its native fixture cases.",
+  "local_checks": {
+    "attribution": "Separate local test receipts reviewed with the loopback evidence.",
+    "python": "3.14.5",
+    "checks": [
+      {
+        "check": "unit tests",
+        "status": "passed",
+        "count": 462
+      },
+      {
+        "check": "property tests",
+        "status": "passed",
+        "count": 12
+      },
+      {
+        "check": "branch coverage",
+        "status": "passed",
+        "percent": 91
+      },
+      {
+        "check": "Ruff",
+        "status": "passed",
+        "version": "0.16.10"
+      },
+      {
+        "check": "document links",
+        "status": "passed"
+      },
+      {
+        "check": "context-file parity",
+        "status": "passed"
+      },
+      {
+        "check": "git diff --check",
+        "status": "passed"
+      }
+    ]
+  }
+}

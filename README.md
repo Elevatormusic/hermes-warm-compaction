@@ -72,6 +72,11 @@ If the warm request cannot run, or if its reply fails the gate, the same compact
 
 The plugin does this for manual `/compress` and for automatic compaction.
 
+For Mixture of Agents, the aggregator writes the session handoff. Optional
+reference handoffs use each reference model's own captured view. See
+[MOA support](docs/moa.md) for route settings and the extra Hermes API required
+by native Codex MOA.
+
 **The speedup needs the same model and a prefix cache.** The warm request goes to the main model route. It runs on any OpenAI-compatible server, but it is faster only when that server reuses its prefix cache. The fallback summary can use a different model.
 
 | Server | Prefix cache | Reports `cached_tokens` |
