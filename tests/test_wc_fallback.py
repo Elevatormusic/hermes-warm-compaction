@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from warm_compaction.fallback import (
     END_LINE, FALLBACK_INSTRUCTION, MAX_STATE_TOKENS, MAX_TOKENS, REQUEST_MAX_TOKENS, MIDDLE_MARK, TASK, TOOL_CHARS,
-    TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
+    TIMEOUT_S, TRANSCRIPT_CHARS, TRANSCRIPT_TOKENS,
     llm_summary, render_row, transcript,
 )
 from warm_compaction.rows import estimate_tokens
@@ -181,6 +181,12 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertEqual(messages[1]["role"], "user")
         self.assertRegex(self.marker(messages), r"^\[END OF SUMMARY [0-9a-f]{32}\]$")
         self.assertEqual(len(llm.calls), 1)
+
+    def test_request_timeout_does_not_exceed_the_configured_limit(self):
+        llm = FakeLlm()
+        with patch("warm_compaction.fallback.time.monotonic", side_effect=(0.0, -3e-14, 0.0)):
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (useful_summary("hi"), 321))
+        self.assertEqual(llm.calls[0][1]["timeout"], TIMEOUT_S)
 
     def test_the_fallback_instruction_asks_for_the_set_word_count(self):
         llm = FakeLlm()
