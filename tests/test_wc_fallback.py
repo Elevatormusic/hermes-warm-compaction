@@ -269,7 +269,7 @@ class LlmSummaryTest(unittest.TestCase):
                     self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
                     self.assertEqual(failure["reason"], "gate:body_token_limit")
                     self.assertGreater(failure["body_tokens"], MAX_TOKENS)
-                    self.assertEqual(len(llm.calls), 3)
+                    self.assertEqual(len(llm.calls), 2)
 
     def test_content_checks_stay_in_force(self):
         for text, reason in (("answer", "heading_missing"), (SUMMARY + "\n[CONTEXT SUMMARY]: x", "carrier_marker"),
@@ -457,7 +457,7 @@ class CurrentStateSourceTest(unittest.TestCase):
         if expected == "- progress unknown":
             self.assertEqual(result, (None, None))
             self.assertEqual(failure["reason"], "gate:no_useful_evidence")
-            self.assertEqual(len(llm.calls), 3)
+            self.assertEqual(len(llm.calls), 2)
         else:
             self.assertEqual(result, (body, 321))
             self.assertEqual(failure, {})
@@ -619,7 +619,7 @@ class CurrentStateSourceTest(unittest.TestCase):
         llm, failure = FakeLlm(text=body + "\n" + END_LINE), {}
         self.assertEqual(llm_summary(llm, [user("Check progress.")], PREFIXES, failure=failure), (None, None))
         self.assertEqual(failure["reason"], "gate:body_token_limit")
-        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(len(llm.calls), 2)
 
     def test_an_actual_protocol_failure_retries_with_the_same_source(self):
         reported = "not complete"
@@ -714,7 +714,7 @@ class AllFieldsSourceTest(unittest.TestCase):
         raw = field_summary("## Next step", '- "Review JOB-X3 after approval."\nDo not perform it yet.')
         llm = FakeLlm(raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [user("Review JOB-X3.")], PREFIXES), (None, None))
-        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(len(llm.calls), 2)
 
     def test_next_step_keeps_supported_action_and_records_lost_tail_condition(self):
         raw = field_summary("## Next step", '- "Review JOB-X3."\nDo not perform it yet.')
@@ -839,7 +839,7 @@ class SourceContextTest(unittest.TestCase):
                 llm = FakeLlm(raw + "\n" + END_LINE)
                 self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True), row], PREFIXES),
                                  (None, None))
-                self.assertEqual(len(llm.calls), 3)
+                self.assertEqual(len(llm.calls), 2)
 
     def test_bounded_context_keeps_tail_fact_but_drops_missing_middle(self):
         from warm_compaction.fallback import EXTRAS_CHARS, EXTRAS_TOKENS, _bound
@@ -865,7 +865,7 @@ class SourceContextTest(unittest.TestCase):
         llm = FakeLlm(raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [user("Check memory.")], PREFIXES, memory_context=memory), (None, None))
         self.assertIn("[cut]", llm.calls[0][0][0]["content"])
-        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(len(llm.calls), 2)
 
     def test_context_and_transcript_do_not_make_new_source_adjacency(self):
         quoted = "Transcript report.\nMemory report."
@@ -913,10 +913,10 @@ class UsefulEvidenceTest(unittest.TestCase):
     def test_all_unknown_retries_then_refuses_without_provider_text(self):
         llm, failure = FakeLlm(SUMMARY + "\n" + END_LINE), {}
         self.assertEqual(llm_summary(llm, [user("Check JOB-X3.")], PREFIXES, failure=failure), (None, None))
-        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(len(llm.calls), 2)
         self.assertEqual(failure["reason"], "gate:no_useful_evidence")
-        self.assertEqual(failure["attempts"], 3)
-        self.assertIn("failed a summary check", llm.calls[2][0][0]["content"])
+        self.assertEqual(failure["attempts"], 2)
+        self.assertIn("failed a summary check", llm.calls[1][0][0]["content"])
         self.assertNotIn("Check JOB-X3.", str(failure))
 
     def test_generated_labels_alone_do_not_count_as_useful_evidence(self):
@@ -927,7 +927,7 @@ class UsefulEvidenceTest(unittest.TestCase):
                 llm, failure = FakeLlm(body + "\n" + END_LINE), {}
                 self.assertEqual(llm_summary(llm, rows, PREFIXES, failure=failure), (None, None))
                 self.assertEqual(failure["reason"], "gate:no_useful_evidence")
-                self.assertEqual(len(llm.calls), 3)
+                self.assertEqual(len(llm.calls), 2)
 
     def test_copied_appendix_cannot_cut_a_core_fact_that_fits_the_existing_share(self):
         fact = "JOB-X3 output is 28 V."
@@ -960,7 +960,7 @@ class UsefulEvidenceTest(unittest.TestCase):
         self.assertEqual(llm_summary(llm, [assistant("", [("c1", "read", "")])], PREFIXES, failure=failure),
                          (None, None))
         self.assertEqual(failure["reason"], "gate:no_useful_evidence")
-        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(len(llm.calls), 2)
         self.assertEqual(llm_summary(FakeLlm(body + "\n" + END_LINE), [user(label)], PREFIXES), (body, 321))
 
     def test_nonempty_supplied_tool_argument_can_supply_evidence(self):
@@ -1139,7 +1139,7 @@ class PriorStateTest(unittest.TestCase):
         llm = FakeLlm(raw + "\n" + END_LINE)
         self.assertEqual(llm_summary(llm, [assistant(prior, _compressed_summary=True), user(wrapper)], PREFIXES),
                          (None, None))
-        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(len(llm.calls), 2)
 
     def test_no_one_layer_decode_from_arbitrary_user_or_tool_rows(self):
         prior = state_summary('- "Task not complete."')
@@ -1193,7 +1193,7 @@ class PriorStateTest(unittest.TestCase):
                 llm, failure = FakeLlm(raw + "\n" + END_LINE), {}
                 self.assertEqual(llm_summary(llm, [assistant(reported)], PREFIXES, failure=failure), (None, None))
                 self.assertEqual(failure["reason"], "gate:" + reason)
-                self.assertEqual(len(llm.calls), 3)
+                self.assertEqual(len(llm.calls), 2)
 
     def test_lone_surrogate_in_expanded_source_is_stored_as_json_escape(self):
         reported = "Task not complete \ud800."

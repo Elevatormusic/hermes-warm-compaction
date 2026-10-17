@@ -1780,13 +1780,13 @@ class EngineTest(unittest.TestCase):
                 self.assertEqual(status["fallback_output_tokens"], expected_output)
                 self.assertEqual(status["fallback_requested_max_tokens"], 8192)
                 self.assertEqual(status["fallback_end_marker"], marker)
-                self.assertEqual(status["fallback_attempts"], 3)
+                self.assertEqual(status["fallback_attempts"], 3 if reason == "missing_end_marker" else 2)
                 self.assertEqual(status["fallback_body_tokens"], estimate_tokens(text.removesuffix("\n" + END_LINE)))
                 logged = "\n".join(logs.output)
                 self.assertIn(f"fallback_output_tokens={expected_output}", logged)
                 self.assertIn("fallback_requested_max_tokens=8192", logged)
                 self.assertIn(f"fallback_end_marker={marker}", logged)
-                self.assertIn("fallback_attempts=3", logged)
+                self.assertIn(f"fallback_attempts={3 if reason == 'missing_end_marker' else 2}", logged)
                 self.assertNotIn(HEADINGS_TEXT, logged + json.dumps(status))
 
     def test_late_backup_errors_after_cancel_or_route_switch_keep_history(self):
@@ -2196,12 +2196,12 @@ class EngineTest(unittest.TestCase):
                             provider="custom", api_mode=ROUTE[2])
         self.assert_aborted(engine, rows, "error:RuntimeError")
 
-    def test_three_all_unknown_replies_preserve_history(self):
+    def test_all_unknown_replies_preserve_history(self):
         self.llm = FakeLlm(FALLBACK_TEXT + "\n" + END_LINE)
         engine = self.engine = self.make(warm=False, tail_tokens=10)
         rows = [*old_turns(4), user("Check JOB-X3."), assistant("done")]
         self.assert_aborted(engine, rows, "gate:no_useful_evidence")
-        self.assertEqual(len(self.llm.calls), 3)
+        self.assertEqual(len(self.llm.calls), 2)
 
     def test_failed_summary_keeps_the_middles_that_the_tail_would_cut(self):
         self.llm.error = RuntimeError("synthetic failure")

@@ -27,8 +27,11 @@ PURPOSE = "warm_compaction_fallback"
 MAX_TOKENS = 2048
 MAX_STATE_TOKENS = 512
 REQUEST_MAX_TOKENS = 8192
-# The attempts of one fallback summary: the first reply plus up to two retries of an invalid reply.
+# The attempts of one fallback summary. A missing or duplicated end marker gets the first reply plus up to
+# two retries (three attempts); every other gate failure stops after the first reply plus one retry (two), so
+# a hopeless content failure does not burn a third summary call.
 MAX_ATTEMPTS = 3
+MAX_ATTEMPTS_OTHER = 2
 TIMEOUT_S = 120.0
 TRANSCRIPT_CHARS = 32_000
 EARLIER_SUMMARY_CHARS = 8_000
@@ -570,7 +573,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 failure: dict[str, Any] | None = None) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
-    An invalid reply gets up to two retries. All calls share one time limit.
+    An invalid reply gets one retry; a missing or duplicated end marker gets two. All calls share one time limit.
     failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
@@ -660,7 +663,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None
-        if attempt == MAX_ATTEMPTS:
+        if attempt >= (MAX_ATTEMPTS if reason in ("missing_end_marker", "duplicate_end_marker")
+                       else MAX_ATTEMPTS_OTHER):
             metadata = _reply_metadata(result, raw, end_line, body, attempt)
             if failure is not None:
                 failure["reason"] = f"gate:{reason}"
@@ -669,6 +673,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                            "end_marker=%s attempts=%s body_tokens=%s", reason, metadata["output_tokens"],
                            metadata["requested_max_tokens"], metadata["end_marker"], metadata["attempts"],
                            metadata["body_tokens"])
+            return None, None
     return None, None
 
 
