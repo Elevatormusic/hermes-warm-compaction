@@ -78,9 +78,10 @@ class CaptureStoreTest(unittest.TestCase):
         self.history = [user("u")]
 
     def run_request(self, request_id="r1", session="s1", api_mode="chat_completions", finish="stop",
-                    body=None, message=None, usage=None):
+                    body=None, message=None, usage=None, user_message=None):
         self.store.on_pre_api_request(api_request_id=request_id, session_id=session, conversation_history=self.history,
-                                      model="m", base_url="http://x/v1", api_mode=api_mode, request={"sanitized": 1})
+                                      model="m", base_url="http://x/v1", api_mode=api_mode, request={"sanitized": 1},
+                                      user_message=user_message)
         calls = []
         result = self.store.on_llm_execution(request=body if body is not None else request(),
                                              next_call=lambda: calls.append(1) or "response", api_request_id=request_id,
@@ -138,6 +139,19 @@ class CaptureStoreTest(unittest.TestCase):
         self.assertEqual(capture["body"]["messages"][1]["content"], "u")
         self.assertEqual(capture["reply"], {"role": "assistant", "content": "done", "tool_calls": []})
         self.assertEqual((capture["finish_reason"], capture["captured_at"]), ("stop", 5.0))
+
+    def test_review_fork_request_is_not_captured(self):
+        self.run_request(user_message="Review the conversation above and consider saving to memory.")
+        self.assertIsNone(self.store.latest("s1"))
+
+    def test_review_prompt_in_history_still_captures_the_live_turn(self):
+        self.history = [user("Review the conversation above and consider saving to memory."),
+                        user("continue the build")]
+        self.run_request(user_message="continue the build")
+        capture = self.store.latest("s1")
+        self.assertEqual(len(capture["digests"]), 2)
+        self.assertIsNone(capture["refusal"])
+        self.assertEqual(capture["body"]["messages"][1]["content"], "u")
 
     def test_a_repeated_call_id_gets_the_hermes_rename(self):
         # Hermes renames a repeated id in one reply (c1, c1 -> c1, c1_d2) after this hook runs.
