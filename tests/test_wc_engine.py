@@ -714,7 +714,7 @@ class EngineTest(unittest.TestCase):
                 else:
                     summary_budget = engine._summary_budget
 
-                    def switch(overhead, reserve):
+                    def switch(overhead, reserve, summary_budget=summary_budget, engine=engine):
                         result = summary_budget(overhead, reserve)
                         engine.threshold_tokens += 1
                         return result
