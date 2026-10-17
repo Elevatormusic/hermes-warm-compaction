@@ -144,6 +144,18 @@ class CaptureStoreTest(unittest.TestCase):
         self.run_request(user_message="Review the conversation above and consider saving to memory.")
         self.assertIsNone(self.store.latest("s1"))
 
+    def test_review_fork_request_does_not_replace_a_live_capture(self):
+        # The real replacement case: a completed live capture already exists, and a same-session
+        # review fork request (same session id, shared for prefix warmth) runs through all three
+        # hooks. The live capture must survive it unchanged.
+        self.run_request()
+        saved = self.store.latest("s1")
+        self.assertIsNotNone(saved)
+        result, calls = self.run_request(
+            request_id="r2", user_message="Review the conversation above and consider saving to memory.")
+        self.assertEqual((result, calls), ("response", [1]))
+        self.assertEqual(self.store.latest("s1"), saved)
+
     def test_review_prompt_in_history_still_captures_the_live_turn(self):
         self.history = [user("Review the conversation above and consider saving to memory."),
                         user("continue the build")]
