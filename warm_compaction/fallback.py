@@ -600,7 +600,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
             if failure is not None:
                 failure["reason"] = "cancelled"
             return None, None
-        remaining = deadline - time.monotonic()
+        remaining = min(timeout_s, deadline - time.monotonic())
         if remaining <= 0:
             if failure is not None:
                 failure["reason"] = "deadline"

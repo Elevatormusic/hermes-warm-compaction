@@ -78,6 +78,52 @@ class BuildTest(unittest.TestCase):
         body = self.build()
         self.assertEqual(body["messages"][1]["content"][0], block)
 
+    def test_source_blank_text_matches_stock_hermes_without_changing_the_prefix(self):
+        # Synthetic stored rows and literal wire rows follow Hermes 6e7b83a.
+        for blank in (None, "", " \t\n", [{"type": "text", "text": " \t\n"}]):
+            with self.subTest(blank=blank):
+                rows = [user("task"), assistant(blank), user("next")]
+                cap = capture(rows, self.reply)
+                cap["body"]["messages"] = [
+                    {"role": "user", "content": "task"},
+                    {"role": "assistant", "content": [{"type": "text", "text": "(empty)"}]},
+                    {"role": "user", "content": "next"},
+                ]
+                before = copy.deepcopy((cap, rows))
+                body = self.build(cap, [*rows, self.reply])
+                self.assertEqual(body["messages"][:3], cap["body"]["messages"])
+                self.assertEqual((cap, rows), before)
+
+    def test_blank_blocks_are_dropped_without_trimming_nonblank_text(self):
+        text = "  synthetic code\n"
+        rows = [user("task"), assistant([
+            {"type": "text", "text": " \n"}, {"type": "text", "text": text},
+            {"type": "text", "text": ""},
+        ]), user("next")]
+        cap = capture(rows, self.reply)
+        cap["body"]["messages"][1]["content"] = [{"type": "text", "text": text}]
+        self.build(cap, [*rows, self.reply])
+        for changed in (text.strip(), text.rstrip(), "changed"):
+            with self.subTest(changed=changed):
+                cap["body"]["messages"][1]["content"][0]["text"] = changed
+                self.refusal("source_transform_unsupported", lambda: self.build(cap, [*rows, self.reply]))
+
+    def test_new_blank_assistant_uses_the_stock_hermes_placeholder(self):
+        reply = assistant(" \t\n")
+        cap = capture(self.rows, reply)
+        body = self.build(cap, [*self.rows, reply])
+        self.assertEqual(body["messages"][-2], {
+            "role": "assistant", "content": [{"type": "text", "text": "(empty)"}]})
+
+    def test_blank_text_next_to_signed_thinking_and_tools_is_not_replayed(self):
+        thought = {"type": "thinking", "thinking": "synthetic", "signature": "fake-signature"}
+        call = {"type": "tool_use", "id": "c1", "name": "read", "input": {}}
+        reply = assistant(" \n", [("c1", "read", "{}")], reasoning_details=[thought],
+                          anthropic_content_blocks=[thought, {"type": "text", "text": " \n"}, call])
+        cap = capture(self.rows, reply)
+        body = self.build(cap, [*self.rows, reply, tool("c1", "synthetic output")])
+        self.assertEqual(body["messages"][-2]["content"], [thought, call])
+
     def test_new_reasoning_and_media_are_refused(self):
         for key in anthropic.OPAQUE_ROWS:
             with self.subTest(key=key):
