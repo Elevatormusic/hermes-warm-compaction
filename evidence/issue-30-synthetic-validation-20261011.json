@@ -1,0 +1,85 @@
+{
+  "record_type": "Historical validation; not validation of the current PR head",
+  "tested_plugin_commit": "3e27da5baa276250227278e65872ab607494a51e",
+  "superseded_by": "issue-30-fallback-method-validation-20261011.json",
+  "revision_note": "The 2048 request limit and source hashes below describe the earlier diagnostic change. They do not describe the later 8192 method. Use the current PR checks for current-head validation.",
+  "issue": 30,
+  "synthetic": true,
+  "hermes_commit": "d4d2ab7b5d104166e7e22a02cafd12f1fe456a31",
+  "hermes_clean": true,
+  "test_python": "3.14.5",
+  "hermes_dependency_python": "3.14.7",
+  "ruff": "0.16.10",
+  "unit_tests": 408,
+  "property_tests": 13,
+  "policy_tests": 193,
+  "all_passed": true,
+  "loopback_suites": {
+    "compatibility": {
+      "passed": true,
+      "cases": 4,
+      "case_names": [
+        "capture_last",
+        "earlier_rewrite",
+        "later_rewrite",
+        "unknown_order"
+      ]
+    },
+    "plugin": {
+      "passed": true,
+      "cases": 9,
+      "case_names": [
+        "enable_manual_warm",
+        "manual_context",
+        "manual_whitespace",
+        "manual_fallback",
+        "manual_aborted",
+        "auto_tool_loop",
+        "auto_context_tool",
+        "auto_warm_failures",
+        "rollback"
+      ]
+    },
+    "provider": {
+      "passed": true,
+      "cases": 9,
+      "case_names": [
+        "responses_text",
+        "responses_tool",
+        "responses_incomplete",
+        "responses_codex",
+        "responses_codex_reasoning",
+        "anthropic_text",
+        "anthropic_tool",
+        "anthropic_refusal",
+        "anthropic_signed"
+      ]
+    },
+    "native": {
+      "passed": true,
+      "cases": 4,
+      "case_names": [
+        "responses_manual",
+        "responses_auto_tool",
+        "anthropic_manual",
+        "anthropic_auto_tool"
+      ]
+    }
+  },
+  "local_document_links": 45,
+  "agents_claude_byte_parity": true,
+  "sha256": {
+    "warm_compaction/engine.py": "30e92e6449aa3b5529726210481d59e46df2a7ef64c03933140bddfd39655c6e",
+    "warm_compaction/fallback.py": "657bfce1702c407bb3477644056a9d4895e52b5a9706daf916896e2c2575f4b0",
+    "scripts/check_fallback_limit.py": "84f3a83f582767f1717bddb9ad6e49c66b899f3d30b7da233c1588eb61d5116e"
+  },
+  "limits": "No live server, summary quality, cache reuse, or performance qualification.",
+  "fallback_limit_probe": {
+    "cases": 2,
+    "passed": true,
+    "default_limit_omitted": true,
+    "configured_max_tokens": 2048,
+    "network_write_private_read_denials": 0,
+    "blocked_optional_git_version_probes_per_case": 7
+  }
+}

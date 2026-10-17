@@ -59,8 +59,8 @@ def native_server(case, reload_phase):
             self.main_count = 0
             super().__init__("responses_text" if case.startswith("responses_") else "anthropic_text")
 
-        def payload(self, kind):
-            payload = super().payload(kind)
+        def payload(self, kind, body):
+            payload = super().payload(kind, body)
             if kind != "main":
                 return payload
             self.main_count += 1

@@ -87,7 +87,12 @@ def gate(reply: dict[str, Any], summary_prefixes: Iterable[str] = ()) -> tuple[s
         return None, "tool_call"
     if reply.get("refusal"):
         return None, "refusal"
-    text = reply_text(reply.get("content"))
+    return gate_content(reply.get("content"), summary_prefixes)
+
+
+def gate_content(content: Any, summary_prefixes: Iterable[str] = ()) -> tuple[str | None, str | None]:
+    """Check the summary content. This check does not prove how the provider stopped."""
+    text = reply_text(content)
     if not text:
         return None, "content_required"
     if len(text.encode("utf-8", "surrogatepass")) > MAX_REPLY_BYTES:

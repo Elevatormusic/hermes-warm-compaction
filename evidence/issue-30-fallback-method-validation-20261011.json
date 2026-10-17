@@ -1,0 +1,1427 @@
+{
+  "record_type": "Method and accuracy validation before the zero-usage metadata correction",
+  "tested_plugin_commit": "a7916dfd38d4bbb57d0f1f65503da73f8cfcff0f",
+  "revision_note": "The full local suite and final source hashes describe a7916df. Live accuracy phases used the separate source hashes recorded below. A later correction treats zero output usage as unknown; it does not change the prompt or acceptance checks. Use the current PR checks for current-head validation.",
+  "issue": 30,
+  "date": "2026-10-11",
+  "synthetic_conversations_only": true,
+  "baseline_plugin_commit": "3e27da5baa276250227278e65872ab607494a51e",
+  "hermes_commit": "d4d2ab7b5d104166e7e22a02cafd12f1fe456a31",
+  "hermes_clean": true,
+  "test_python": "3.14.5",
+  "hermes_dependency_python": "3.14.7",
+  "ruff": "0.16.10",
+  "baseline_regression": {
+    "status": "failed_as_expected",
+    "fixture": "short five-heading summary with fixed end marker",
+    "reported_output_tokens": 7281,
+    "refusal": "output_token_limit",
+    "evidence": "Python assertion traceback and safe warning; outer shell status was not the assertion status"
+  },
+  "focused_tests": {
+    "fallback": 39,
+    "engine": 133,
+    "status": "passed"
+  },
+  "full_local_suite": {
+    "status": "passed",
+    "test_counts": {
+      "unit": 417,
+      "coverage-unit": 417,
+      "property": 13,
+      "policy": 193
+    },
+    "checks": [
+      {
+        "check": "unit",
+        "exit_code": 0,
+        "seconds": 10.18
+      },
+      {
+        "check": "coverage-unit",
+        "exit_code": 0,
+        "seconds": 10.95
+      },
+      {
+        "check": "property",
+        "exit_code": 0,
+        "seconds": 2.82
+      },
+      {
+        "check": "policy",
+        "exit_code": 0,
+        "seconds": 9.56
+      },
+      {
+        "check": "coverage",
+        "exit_code": 0,
+        "seconds": 0.46
+      },
+      {
+        "check": "lint",
+        "exit_code": 0,
+        "seconds": 0.12
+      },
+      {
+        "check": "diff",
+        "exit_code": 0,
+        "seconds": 0.08
+      },
+      {
+        "check": "compatibility",
+        "exit_code": 0,
+        "seconds": 9.87
+      },
+      {
+        "check": "plugin",
+        "exit_code": 0,
+        "seconds": 390.45
+      },
+      {
+        "check": "provider",
+        "exit_code": 0,
+        "seconds": 64.6
+      },
+      {
+        "check": "native",
+        "exit_code": 0,
+        "seconds": 111.67
+      }
+    ],
+    "loopback_suites": {
+      "compatibility": {
+        "status": "passed",
+        "cases": 4
+      },
+      "plugin": {
+        "status": "passed",
+        "cases": 9
+      },
+      "provider": {
+        "status": "passed",
+        "cases": 9
+      },
+      "native": {
+        "status": "passed",
+        "cases": 4
+      }
+    }
+  },
+  "documents": {
+    "local_markdown_links_checked": 45,
+    "missing": [],
+    "agents_claude_byte_parity": true,
+    "forms": [
+      {
+        "file": "bug_report.yml",
+        "elements": 13,
+        "yaml_parse": "passed",
+        "schema_review": "passed"
+      },
+      {
+        "file": "feature_request.yml",
+        "elements": 4,
+        "yaml_parse": "passed",
+        "schema_review": "passed"
+      }
+    ],
+    "schema_source": "https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema",
+    "schema_review": "passed earlier this task; issue form files unchanged"
+  },
+  "tested_file_sha256": {
+    "warm_compaction/fallback.py": "4973e0cbc83b47c4efb6fe3788500b323e2499ad40e683c6fd064f69d21632ad",
+    "warm_compaction/handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+    "warm_compaction/engine.py": "b4a3c7a1fef0a7caef39f95b06f4c2005a88fd2bafbf1194693dab5c785a8398",
+    "tests/test_wc_fallback.py": "0f92dead2761be402e0e61cfbff8c87592fc7c4d1ca86c1c26c946dfb6d931fe",
+    "tests/test_wc_engine.py": "0b07700999d4c07b705a489a23ee19a5009b569ed7e24f66b09573794bcfbbf5",
+    "scripts/check_fallback_limit.py": "b61cef18f3c33ebc48f311a8d7b123294b7d394de2d1c17a1e3593124b41edcf",
+    "scripts/check_plugin_hermes.py": "7447388d2b7ca4f9a408269e54a883be7ed60fe4c3078923617df28f352daa2e",
+    "scripts/check_provider_apis.py": "dbd60b3f020d2a04f36d33cf3eb25f9a481dc218ae02a64df3ac66b3e4be9657",
+    "scripts/check_native_conversations.py": "8063f6248aa41d874f4b7b8d2e0e11a76fbb93f892d923b288b595b861eb6ee0"
+  },
+  "tested_file_lf_sha256": {
+    "warm_compaction/fallback.py": "1be7136b15cea6df6adaf05dfe26755f092cdd2c061da1e98fe65daacbc97b6c",
+    "warm_compaction/handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+    "warm_compaction/engine.py": "43caaa3aeca8e9d3f269059b44bd0ed2e5265f80baccf7293eba0f295937ce09",
+    "tests/test_wc_fallback.py": "f776a8105b24c9461c01c14b13c225f029bb3a55427af4999220acf8d913da98",
+    "tests/test_wc_engine.py": "2ece231062ec94cd8da7c23a8898622756a0e36d567a3706dad304b5e311a8f7",
+    "scripts/check_fallback_limit.py": "b61cef18f3c33ebc48f311a8d7b123294b7d394de2d1c17a1e3593124b41edcf",
+    "scripts/check_plugin_hermes.py": "7447388d2b7ca4f9a408269e54a883be7ed60fe4c3078923617df28f352daa2e",
+    "scripts/check_provider_apis.py": "dbd60b3f020d2a04f36d33cf3eb25f9a481dc218ae02a64df3ac66b3e4be9657",
+    "scripts/check_native_conversations.py": "8063f6248aa41d874f4b7b8d2e0e11a76fbb93f892d923b288b595b861eb6ee0"
+  },
+  "hash_note": "Raw tested bytes and LF-normalized bytes are listed separately. Git normalizes these source files to LF.",
+  "fallback_protocol_loopback": {
+    "status": "passed",
+    "cases": 4,
+    "synthetic_usage_output_tokens": 8192,
+    "default_custom_limit_omitted": true,
+    "configured_custom_wire_max_tokens": 8192,
+    "results": [
+      {
+        "configured": false,
+        "case": "complete",
+        "status": "passed",
+        "request_count": 1,
+        "checks": {
+          "bounded_fallback_requests": true,
+          "synthetic_summary_outcome": true,
+          "no_other_limit_field": true,
+          "no_network_or_write_attempts": true,
+          "only_blocked_version_probes": true
+        }
+      },
+      {
+        "configured": true,
+        "case": "complete",
+        "status": "passed",
+        "request_count": 1,
+        "checks": {
+          "bounded_fallback_requests": true,
+          "synthetic_summary_outcome": true,
+          "no_other_limit_field": true,
+          "no_network_or_write_attempts": true,
+          "only_blocked_version_probes": true,
+          "configured_limit_reaches_wire": true
+        }
+      },
+      {
+        "configured": true,
+        "case": "retry",
+        "status": "passed",
+        "request_count": 2,
+        "checks": {
+          "bounded_fallback_requests": true,
+          "synthetic_summary_outcome": true,
+          "retry_uses_original_transcript": true,
+          "retry_has_fresh_instruction": true,
+          "no_other_limit_field": true,
+          "no_network_or_write_attempts": true,
+          "only_blocked_version_probes": true,
+          "configured_limit_reaches_wire": true
+        }
+      },
+      {
+        "configured": true,
+        "case": "exhausted",
+        "status": "passed",
+        "request_count": 2,
+        "checks": {
+          "bounded_fallback_requests": true,
+          "synthetic_summary_outcome": true,
+          "retry_uses_original_transcript": true,
+          "retry_has_fresh_instruction": true,
+          "missing_marker_refusal": true,
+          "no_other_limit_field": true,
+          "no_network_or_write_attempts": true,
+          "only_blocked_version_probes": true,
+          "configured_limit_reaches_wire": true
+        }
+      }
+    ]
+  },
+  "live_dgx": {
+    "status": "passed_for_flow_only",
+    "public_api": "ctx.llm.complete",
+    "model_alias": "dgx-model",
+    "model_revision": "unknown",
+    "server_version": "unknown",
+    "reasoning_tokens": "unknown",
+    "total_upstream_requests": 4,
+    "all_requests_http200": true,
+    "requests": [
+      {
+        "case": "baseline",
+        "case_call": 1,
+        "wire_max_tokens": 2048,
+        "status": 200,
+        "prompt_tokens": 4928,
+        "completion_tokens": 138,
+        "cached_tokens": 0,
+        "synthetic_fault": false,
+        "elapsed_s": 6.993
+      },
+      {
+        "case": "normal",
+        "case_call": 1,
+        "wire_max_tokens": 8192,
+        "status": 200,
+        "prompt_tokens": 4952,
+        "completion_tokens": 265,
+        "cached_tokens": 0,
+        "synthetic_fault": false,
+        "elapsed_s": 8.157
+      },
+      {
+        "case": "recovery",
+        "case_call": 1,
+        "wire_max_tokens": 8192,
+        "status": 200,
+        "prompt_tokens": 4950,
+        "completion_tokens": 221,
+        "cached_tokens": 0,
+        "synthetic_fault": true,
+        "elapsed_s": 7.634
+      },
+      {
+        "case": "recovery",
+        "case_call": 2,
+        "wire_max_tokens": 8192,
+        "status": 200,
+        "prompt_tokens": 4964,
+        "completion_tokens": 160,
+        "cached_tokens": 0,
+        "synthetic_fault": false,
+        "elapsed_s": 5.999
+      }
+    ],
+    "cases": [
+      {
+        "case": "baseline",
+        "engine_path": "fallback",
+        "model_summary_accepted": true,
+        "request_count": 1,
+        "worker_exit": 0,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "input_rows": 20,
+        "output_rows": 4,
+        "host_source_exact": true,
+        "fact_check_status": "unavailable",
+        "fact_check_reason": "The first checker selected the user carrier header. The summary was in an assistant carrier. No reply text was saved.",
+        "plugin_sha256": {
+          "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+          "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+          "engine.py": "30e92e6449aa3b5529726210481d59e46df2a7ef64c03933140bddfd39655c6e",
+          "fallback.py": "657bfce1702c407bb3477644056a9d4895e52b5a9706daf916896e2c2575f4b0",
+          "handoff.py": "60da7000463e7cbff5e6e464749079e5db15112e726646d86a317ea106b34366",
+          "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+          "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+          "plugin.yaml": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c",
+          "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+          "responses.py": "45a639fdc4cc33f7ded48e52d5cbd41c8c7e24ca0293f54bf6ade2de50c0c23d",
+          "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+          "warm.py": "de8405ae00efeef4b09e451737ffe980bca6d350409635bdd39ac6a11a089bf0",
+          "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+        }
+      },
+      {
+        "case": "normal",
+        "engine_path": "fallback",
+        "model_summary_accepted": true,
+        "request_count": 1,
+        "worker_exit": 0,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "input_rows": 20,
+        "output_rows": 4,
+        "host_source_exact": true,
+        "fact_check_status": "unavailable",
+        "fact_check_reason": "The first checker selected the user carrier header. The summary was in an assistant carrier. No reply text was saved.",
+        "plugin_sha256": {
+          "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+          "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+          "engine.py": "b4a3c7a1fef0a7caef39f95b06f4c2005a88fd2bafbf1194693dab5c785a8398",
+          "fallback.py": "867c943a3f0423de443d687ea07949399845df26f7ba832b599e771a4b719598",
+          "handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+          "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+          "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+          "plugin.yaml": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c",
+          "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+          "responses.py": "45a639fdc4cc33f7ded48e52d5cbd41c8c7e24ca0293f54bf6ade2de50c0c23d",
+          "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+          "warm.py": "de8405ae00efeef4b09e451737ffe980bca6d350409635bdd39ac6a11a089bf0",
+          "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+        }
+      },
+      {
+        "case": "recovery",
+        "engine_path": "fallback",
+        "model_summary_accepted": true,
+        "request_count": 2,
+        "worker_exit": 0,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "input_rows": 20,
+        "output_rows": 4,
+        "host_source_exact": true,
+        "fact_check_status": "unavailable",
+        "fact_check_reason": "The first checker selected the user carrier header. The summary was in an assistant carrier. No reply text was saved.",
+        "plugin_sha256": {
+          "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+          "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+          "engine.py": "b4a3c7a1fef0a7caef39f95b06f4c2005a88fd2bafbf1194693dab5c785a8398",
+          "fallback.py": "867c943a3f0423de443d687ea07949399845df26f7ba832b599e771a4b719598",
+          "handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+          "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+          "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+          "plugin.yaml": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c",
+          "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+          "responses.py": "45a639fdc4cc33f7ded48e52d5cbd41c8c7e24ca0293f54bf6ade2de50c0c23d",
+          "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+          "warm.py": "de8405ae00efeef4b09e451737ffe980bca6d350409635bdd39ac6a11a089bf0",
+          "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+        }
+      }
+    ],
+    "recovery_original_transcript_unchanged": true,
+    "summary_text_check": "unavailable: checker selected wrong row and did not save reply text",
+    "live_fresh_nonce_check": "unavailable: nonce values or hashes were not retained; source and unit checks cover this behavior",
+    "baseline_reported_output_above2048": false,
+    "server_cache_counters": "unknown",
+    "limits": [
+      "One run per case, four model calls total, no repeated comparison.",
+      "Baseline succeeded on this simple current fixture; it did not reproduce the earlier high reasoning output count.",
+      "Literal fact retention could not be checked due to a checker error. This run does not establish summary quality.",
+      "The check used full engine.compress and public ctx.llm.complete, not a full CLI or gateway session.",
+      "Task extra_body.max_tokens was used on this custom route to set the exact wire limit; this is route-specific.",
+      "No production runtime, source, config, model deployment, or cache was changed."
+    ]
+  },
+  "limits": [
+    "Synthetic data only. No production plugin, host source, configuration, deployment, or cache changed.",
+    "The end marker checks framing, not factual accuracy or the server stop reason.",
+    "The public API cannot cancel an in-flight call; Hermes owns provider retries.",
+    "Custom-route limit forwarding still needs a Hermes change or a supported task extra_body override.",
+    "Bounded synthetic summary accuracy checks only; no general accuracy score or guarantee.",
+    "No live reasoning-limit reproduction, cache reuse, or performance qualification.",
+    "CI for the updated PR commit is a separate protected approval gate."
+  ],
+  "summary_accuracy": {
+    "synthetic": true,
+    "status": "bounded_checks_complete",
+    "model_alias": "dgx-model",
+    "underlying_model_revision": "unknown",
+    "server_version": "unknown",
+    "hermes_commit": "d4d2ab7b5d104166e7e22a02cafd12f1fe456a31",
+    "python": "3.14.7",
+    "public_api": "ctx.llm.complete",
+    "host_path": "full engine.compress; warm disabled for this test",
+    "credential_paired_with_configured_provider": true,
+    "configured_route_matches_prior_probe": true,
+    "shared_upstream_request_cap": 12,
+    "total_upstream_requests": 11,
+    "all_request_nonces_distinct": true,
+    "all_response_nonce_hashes_match_request": true,
+    "requests": [
+      {
+        "case": "ordinary_facts",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "3096b5bb336c32c014b72c32a8a73219ef54b1d6d50c2c6fa9f34e8093872d8a",
+        "request_nonce_sha256": "e499651ed5ce2e5a7bf1ca446b950953e20157930008b1b2a26af3837d058a9f",
+        "response_nonce_sha256": "e499651ed5ce2e5a7bf1ca446b950953e20157930008b1b2a26af3837d058a9f",
+        "synthetic_fault": false,
+        "prompt_tokens": 2232,
+        "completion_tokens": 212,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 5.585
+      },
+      {
+        "case": "changed_value",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "ea6e5d4e1dc6aace642e18a061074517774ffb22fdf2f694fe11cfad324a5047",
+        "request_nonce_sha256": "e201216a7639d1145336cce6eafcf542cd0c029f0da2ad2f416c1fc57abde449",
+        "response_nonce_sha256": "e201216a7639d1145336cce6eafcf542cd0c029f0da2ad2f416c1fc57abde449",
+        "synthetic_fault": false,
+        "prompt_tokens": 2268,
+        "completion_tokens": 275,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 6.064
+      },
+      {
+        "case": "tool_result_links",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "150e0a9354494d58eb5c11e90f76e4ba4bc47933fa2c6aa4c631eba03d74a8c5",
+        "request_nonce_sha256": "5a600c924397d2e167b11553e3ac2cc95c1d7984b3931ed492d282629bfcba1b",
+        "response_nonce_sha256": "5a600c924397d2e167b11553e3ac2cc95c1d7984b3931ed492d282629bfcba1b",
+        "synthetic_fault": false,
+        "prompt_tokens": 2356,
+        "completion_tokens": 243,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 5.597
+      },
+      {
+        "case": "negative_instructions",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "f35241f1176dcee1d26415ea85f68712f3b9e56e2447bc7fd9ca7c0ad454108f",
+        "request_nonce_sha256": "c4b253a53700866c0fb2aa2d5ca1f7d33965de999c9b7cc3986b9afbfce6855c",
+        "response_nonce_sha256": "c4b253a53700866c0fb2aa2d5ca1f7d33965de999c9b7cc3986b9afbfce6855c",
+        "synthetic_fault": false,
+        "prompt_tokens": 2241,
+        "completion_tokens": 214,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 5.114
+      },
+      {
+        "case": "multilingual_dense",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "293550906532796186c22e3ced01e5cb121bd9042db2951cb0612bc66a464c72",
+        "request_nonce_sha256": "f1dd3496233837b143d665d5f56347af8066f29d21fd12c97f5e400a86c6e56c",
+        "response_nonce_sha256": "f1dd3496233837b143d665d5f56347af8066f29d21fd12c97f5e400a86c6e56c",
+        "synthetic_fault": false,
+        "prompt_tokens": 2334,
+        "completion_tokens": 355,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 7.228
+      },
+      {
+        "case": "recovery_marker_fault",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "6ffb3c9a405b99c299a916145c976dfe3413d3e5a7281a378508d29ed4b846cb",
+        "request_nonce_sha256": "073daa7e01564ec57f48c89472a816a3b47f82da99136264bf339db945b985e5",
+        "response_nonce_sha256": "073daa7e01564ec57f48c89472a816a3b47f82da99136264bf339db945b985e5",
+        "synthetic_fault": true,
+        "prompt_tokens": 2235,
+        "completion_tokens": 180,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 4.648
+      },
+      {
+        "case": "recovery_marker_fault",
+        "case_call": 2,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "6ffb3c9a405b99c299a916145c976dfe3413d3e5a7281a378508d29ed4b846cb",
+        "request_nonce_sha256": "732139dbb8c726afcc3be37caf197d88b67bfb78f1146ecd9f3b91f0b5674a00",
+        "response_nonce_sha256": "732139dbb8c726afcc3be37caf197d88b67bfb78f1146ecd9f3b91f0b5674a00",
+        "synthetic_fault": false,
+        "prompt_tokens": 2251,
+        "completion_tokens": 162,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 4.128
+      },
+      {
+        "case": "changed_value",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "ea6e5d4e1dc6aace642e18a061074517774ffb22fdf2f694fe11cfad324a5047",
+        "request_nonce_sha256": "8cf1a195980fd1705e5e771de11ddb14c026b78828d21427765e2265760baf86",
+        "response_nonce_sha256": "8cf1a195980fd1705e5e771de11ddb14c026b78828d21427765e2265760baf86",
+        "synthetic_fault": false,
+        "prompt_tokens": 2349,
+        "completion_tokens": 224,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 5.218
+      },
+      {
+        "case": "negative_instructions",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "f35241f1176dcee1d26415ea85f68712f3b9e56e2447bc7fd9ca7c0ad454108f",
+        "request_nonce_sha256": "335211f1448ee25b1418581b127ca03ab1212c66d8c6797ac265f1e0d9311085",
+        "response_nonce_sha256": "335211f1448ee25b1418581b127ca03ab1212c66d8c6797ac265f1e0d9311085",
+        "synthetic_fault": false,
+        "prompt_tokens": 2324,
+        "completion_tokens": 182,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 4.344
+      },
+      {
+        "case": "multilingual_dense",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "293550906532796186c22e3ced01e5cb121bd9042db2951cb0612bc66a464c72",
+        "request_nonce_sha256": "653b5e53ce6b58aec3a443b27e447deae00f0cf1141364f205a86f8765d90e1d",
+        "response_nonce_sha256": "653b5e53ce6b58aec3a443b27e447deae00f0cf1141364f205a86f8765d90e1d",
+        "synthetic_fault": false,
+        "prompt_tokens": 2413,
+        "completion_tokens": 276,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 6.068
+      },
+      {
+        "case": "negative_instructions",
+        "case_call": 1,
+        "status": 200,
+        "wire_max_tokens": 8192,
+        "request_option_names": [
+          "max_tokens"
+        ],
+        "request_option_types": {
+          "max_tokens": "int"
+        },
+        "transcript_sha256": "f35241f1176dcee1d26415ea85f68712f3b9e56e2447bc7fd9ca7c0ad454108f",
+        "request_nonce_sha256": "4269fafb123f8310e6ffba9ce89813afc3c990d0795337c646b9f69684304972",
+        "response_nonce_sha256": "4269fafb123f8310e6ffba9ce89813afc3c990d0795337c646b9f69684304972",
+        "synthetic_fault": false,
+        "prompt_tokens": 2365,
+        "completion_tokens": 169,
+        "cached_tokens": 0,
+        "reasoning_tokens": "unknown",
+        "elapsed_s": 4.405
+      }
+    ],
+    "cases": [
+      {
+        "case": "ordinary_facts",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 848,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "phase": "initial",
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "CASE-R7": true,
+            "Mira Chen": true,
+            "CAL-9": true
+          },
+          "value_checks": {
+            "17.25": true
+          },
+          "exact_rule_checks": {
+            "Do not publish without written approval.": true
+          },
+          "current_state_status_checks": {
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "CAL-9": true,
+            "Mira Chen": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "passed",
+          "notes": "Required facts, blocked state, rule and next action retained."
+        }
+      },
+      {
+        "case": "changed_value",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 14,
+        "output_rows": 4,
+        "summary_chars": 1043,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "phase": "initial",
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "SENSOR-S42": true,
+            "Site Echo": true,
+            "FIX-88": true,
+            "Mira Chen": true
+          },
+          "value_checks": {
+            "4.70": true
+          },
+          "exact_rule_checks": {
+            "Do not publish without written approval.": true
+          },
+          "current_state_status_checks": {
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "FIX-88": true,
+            "Mira Chen": true
+          },
+          "terminal_marker_removed": true,
+          "current_value_present": true,
+          "old_value_mentioned": true,
+          "old_value_explicitly_superseded": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "failed",
+          "notes": "Current and superseded readings retained, but review was incorrectly treated as enough to unblock a task that requires approval."
+        }
+      },
+      {
+        "case": "tool_result_links",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 19,
+        "output_rows": 4,
+        "summary_chars": 962,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "phase": "initial",
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "PKG-17": true,
+            "JOB-X3": true,
+            "call_read_7": true,
+            "call_publish_8": true,
+            "permission_denied": true
+          },
+          "value_checks": {
+            "21.6": true,
+            "17": true
+          },
+          "exact_rule_checks": {
+            "Do not call a failed publish complete.": true
+          },
+          "current_state_status_checks": {
+            "[COMPLETE]": true,
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "JOB-X3": true
+          },
+          "terminal_marker_removed": true,
+          "publish_complete_conflict_candidate": false,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "passed",
+          "notes": "Both call IDs and results retained; failed publish stays blocked despite an earlier incorrect assistant claim."
+        }
+      },
+      {
+        "case": "negative_instructions",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 859,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "phase": "initial",
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "RULE-K2": true,
+            "Hana Noor": true
+          },
+          "value_checks": {},
+          "exact_rule_checks": {
+            "Use only synthetic data.": true,
+            "Do not delete source files.": true,
+            "Do not send messages to customers.": true,
+            "Redact passwords.": true
+          },
+          "current_state_status_checks": {
+            "[OPEN]": true
+          },
+          "next_target_checks": {
+            "RULE-K2": true,
+            "Hana Noor": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "failed",
+          "notes": "Added unreported start state and compliance outcomes from user prohibitions."
+        }
+      },
+      {
+        "case": "multilingual_dense",
+        "worker_exit": "unknown: collector did not record it",
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 625,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "phase": "initial",
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "佐藤美咲": true,
+            "検証-甲7": true,
+            "CAL-日9": true,
+            "王明": true,
+            "B-汉8": true
+          },
+          "value_checks": {
+            "37.80": true,
+            "0.125": true
+          },
+          "exact_rule_checks": {
+            "承認なしに公開しない。": false
+          },
+          "current_state_status_checks": {
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "CAL-日9": true,
+            "佐藤美咲": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": false
+        },
+        "meaning_review": {
+          "status": "failed",
+          "notes": "Facts and prohibition meaning retained; added a publication goal and unreported approval progress. Exact Japanese rule check also failed due quotation and punctuation changes."
+        }
+      },
+      {
+        "case": "recovery_marker_fault",
+        "worker_exit": 0,
+        "request_count": 2,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 629,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "phase": "initial",
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "CASE-R9": true,
+            "Mira Chen": true,
+            "CAL-9": true
+          },
+          "value_checks": {
+            "17.25": true
+          },
+          "exact_rule_checks": {
+            "Do not publish without written approval.": true
+          },
+          "current_state_status_checks": {
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "CAL-9": true,
+            "Mira Chen": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "passed",
+          "notes": "Accepted retry kept required facts and did not store either request marker. Root reviewed this sixth case."
+        }
+      },
+      {
+        "case": "changed_value",
+        "phase": "post_fix",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 14,
+        "output_rows": 4,
+        "summary_chars": 903,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "SENSOR-S42": true,
+            "Site Echo": true,
+            "FIX-88": true,
+            "Mira Chen": true
+          },
+          "value_checks": {
+            "4.70": true
+          },
+          "exact_rule_checks": {
+            "Do not publish without written approval.": true
+          },
+          "current_state_status_checks": {
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "FIX-88": true,
+            "Mira Chen": true
+          },
+          "terminal_marker_removed": true,
+          "current_value_present": true,
+          "old_value_mentioned": true,
+          "old_value_explicitly_superseded": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "passed",
+          "notes": "Preserves approval as the blocking condition and review as the next action."
+        }
+      },
+      {
+        "case": "negative_instructions",
+        "phase": "post_fix",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 715,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "RULE-K2": true,
+            "Hana Noor": true
+          },
+          "value_checks": {},
+          "exact_rule_checks": {
+            "Use only synthetic data.": true,
+            "Do not delete source files.": true,
+            "Do not send messages to customers.": true,
+            "Redact passwords.": true
+          },
+          "current_state_status_checks": {
+            "[OPEN]": true
+          },
+          "next_target_checks": {
+            "RULE-K2": true,
+            "Hana Noor": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "failed",
+          "notes": "Removed inferred compliance outcomes, but still asserted not yet started without support."
+        }
+      },
+      {
+        "case": "multilingual_dense",
+        "phase": "post_fix",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 506,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "佐藤美咲": true,
+            "検証-甲7": true,
+            "CAL-日9": true,
+            "王明": true,
+            "B-汉8": true
+          },
+          "value_checks": {
+            "37.80": true,
+            "0.125": true
+          },
+          "exact_rule_checks": {
+            "承認なしに公開しない。": false
+          },
+          "current_state_status_checks": {
+            "[BLOCKED]": true
+          },
+          "next_target_checks": {
+            "CAL-日9": true,
+            "佐藤美咲": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": false
+        },
+        "meaning_review": {
+          "status": "passed",
+          "notes": "Required Japanese and Chinese facts, prohibition meaning, blocked status and next targets retained; no added publication goal or approval progress. Exact rule check remains a literal-copy failure."
+        }
+      },
+      {
+        "case": "negative_instructions",
+        "phase": "final_status_fix",
+        "worker_exit": 0,
+        "request_count": 1,
+        "tail_verbatim": true,
+        "source_history_unchanged": true,
+        "compression_count": 1,
+        "stored_summary_body_count": 1,
+        "input_rows": 12,
+        "output_rows": 4,
+        "summary_chars": 684,
+        "host_source_exact": true,
+        "public_api": "ctx.llm.complete",
+        "nonce_hashes_fresh": true,
+        "retry_transcript_unchanged": true,
+        "nonce_reply_matches_request": true,
+        "literal_checks": {
+          "five_headings": true,
+          "identifier_checks": {
+            "RULE-K2": true,
+            "Hana Noor": true
+          },
+          "value_checks": {},
+          "exact_rule_checks": {
+            "Use only synthetic data.": true,
+            "Do not delete source files.": true,
+            "Do not send messages to customers.": true,
+            "Redact passwords.": true
+          },
+          "current_state_status_checks": {
+            "[OPEN]": true
+          },
+          "next_target_checks": {
+            "RULE-K2": true,
+            "Hana Noor": true
+          },
+          "terminal_marker_removed": true,
+          "literal_checks_pass": true
+        },
+        "meaning_review": {
+          "status": "passed",
+          "notes": "Keeps OPEN status, states progress unknown, and does not assert unreported start state or compliance outcomes."
+        }
+      }
+    ],
+    "tested_plugin_sources_sha256_by_phase": {
+      "initial": {
+        "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+        "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+        "engine.py": "b4a3c7a1fef0a7caef39f95b06f4c2005a88fd2bafbf1194693dab5c785a8398",
+        "fallback.py": "867c943a3f0423de443d687ea07949399845df26f7ba832b599e771a4b719598",
+        "handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+        "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+        "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+        "plugin.yaml": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c",
+        "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+        "responses.py": "45a639fdc4cc33f7ded48e52d5cbd41c8c7e24ca0293f54bf6ade2de50c0c23d",
+        "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+        "warm.py": "de8405ae00efeef4b09e451737ffe980bca6d350409635bdd39ac6a11a089bf0",
+        "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+      },
+      "post_fix": {
+        "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+        "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+        "engine.py": "b4a3c7a1fef0a7caef39f95b06f4c2005a88fd2bafbf1194693dab5c785a8398",
+        "fallback.py": "f67bf527b94a5df3ea211085fb58fdefa2efcc3c70b867470bf44a0d2f8771ee",
+        "handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+        "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+        "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+        "plugin.yaml": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c",
+        "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+        "responses.py": "45a639fdc4cc33f7ded48e52d5cbd41c8c7e24ca0293f54bf6ade2de50c0c23d",
+        "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+        "warm.py": "de8405ae00efeef4b09e451737ffe980bca6d350409635bdd39ac6a11a089bf0",
+        "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+      },
+      "final_status_fix": {
+        "anthropic.py": "7bd4cb0e075c4f279f62d3b6f0c3dcf7405308c7360f9136369476a59dca4fd3",
+        "capture.py": "d2ce12d20fca5649d94b17d376a7bd9e21ba7f6a828b94cb62d030ca55adf791",
+        "engine.py": "b4a3c7a1fef0a7caef39f95b06f4c2005a88fd2bafbf1194693dab5c785a8398",
+        "fallback.py": "4973e0cbc83b47c4efb6fe3788500b323e2499ad40e683c6fd064f69d21632ad",
+        "handoff.py": "86f775f6e2584c8f93132e9c79762485f3ee8006cfcc9ab357d0de3f6e8ea966",
+        "layout.py": "3722ca05a4b84c9ed9f5cef5c7f7a175201efaba4208f3819dabcc556a2cfd57",
+        "native.py": "2bac322bf7779e7d4ec78137a1ba1fdff25d3e58910ace51200147aebf15f494",
+        "plugin.yaml": "2315d2ff3f0ce7c2e45998d07ee087c2911f202922851a44783b949314c04a8c",
+        "protocol.py": "f319d7a38ebb60d68d09b3575fe4f88f324b03be6017efbc5fd9932f05299853",
+        "responses.py": "45a639fdc4cc33f7ded48e52d5cbd41c8c7e24ca0293f54bf6ade2de50c0c23d",
+        "rows.py": "656d1eb02d7d31d51b89937a50878a8235093d82e8fbbab76526d80f8b182d80",
+        "warm.py": "de8405ae00efeef4b09e451737ffe980bca6d350409635bdd39ac6a11a089bf0",
+        "__init__.py": "760484ace80b9da77d7397828f69178905c9ac95df7b8114956bde727bd98aef"
+      }
+    },
+    "synthetic_fixture_expected_facts": [
+      {
+        "name": "ordinary_facts",
+        "identifiers": [
+          "CASE-R7",
+          "Mira Chen",
+          "CAL-9"
+        ],
+        "values": [
+          "17.25"
+        ],
+        "rules": [
+          "Do not publish without written approval."
+        ],
+        "statuses": [
+          "[BLOCKED]"
+        ],
+        "next_targets": [
+          "CAL-9",
+          "Mira Chen"
+        ]
+      },
+      {
+        "name": "changed_value",
+        "identifiers": [
+          "SENSOR-S42",
+          "Site Echo",
+          "FIX-88",
+          "Mira Chen"
+        ],
+        "values": [
+          "4.70"
+        ],
+        "rules": [
+          "Do not publish without written approval."
+        ],
+        "statuses": [
+          "[BLOCKED]"
+        ],
+        "next_targets": [
+          "FIX-88",
+          "Mira Chen"
+        ]
+      },
+      {
+        "name": "tool_result_links",
+        "identifiers": [
+          "PKG-17",
+          "JOB-X3",
+          "call_read_7",
+          "call_publish_8",
+          "permission_denied"
+        ],
+        "values": [
+          "21.6",
+          "17"
+        ],
+        "rules": [
+          "Do not call a failed publish complete."
+        ],
+        "statuses": [
+          "[COMPLETE]",
+          "[BLOCKED]"
+        ],
+        "next_targets": [
+          "JOB-X3"
+        ]
+      },
+      {
+        "name": "negative_instructions",
+        "identifiers": [
+          "RULE-K2",
+          "Hana Noor"
+        ],
+        "values": [],
+        "rules": [
+          "Use only synthetic data.",
+          "Do not delete source files.",
+          "Do not send messages to customers.",
+          "Redact passwords."
+        ],
+        "statuses": [
+          "[OPEN]"
+        ],
+        "next_targets": [
+          "RULE-K2",
+          "Hana Noor"
+        ]
+      },
+      {
+        "name": "multilingual_dense",
+        "identifiers": [
+          "佐藤美咲",
+          "検証-甲7",
+          "CAL-日9",
+          "王明",
+          "B-汉8"
+        ],
+        "values": [
+          "37.80",
+          "0.125"
+        ],
+        "rules": [
+          "承認なしに公開しない。"
+        ],
+        "statuses": [
+          "[BLOCKED]"
+        ],
+        "next_targets": [
+          "CAL-日9",
+          "佐藤美咲"
+        ]
+      },
+      {
+        "name": "recovery_marker_fault",
+        "identifiers": [
+          "CASE-R9",
+          "Mira Chen",
+          "CAL-9"
+        ],
+        "values": [
+          "17.25"
+        ],
+        "rules": [
+          "Do not publish without written approval."
+        ],
+        "statuses": [
+          "[BLOCKED]"
+        ],
+        "next_targets": [
+          "CAL-9",
+          "Mira Chen"
+        ]
+      }
+    ],
+    "fixture_recipe": "First user task, acknowledgement, optional linked tool rows, four neutral turn pairs, then two retained tail rows. See input row counts; no real conversation was used.",
+    "manual_review_method": "Primary and independent Codex reviewer read invented fixtures and stored summaries. Literal checks and meaning were reviewed separately.",
+    "script_receipts": [
+      {
+        "synthetic": true,
+        "max_upstream_requests": 12,
+        "executed_script_sha256": "062c67075f05b1527d954945332e0fc1adbf3833db23caf12e2103e12405306c",
+        "paired_route_helper_sha256": "e34e5959478f52cdde20a7c47e038d730652b201b193ed4fbbf70a94e28f8b6e"
+      },
+      {
+        "synthetic": true,
+        "max_upstream_requests": 12,
+        "executed_script_sha256": "3dbac4200857b34d0616cbaf3270ced41ab1152e6caea96ea09b03467c3b43b3",
+        "paired_route_helper_sha256": "e34e5959478f52cdde20a7c47e038d730652b201b193ed4fbbf70a94e28f8b6e",
+        "prior_upstream_requests": 5,
+        "case_names": [
+          "recovery_marker_fault"
+        ]
+      },
+      {
+        "synthetic": true,
+        "max_upstream_requests": 12,
+        "executed_script_sha256": "eabe3a973ad3c3795d7faa02354c4068422fa3c26e39c08f7243e249e5608888",
+        "paired_route_helper_sha256": "e34e5959478f52cdde20a7c47e038d730652b201b193ed4fbbf70a94e28f8b6e",
+        "prior_upstream_requests": 7,
+        "case_names": [
+          "changed_value",
+          "negative_instructions",
+          "multilingual_dense"
+        ]
+      },
+      {
+        "synthetic": true,
+        "max_upstream_requests": 12,
+        "executed_script_sha256": "73d7ce35c121c0e3a1bfa5f4f1202429166253b97d53c712bef78d7d0f45c388",
+        "paired_route_helper_sha256": "e34e5959478f52cdde20a7c47e038d730652b201b193ed4fbbf70a94e28f8b6e",
+        "prior_upstream_requests": 10,
+        "case_names": [
+          "negative_instructions"
+        ]
+      }
+    ],
+    "offline_checker": {
+      "synthetic": true,
+      "offline_only": true,
+      "checks": {
+        "single_carrier": true,
+        "split_carrier": true,
+        "ignores_unmarked_rows": true,
+        "good_summary": true,
+        "missing_identifier_fails": true,
+        "wrong_value_fails": true,
+        "reversed_rule_fails": true,
+        "wrong_status_fails": true,
+        "old_value_superseded_allowed": true,
+        "old_value_unqualified_flagged": true
+      },
+      "passed": true
+    },
+    "offline_continuation_checks": [
+      {
+        "synthetic": true,
+        "offline_only": true,
+        "checks": {
+          "initial_requests_seven": true,
+          "initial_cases_six": true,
+          "exact_affected_case_order": true,
+          "fixtures_unchanged": true,
+          "reviewed_fallback_hash": true,
+          "five_upstream_slots_available": true,
+          "thirteenth_call_blocked": true,
+          "third_case_attempt_blocked": true,
+          "stopped_route_blocked": true
+        },
+        "passed": true,
+        "prior_upstream_requests": 7,
+        "remaining_shared_slots": 5,
+        "case_names": [
+          "changed_value",
+          "negative_instructions",
+          "multilingual_dense"
+        ]
+      },
+      {
+        "synthetic": true,
+        "offline_only": true,
+        "checks": {
+          "prior_requests_ten": true,
+          "one_case_only": true,
+          "fixture_unchanged": true,
+          "reviewed_hash_given": true,
+          "reviewed_fallback_hash": true,
+          "two_slots_available": true,
+          "thirteenth_call_blocked": true
+        },
+        "passed": true,
+        "prior_upstream_requests": 10,
+        "remaining_shared_slots": 2,
+        "case_names": [
+          "negative_instructions"
+        ],
+        "reviewed_fallback_sha256": "4973e0cbc83b47c4efb6fe3788500b323e2499ad40e683c6fd064f69d21632ad"
+      }
+    ],
+    "collector_error": {
+      "synthetic": true,
+      "error_class": "UnicodeDecodeError",
+      "stage": "Read the completed multilingual result",
+      "cause": "The initial collector used the Windows default text encoding instead of UTF-8.",
+      "completed_upstream_requests": 5,
+      "completed_request_status": "HTTP 200 for all five calls",
+      "remaining_case": "recovery_marker_fault",
+      "completed_cases_repeated": false,
+      "repair": "Use explicit UTF-8 reads, recover the saved multilingual result, and run only the remaining case under the original 12-call cap."
+    },
+    "summary_text_published": false,
+    "server_cache_counters": "unknown",
+    "limits": [
+      "Invented fixtures only. These cases do not establish general model accuracy.",
+      "A meaning pass does not imply exact punctuation or wording was copied.",
+      "Six invented cases, with bounded retests of affected cases across three prompt versions; no general accuracy claim.",
+      "Full engine.compress and public ctx.llm.complete, not a full CLI or gateway session.",
+      "Only task extra_body.max_tokens=8192 was set on the isolated custom route.",
+      "No production source, config, model deployment, or cache was changed."
+    ]
+  },
+  "local_test_runner_repair": {
+    "initial_provider_suite": "failed: helper import was not available in isolated workers",
+    "change": "Defer test helper import until the worker adds the scripts path; pass request body to native fake server.",
+    "approved_affected_rerun": "provider 9/9, native 4/4, lint and diff passed",
+    "full_suite_after_accuracy_prompt": "passed",
+    "intermediate_suite": "Stopped during plugin checks before the final prompt edit. Eight earlier checks and three plugin scenarios had passed; this stopped run does not satisfy the full suite."
+  }
+}

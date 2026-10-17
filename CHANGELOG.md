@@ -6,6 +6,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Changed
 
+- Give fallback generation an 8,192-token allowance while keeping the visible summary within 2,048 estimated tokens. Check a fresh end marker and the summary content instead of refusing a short reply because its reported output count can include thinking. Retry an invalid reply once from the original transcript, within a shared deadline and cancellation checks. The public API still cannot report the server stop reason or stop an in-flight call.
+- Ask the fallback model to keep unreported progress unknown and keep rules separate from confirmed actions. Preserve approval conditions and do not add a goal from a prohibition. These prompt rules do not guarantee factual accuracy.
 - Run CI checks automatically for pushes to `main` through the approval-free `ci-main` environment, which allows only the branch named `main`. Keep approval through `ci-approval` for pull requests, scheduled runs, and manual dispatch. Local checks still need an explicit request.
 - Keep separate Hermes compatibility concurrency groups for each event and ref. Scheduled and manual runs cannot cancel an automatic push run.
 - Remove the fixed summary without a model. If the warm request and model-based fallback cannot produce a usable summary, stop the current compaction pass, preserve its input history, and report safe error codes. Hermes can retry an automatic failure; the plugin does not stop the entire host turn. This includes incomplete or oversized fallback replies and a retained-history layout that cannot fit safely.
@@ -17,6 +19,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
+- Require at least one verified source-content quote after fallback construction. Use the existing one retry for all-unknown or generated-label-only output, then preserve history if the second reply is also unusable. Keep actual text and argument provenance separate from generated labels. Give a recognized earlier summary core the existing share before its copied appendix uses any remainder; preserve the legacy whole-summary bound for unknown formats.
+- Use the exact bounded focus and memory block sent to the fallback as a separate source block. Keep the existing request reserve and reject an encoded prior quote that also occurs inside an ordinary source line.
+- Construct all five fallback sections from complete source lines. Restore the complete line for a unique exact quoted part. Decode one JSON layer from a recognized, bounded earlier summary without wrapping prior quotes again or decoding copied user messages as Next step. Keep Unicode separators inside valid JSON bullets. Drop ambiguous, malformed, cut, oversized, or changed evidence and report each field unknown. Deduplicate identical decoded quotes without reporting a loss. Each section has a 512-token bound; the complete body keeps its 2,048-token bound. Keep evidence in the order User instructions, Next step, Goal, Current state, Key facts. Repair that keeps source content needs no retry. Source support does not prove truth, applicability, evidence selection, or complete retention.
+- Report safe fallback token counts, request limits, attempt counts, and end-marker status when a reply is refused. Keep summary text and random markers out of status and logs. Document a task configuration workaround for Hermes versions that omit the generation limit on custom Chat Completions routes; a general correction remains a Hermes dependency.
 - Accept unchanged stored `reasoning` text in captured Chat Completions assistant rows. Do not require reasoning padding on captured summary or notice rows that have no reasoning. Keep checks for changed text, reasoning details, and tool signatures, and keep the captured request prefix unchanged.
 - Match captured content with the stored `api_content` text for context-injected rows. Keep role, tool, and native replay checks. Report each history refusal stage and use the fallback when the capture is ahead of the live history.
 - Keep the original history when an indivisible native replay block exceeds the compaction budget. Check the threshold, reply reserve, and unknown request overhead before accepting the new history.
@@ -24,7 +30,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Accept trailing whitespace removal by Hermes from complete text strings, including `api_content`, without a false `source_transform_unsupported` fallback. Keep the captured request prefix unchanged.
 - Keep safe request refusal codes in status and logs, instead of the generic `settings_unsupported`.
 - Keep the captured `x-opencode-session` header on warm requests, including the header that Hermes adds for OpenCode routes. Refuse unknown headers and header rewrites; send the session value only as an HTTP header.
-- Report `missing_end_marker` or `output_token_limit` when a fallback reply fails the completion check. Incomplete replies stop the current compaction pass and preserve its input history.
+- Report `missing_end_marker` or `body_token_limit` when a fallback reply fails the completion or size check. Incomplete replies stop the current compaction pass and preserve its input history.
 
 ### Added
 
