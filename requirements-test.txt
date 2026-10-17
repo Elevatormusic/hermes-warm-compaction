@@ -1,4 +1,6 @@
 # Test and CI tools only. The plugin needs no third-party package.
-hypothesis==6.168.5
+# Hypothesis 6.169.0 needs Python 3.11 or later. Keep Python 3.10 checks.
+hypothesis==6.168.5; python_version < "3.11"
+hypothesis==6.169.0; python_version >= "3.11"
 sortedcontainers==2.4.0
 coverage==7.16.2
