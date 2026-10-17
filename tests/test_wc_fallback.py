@@ -229,9 +229,30 @@ class LlmSummaryTest(unittest.TestCase):
                 failure = {}
                 self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
             self.assertEqual(failure["reason"], "gate:" + reason)
-            self.assertEqual(failure["attempts"], 2)
-            self.assertEqual(len(llm.calls), 2)
+            self.assertEqual(failure["attempts"], 3)
+            self.assertEqual(len(llm.calls), 3)
             self.assertNotIn(self.marker(llm.calls[-1][0]), str(logs.output) + str(failure))
+
+    def test_missing_marker_retry_repeats_the_marker_requirement(self):
+        def reply(messages, kwargs, count):
+            body = useful_summary("hi")
+            return body if count == 1 else body + "\n" + self.marker(messages)
+        llm, failure = FakeLlm(text=reply), {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (useful_summary("hi"), 321))
+        self.assertEqual(len(llm.calls), 2)
+        first, second = llm.calls
+        self.assertNotIn("did not end with the marker line", first[0][0]["content"])
+        self.assertIn("did not end with the marker line", second[0][0]["content"])
+        self.assertEqual(failure, {})
+
+    def test_third_attempt_passes_after_two_missing_markers(self):
+        def reply(messages, kwargs, count):
+            body = useful_summary("hi")
+            return body + ("\n" + self.marker(messages) if count == 3 else "")
+        llm, failure = FakeLlm(text=reply), {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (useful_summary("hi"), 321))
+        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(failure, {})
 
     def test_thinking_is_removed_before_the_content_and_body_checks(self):
         body = useful_summary("hi")
@@ -269,7 +290,7 @@ class LlmSummaryTest(unittest.TestCase):
             safe_output = output if type(output) is int and 0 < output <= 2 ** 63 - 1 else None
             self.assertEqual(failure, {"reason": "gate:missing_end_marker", "output_tokens": safe_output,
                                       "requested_max_tokens": REQUEST_MAX_TOKENS, "end_marker": "missing",
-                                      "attempts": 2, "body_tokens": estimate_tokens(SUMMARY + "\n" + private)})
+                                      "attempts": 3, "body_tokens": estimate_tokens(SUMMARY + "\n" + private)})
             logged = "\n".join(logs.output)
             self.assertNotIn(private, logged + str(failure))
             self.assertNotIn(SUMMARY, logged + str(failure))
@@ -889,12 +910,13 @@ class SourceContextTest(unittest.TestCase):
 
 
 class UsefulEvidenceTest(unittest.TestCase):
-    def test_all_unknown_uses_one_retry_then_refuses_without_provider_text(self):
+    def test_all_unknown_retries_then_refuses_without_provider_text(self):
         llm, failure = FakeLlm(SUMMARY + "\n" + END_LINE), {}
         self.assertEqual(llm_summary(llm, [user("Check JOB-X3.")], PREFIXES, failure=failure), (None, None))
         self.assertEqual(len(llm.calls), 2)
         self.assertEqual(failure["reason"], "gate:no_useful_evidence")
         self.assertEqual(failure["attempts"], 2)
+        self.assertIn("failed a summary check", llm.calls[1][0][0]["content"])
         self.assertNotIn("Check JOB-X3.", str(failure))
 
     def test_generated_labels_alone_do_not_count_as_useful_evidence(self):

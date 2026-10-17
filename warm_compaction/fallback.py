@@ -27,6 +27,11 @@ PURPOSE = "warm_compaction_fallback"
 MAX_TOKENS = 2048
 MAX_STATE_TOKENS = 512
 REQUEST_MAX_TOKENS = 8192
+# The attempts of one fallback summary. A missing or duplicated end marker gets the first reply plus up to
+# two retries (three attempts); every other gate failure stops after the first reply plus one retry (two), so
+# a hopeless content failure does not burn a third summary call.
+MAX_ATTEMPTS = 3
+MAX_ATTEMPTS_OTHER = 2
 TIMEOUT_S = 120.0
 TRANSCRIPT_CHARS = 32_000
 EARLIER_SUMMARY_CHARS = 8_000
@@ -568,7 +573,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 failure: dict[str, Any] | None = None) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
-    Only an invalid reply gets one retry. Both calls share one time limit.
+    An invalid reply gets one retry; a missing or duplicated end marker gets two. All calls share one time limit.
     failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
@@ -583,13 +588,23 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     content: list[str] = []
     original = transcript(messages, prefixes, len(extra), estimate_tokens(extra), _content=content)
     source = _SourceTable(original, _earlier_summary(messages, prefixes), extra, content)
-    for attempt in range(1, 3):
+    reason: str | None = None  # The previous attempt's failure code; the loop only continues on one.
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         end_line = END_LINE.replace("{nonce}", secrets.token_hex(16))
         words = int(summary_words) if attempt == 1 else min(int(summary_words), 300)
         instruction = FALLBACK_INSTRUCTION_TEMPLATE.replace(SUMMARY_WORDS_TOKEN, str(words))
         instruction = instruction.replace(END_LINE, end_line)
-        if attempt == 2:
-            extra_instruction = "\nThe previous reply failed a summary check. Write a shorter, complete summary.\n"
+        if attempt > 1:
+            # The dominant failure of a local model is the missing marker line; repeat that requirement
+            # instead of the generic shorter-summary note. reason is the last attempt's failure code.
+            if reason in ("missing_end_marker", "duplicate_end_marker"):
+                extra_instruction = ("\nThe previous reply did not end with the marker line. Write the "
+                                     "summary again. The marker line below must be the final line of "
+                                     "your reply, with nothing after it.\n")
+            else:
+                extra_instruction = ("\nThe previous reply failed a summary check. Write a shorter, "
+                                     "complete summary. The marker line below must be the final line "
+                                     "of your reply, with nothing after it.\n")
         else:
             extra_instruction = ""
         instruction = instruction.replace("End the summary with this line:",
@@ -648,7 +663,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None
-        if attempt == 2:
+        if attempt >= (MAX_ATTEMPTS if reason in ("missing_end_marker", "duplicate_end_marker")
+                       else MAX_ATTEMPTS_OTHER):
             metadata = _reply_metadata(result, raw, end_line, body, attempt)
             if failure is not None:
                 failure["reason"] = f"gate:{reason}"
@@ -657,6 +673,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                            "end_marker=%s attempts=%s body_tokens=%s", reason, metadata["output_tokens"],
                            metadata["requested_max_tokens"], metadata["end_marker"], metadata["attempts"],
                            metadata["body_tokens"])
+            return None, None
     return None, None
 
 

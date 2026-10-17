@@ -1751,13 +1751,13 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn(state, summary)
         self.assertEqual(len(self.llm.calls), 1)
 
-    def test_invalid_fallback_protocol_keeps_history_after_two_calls(self):
+    def test_invalid_fallback_protocol_keeps_history_after_three_calls(self):
         state = json.dumps("synthetic unsupported state")
         self.llm = FakeLlm(text=HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- " + state))
         engine = self.make(warm=False)
         history = [user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")]
         self.assert_aborted(engine, history, "gate:missing_end_marker")
-        self.assertEqual(len(self.llm.calls), 2)
+        self.assertEqual(len(self.llm.calls), 3)
 
     def test_fallback_refusal_status_has_safe_counts_and_marker_code(self):
         # These replies and counts are synthetic. History must stay unchanged.
@@ -1780,13 +1780,13 @@ class EngineTest(unittest.TestCase):
                 self.assertEqual(status["fallback_output_tokens"], expected_output)
                 self.assertEqual(status["fallback_requested_max_tokens"], 8192)
                 self.assertEqual(status["fallback_end_marker"], marker)
-                self.assertEqual(status["fallback_attempts"], 2)
+                self.assertEqual(status["fallback_attempts"], 3 if reason == "missing_end_marker" else 2)
                 self.assertEqual(status["fallback_body_tokens"], estimate_tokens(text.removesuffix("\n" + END_LINE)))
                 logged = "\n".join(logs.output)
                 self.assertIn(f"fallback_output_tokens={expected_output}", logged)
                 self.assertIn("fallback_requested_max_tokens=8192", logged)
                 self.assertIn(f"fallback_end_marker={marker}", logged)
-                self.assertIn("fallback_attempts=2", logged)
+                self.assertIn(f"fallback_attempts={3 if reason == 'missing_end_marker' else 2}", logged)
                 self.assertNotIn(HEADINGS_TEXT, logged + json.dumps(status))
 
     def test_late_backup_errors_after_cancel_or_route_switch_keep_history(self):
@@ -2196,7 +2196,7 @@ class EngineTest(unittest.TestCase):
                             provider="custom", api_mode=ROUTE[2])
         self.assert_aborted(engine, rows, "error:RuntimeError")
 
-    def test_two_all_unknown_replies_preserve_history(self):
+    def test_all_unknown_replies_preserve_history(self):
         self.llm = FakeLlm(FALLBACK_TEXT + "\n" + END_LINE)
         engine = self.engine = self.make(warm=False, tail_tokens=10)
         rows = [*old_turns(4), user("Check JOB-X3."), assistant("done")]
