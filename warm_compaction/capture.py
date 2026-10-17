@@ -19,6 +19,13 @@ MAX_SESSIONS = 16
 CLIENT_OPTIONS = ("extra_body", "extra_headers", "extra_query", "timeout")
 CAPTURE_FINISH = ("stop", "tool_calls")
 REQUEST_REFUSALS = ("request_not_mapping", "request_options_unsupported", "request_not_json")
+# The user prompt of a Hermes background-review fork (skill / memory / combined review,
+# agent/background_review.py: _SKILL_REVIEW_PROMPT, _MEMORY_REVIEW_PROMPT,
+# _COMBINED_REVIEW_PROMPT all start with this phrase). The fork shares the parent's
+# session and model ("shared session_id for prefix warmth"), so a completed review
+# request must not replace the live conversation's capture: the next warm compaction
+# would build on the fork's prefix and degrade to the fallback (history_changed:digest).
+REVIEW_ROW_PREFIX = "Review the conversation above"
 # A random salt for each plugin load: the stamps of one key differ between processes.
 _KEY_STAMP_SECRET = secrets.token_bytes(32)
 # PBKDF2 work for each stamp (about 3 ms): a stamp is made a few times for each main request.
@@ -33,6 +40,16 @@ def key_stamp(key: str) -> str:
 
 class UnsupportedRequest(ValueError):
     """The request body cannot become a warm request. The message is the reason code."""
+
+
+def _is_review_request(user_message: Any) -> bool:
+    """True for a background-review fork request: the turn's user message is one of the
+    review prompts. The fork's rows never enter the parent's stored conversation (Hermes
+    severs the fork's session binding), so the live request message is the only check."""
+    try:
+        return plain_text(user_message).lstrip().startswith(REVIEW_ROW_PREFIX)
+    except Exception:
+        return False
 
 
 def request_headers(request: Any, api_mode: str = "chat_completions") -> dict[str, str]:
@@ -132,9 +149,13 @@ class CaptureStore:
 
     def on_pre_api_request(self, api_request_id: Any = None, session_id: Any = None,
                            conversation_history: Any = None, model: Any = None, base_url: Any = None,
-                           api_mode: Any = None, **_: Any) -> None:
+                           api_mode: Any = None, user_message: Any = None, **_: Any) -> None:
         """Hook pre_api_request: keep the route and one digest for each stored history row."""
         if not api_request_id or not session_id or not isinstance(conversation_history, list):
+            return None
+        # A review fork shares the session for prefix warmth; its request must not become
+        # the capture of the live conversation (see REVIEW_ROW_PREFIX).
+        if _is_review_request(user_message):
             return None
         try:
             digests = [row_digest(row) for row in conversation_history]
