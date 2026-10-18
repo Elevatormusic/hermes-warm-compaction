@@ -1921,7 +1921,8 @@ class EngineTest(unittest.TestCase):
     def test_without_a_ledger_or_with_the_setting_off_failed_summaries_keep_history(self):
         self.llm.error = RuntimeError("synthetic failure")
         for settings, history in (({}, [*old_turns(), assistant("final")]),
-                                  ({"ledger_on_failure": False}, [*self.ledger_rows(), assistant("final")])):
+                                  ({"ledger_on_failure": False}, [*self.ledger_rows(), assistant("final")]),
+                                  ({"ledger": False}, [*self.ledger_rows(), assistant("final")])):
             with self.subTest(settings=settings):
                 engine = self.make(warm=False, **settings)
                 self.assert_aborted(engine, history, "error:RuntimeError")

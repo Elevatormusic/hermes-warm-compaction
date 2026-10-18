@@ -173,7 +173,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | `warm_providers` | text | empty: every provider | Comma-separated provider names that may use the warm path. A provider outside the list sends no warm request, so a route that can miss its prefix cache does not pay for the whole prompt. Names are matched without case. An empty value keeps every provider |
 | `ledger` | bool | true | Add the work ledger (commands with exit codes and first error lines, changed files) after the summary. Set false for comparison runs |
 | `fallback_format` | `relaxed` or `quoted` | `relaxed` | Format of the fallback summary. `relaxed` uses the free handoff sections; `quoted` builds every section from verified source quotes. See [Fallback model and keys](#fallback-model-and-keys) |
-| `ledger_on_failure` | bool | true | When both model summaries fail and the rows before the tail have tool work, compact with a ledger-only summary instead of stopping. Set false to keep the history unchanged in that case |
+| `ledger_on_failure` | bool | true | When both model summaries fail and the rows before the tail have tool work, compact with a ledger-only summary instead of stopping. It applies only when `ledger` is true. Set false to keep the history unchanged in that case |
 
 ```yaml
 plugins:

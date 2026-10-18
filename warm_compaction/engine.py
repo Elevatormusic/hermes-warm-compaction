@@ -406,7 +406,7 @@ class WarmCompactionEngine(ContextEngine):
             record.update(path="cancelled", reason="route_changed")
             self._finish(record, started, attempt[-1])
             return messages
-        if summary is None and self._settings["ledger_on_failure"]:
+        if summary is None and self._settings["ledger"] and self._settings["ledger_on_failure"]:
             # Both model summaries failed (a small model can miss the format): compact with the work ledger and the
             # copied user messages, under the five headings with an unknown line. Without a ledger, keep history.
             stub = "\n\n".join(f"{heading}\n{LEDGER_ONLY_LINE}" for heading in handoff.HEADINGS)
