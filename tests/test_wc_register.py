@@ -137,7 +137,7 @@ class RegisterTest(unittest.TestCase):
         text = (ROOT / "warm_compaction" / "plugin.yaml").read_text(encoding="utf-8")
         for line in ("manifest_version: 2", "name: warm_compaction", "config_schema:", "  threshold:",
                      "  tail_tokens:", "  user_copy_chars:", "  warm:", "  ledger:", "  fallback_format:",
-                     "  ledger_on_failure:"):
+                     "  ledger_on_failure:", "  timeout_s:"):
             self.assertIn(line + "\n", text)
 
     def test_the_alpha_files_are_gone(self):
