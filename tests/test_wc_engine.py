@@ -714,8 +714,8 @@ class EngineTest(unittest.TestCase):
                 else:
                     summary_budget = engine._summary_budget
 
-                    def switch(overhead, reserve, summary_budget=summary_budget, engine=engine):
-                        result = summary_budget(overhead, reserve)
+                    def switch(overhead, reserve, *args, summary_budget=summary_budget, engine=engine):
+                        result = summary_budget(overhead, reserve, *args)
                         engine.threshold_tokens += 1
                         return result
 
@@ -1853,7 +1853,7 @@ class EngineTest(unittest.TestCase):
 
     def test_the_word_count_setting_reaches_the_warm_request(self):
         engine = self.make(summary_words=1200)
-        rows = old_turns()
+        rows = old_turns(12)
         reply = assistant("final")
         self.seed(rows, reply)
         engine.compress([*rows, reply])
@@ -1996,9 +1996,27 @@ class EngineTest(unittest.TestCase):
                          ("fallback", "provider_not_allowed"))
         self.assertEqual(self.post.calls, [])
 
+    def test_a_large_compacted_region_gets_a_larger_summary(self):
+        # 30 synthetic turns (about 30,800 estimated tokens), a 10,000-token tail, and a 200,000-token window:
+        # the summary target is 30% of the region before the tail, at most SUMMARY_CEILING.
+        from warm_compaction import fallback
+        from warm_compaction.engine import SUMMARY_CEILING
+        engine = self.make(warm=False)
+        history = [*old_turns(), assistant("final")]
+        self.assertEqual(engine._summary_target(old_turns(12)), fallback.MAX_TOKENS)
+        target = engine._summary_target(history)
+        self.assertEqual(target, SUMMARY_CEILING)
+        engine.compress(history)
+        words = 600 + int((target - fallback.MAX_TOKENS) * 0.6)
+        self.assertIn(f"Use at most {words} words.", str(self.llm.calls[0][0]))
+        # A smaller window keeps the summary at most 5% of it.
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        self.assertEqual(engine._summary_target(history), 3_200)
+
     def test_three_provider_exclusions_without_capture_do_not_report_a_warm_failure(self):
         engine = self.make(warm_providers="opencode-go,commandcode", summary_words=777)
-        history = [*old_turns(), assistant("final")]
+        history = [*old_turns(12), assistant("final")]
         with self.assertNoLogs("warm_compaction.engine", level="WARNING"):
             for _ in range(3):
                 self.compress_committed(engine, history)
@@ -2307,7 +2325,8 @@ class EngineTest(unittest.TestCase):
         dense = HEADINGS_TEXT.replace("Finish the test task.", "\u76ee\u6807" * 2_500)
         self.llm = FakeLlm(text=dense + "\n" + END_LINE)
         engine = self.make(warm=False)
-        self.assert_aborted(engine, [*old_turns(), assistant("done")], "gate:body_token_limit")
+        # A small compacted region: the summary limit stays fallback.MAX_TOKENS.
+        self.assert_aborted(engine, [*old_turns(12), assistant("done")], "gate:body_token_limit")
 
     def test_failed_summary_keeps_the_earlier_summary_and_native_tail(self):
         self.llm.error = RuntimeError("synthetic failure")

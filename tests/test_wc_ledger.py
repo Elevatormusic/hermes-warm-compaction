@@ -130,6 +130,50 @@ class LedgerTest(unittest.TestCase):
     def test_a_budget_below_the_heading_gives_no_block(self):
         self.assertEqual(ledger.build(SESSION, PREFIXES, max_tokens=5), "")
 
+    def test_identifiers_come_from_text_arguments_and_tool_output(self):
+        write = json.dumps({"path": "src/money.py", "content": "def to_cents(x): ..."})
+        rows = [user("Synthetic task: fix BILL-2291 before v2.4.1."),
+                assistant("The new helper is round_half_even_cents; I keep ROUND_HALF_EVEN.",
+                          [("i1", "write_file", write)]),
+                tool("i1", json.dumps({"success": True})),
+                terminal("i2", "python -m preview --check"),
+                result("i2", "listening on 127.0.0.1:8743\nhidden_helper_name in a file read"),
+                assistant("Commit c4e3b4d raised a KeyError.")]
+        identifiers, _reasons = ledger.notes(rows, PREFIXES)
+        self.assertIn("round_half_even_cents", identifiers["names"])
+        self.assertIn("ROUND_HALF_EVEN", identifiers["names"])
+        self.assertIn("to_cents", identifiers["names"])
+        # Argument keys and names in tool results are not names of the work.
+        self.assertNotIn("file_path", identifiers["names"])
+        self.assertNotIn("hidden_helper_name", identifiers["names"])
+        self.assertEqual(identifiers["addresses"], ["127.0.0.1:8743"])
+        self.assertEqual(set(identifiers["references"]), {"BILL-2291", "v2.4.1", "c4e3b4d"})
+        self.assertEqual(identifiers["errors"], ["KeyError"])
+        text = ledger.build(rows, PREFIXES)
+        self.assertIn(ledger.IDENTIFIERS_HEADING + "\n- names: ", text)
+
+    def test_reasons_are_exact_assistant_sentences(self):
+        rows = [user("Do not change the global context because I said so."),
+                assistant("Read the file.\n\nI will not change the global context, because the reports service "
+                          "shares the process. Next, run the tests."),
+                assistant("I chose Decimal instead of float.")]
+        _identifiers, reasons = ledger.notes(rows, PREFIXES)
+        self.assertEqual(reasons, ["I will not change the global context, because the reports service shares the "
+                                   "process.", "I chose Decimal instead of float."])
+
+    def test_notes_without_tool_work_give_a_block_only_without_require_work(self):
+        rows = [user("hi"), assistant("I use round_half_even because the audit needs it.")]
+        self.assertIn(ledger.REASONS_HEADING, ledger.build(rows, PREFIXES))
+        self.assertEqual(ledger.build(rows, PREFIXES, require_work=True), "")
+
+    def test_a_later_compaction_keeps_the_notes_of_the_earlier_summary(self):
+        first = ledger.build([assistant("I keep float_total because the PDF export imports it.")], PREFIXES)
+        content = f"[CONTEXT SUMMARY]:\n## Goal\n- x\n\n{first}\n\n{COPY_HEADING}\n\n(none)"
+        later = [{"role": "user", "content": content, "_compressed_summary": True}, assistant("Port is 8743 now.")]
+        identifiers, reasons = ledger.notes(later, PREFIXES)
+        self.assertIn("float_total", identifiers["names"])
+        self.assertEqual(reasons, ["I keep float_total because the PDF export imports it."])
+
     def test_a_later_compaction_keeps_the_ledger_of_the_earlier_summary(self):
         first = ledger.build(SESSION, PREFIXES)
         content = f"[CONTEXT SUMMARY]:\n## Goal\n- x\n\n{first}\n\n{COPY_HEADING}\n\n(none)"
@@ -142,7 +186,7 @@ class LedgerTest(unittest.TestCase):
         text = ledger.build(later, PREFIXES)
         self.assertIn("exit 1; FAILED tests/test_dates.py::test_parse_dates", text)
         self.assertIn("- `pytest -q`: exit 1; FAILED tests/test_api.py::test_timeout", text)
-        files = text.split(ledger.FILES_HEADING, 1)[1].splitlines()
+        files = text.split(ledger.FILES_HEADING, 1)[1].split("\n###")[0].splitlines()
         self.assertEqual([line for line in files if line], ["- CHANGELOG.md: written", "- src/dates.py: changed"])
         self.assertEqual(text.count(ledger.HEADING), 1)
 

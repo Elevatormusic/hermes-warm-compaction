@@ -7,10 +7,11 @@ from collections.abc import Iterable
 
 from .rows import reply_text
 
-HEADINGS = ("## Goal", "## User instructions", "## Current state", "## Decisions", "## Key facts", "## Next step")
+HEADINGS = ("## Goal", "## User instructions", "## Current state", "## Decisions", "## Key facts", "## Session log",
+            "## Next step")
 REQUIRED_SECTIONS = ("## Goal", "## Current state", "## Next step")
 # A reply can leave out an optional heading: a small model can miss it. When it is present, its order is checked.
-OPTIONAL_HEADINGS = ("## Decisions",)
+OPTIONAL_HEADINGS = ("## Decisions", "## Session log")
 MAX_REPLY_BYTES = 24_000
 LEGACY_PREFIX = "[CONTEXT SUMMARY]:"
 END_MARKER = "--- END OF CONTEXT SUMMARY"
@@ -29,7 +30,7 @@ Rules:
 - Write in the language of the conversation. Use short bullets. Use at most {summary_words} words.
 - Leave out data that the task does not need, for example unrelated records or logs.
 
-Use these six headings, in this order, each on its own line. Start the reply with "## Goal":
+Use these seven headings, in this order, each on its own line. Start the reply with "## Goal":
 
 ## Goal
 The current goal of the user, in one or two sentences.
@@ -50,13 +51,19 @@ what is missing.
 
 ## Decisions
 Each decision that was made, as a bullet with its reason when the conversation gives one: for example a chosen \
-approach, a rejected option, or a changed plan. When a later message changed a decision, give the current \
-decision and say what it replaces. Write "- none" when no decision was made.
+approach, a rejected option, something kept or not changed on purpose, or a changed plan. When a later message \
+changed a decision, give the current decision and say what it replaces. Write "- none" when no decision was made.
 
 ## Key facts
-Identifiers, names, values, and results that the next step needs. When a value replaced an older value, give the \
-current value and say that it replaces the old one. Write "unverified" next to a claim that the conversation does \
-not confirm.
+Identifiers, names, values, and results that the next step needs: for example function and class names, file \
+paths, ports, URLs, ticket and issue numbers, versions, counts, and error messages. When a value replaced an older \
+value, give the current value and say that it replaces the old one. Write "unverified" next to a claim that the \
+conversation does not confirm.
+
+## Session log
+A dense log of the work, oldest first, one bullet for each step: what was read, run, found, changed, or decided, \
+and why. Copy every identifier exactly; do not paraphrase a name, a path, a number, or an error message. Use most \
+of the word limit for this section; keep the sections above short.
 
 ## Next step
 The next action that the user asked for, its exact target, and, if it is blocked, what is missing. Describe it. \

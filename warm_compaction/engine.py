@@ -37,6 +37,15 @@ CARRIER_TOKENS = 500
 # The summary size that the tail cap keeps free before the fallback summary is known: two times its reply
 # limit, because the estimate and the server count do not use the same tokenizer.
 SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
+# A large compacted region gets a larger summary, as in the built-in compressor: SUMMARY_RATIO of the estimated
+# tokens before the tail, at most SUMMARY_WINDOW_SHARE of the window and SUMMARY_CEILING. The reserve is that
+# summary size plus fallback.MAX_TOKENS for the ledger and the quotes, and at least SUMMARY_RESERVE.
+SUMMARY_RATIO = 0.30
+SUMMARY_WINDOW_SHARE = 0.05
+SUMMARY_CEILING = 6_000
+# The word count asked for a summary of a given token size: an estimate token is about three quarters of a word,
+# with a margin for the headings.
+WORDS_PER_TOKEN = 0.6
 # The largest reply reserve for an unknown reply limit: the Hermes output reserve of a native Gemini route.
 UNKNOWN_RESERVE_MAX = 65_536
 # After this many compactions in a row without the warm path, the user gets one notice.
@@ -349,7 +358,10 @@ class WarmCompactionEngine(ContextEngine):
         budget = self._budget_capture(capture, messages)
         overhead = request_overhead(budget, messages)
         reserve = request_reserve(budget, int(self.context_length or 0))
-        start, prepend = layout.tail_start(messages, self._tail_cap(SUMMARY_RESERVE, overhead, reserve), prefixes,
+        target = self._summary_target(messages, policy)
+        summary_reserve = target + fallback.MAX_TOKENS
+        words = self._summary_words(target)
+        start, prepend = layout.tail_start(messages, self._tail_cap(summary_reserve, overhead, reserve), prefixes,
                                            policy)
         if start <= 0:
             return messages
@@ -360,11 +372,12 @@ class WarmCompactionEngine(ContextEngine):
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
-        if budget is not None and overhead is not None and self._summary_budget(overhead, reserve) == 0:
+        if (budget is not None and overhead is not None
+                and self._summary_budget(overhead, reserve, summary_reserve) == 0):
             # A usable capture proves that no summary can fit. Do not send either summary request.
             record.update(reason="summary_too_large", fallback_reason="summary_too_large")
             return self._abort(messages, record, started, attempt)
-        summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record, attempt)
+        summary = self._warm_summary(messages, capture, focus_topic, memory, prefixes, record, attempt, words)
         if summary is not None and not self._summary_fits(summary, overhead, reserve):
             # A dense handoff can pass the byte gate and still not fit below the threshold: the next request would
             # compact again at once. The fallback summary has a smaller limit.
@@ -374,7 +387,7 @@ class WarmCompactionEngine(ContextEngine):
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []
         if summary is None and not self._cancelled() and self._attempt() == attempt:
-            layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed, policy)
+            layout.bound_tail(messages[start:], self._tail_cap(summary_reserve, overhead, reserve), removed, policy)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
             # The plugin API has no request on a set route (an override needs a trust setting), and the auto
@@ -383,7 +396,7 @@ class WarmCompactionEngine(ContextEngine):
             failure: dict[str, Any] = {}
             summary, _tokens = fallback.llm_summary(
                 self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
-                task=self._task, summary_words=self._settings["summary_words"],
+                task=self._task, summary_words=words, max_tokens=target,
                 timeout_s=float(self._settings["timeout_s"]),
                 ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure,
                 quoted=self._settings["fallback_format"] == "quoted")
@@ -392,7 +405,7 @@ class WarmCompactionEngine(ContextEngine):
                 for key in ("output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"):
                     if key in failure:
                         record["fallback_" + key] = failure[key]
-            if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
+            if summary is not None and (estimate_tokens(summary) > summary_reserve
                                         or not self._summary_fits(summary, overhead, reserve)):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the
                 # transcript had. Or above the room (a large system prompt and a low threshold): the next request
@@ -417,9 +430,9 @@ class WarmCompactionEngine(ContextEngine):
             stub = "\n\n".join(f"{heading}\n{LEDGER_ONLY_LINE}" for heading in handoff.HEADINGS)
             # Leave room for the cut quote of a long prepended request, as on the fallback path.
             quote_room = fallback.CUT_QUOTE_CHARS // 4 if prepend else 0
-            room = min(ledger.MAX_TOKENS,
-                       self._summary_budget(overhead, reserve) - estimate_tokens(stub) - quote_room - 4)
-            block = ledger.build(messages[:start], prefixes, room) if room > 0 else ""
+            room = min(ledger.MAX_TOKENS, self._summary_budget(overhead, reserve, summary_reserve)
+                       - estimate_tokens(stub) - quote_room - 4)
+            block = ledger.build(messages[:start], prefixes, room, require_work=True) if room > 0 else ""
             if block and self._summary_fits(stub + "\n\n" + block, overhead, reserve):
                 summary = stub + "\n\n" + block
                 record["path"] = "ledger"
@@ -429,7 +442,7 @@ class WarmCompactionEngine(ContextEngine):
             # The work ledger: commands, results, and file changes of the rows before the tail, written by code.
             # It takes the summary budget that the summary left, with room for a fallback cut quote.
             quote_room = fallback.CUT_QUOTE_CHARS // 4 if record["path"] == "fallback" and prepend else 0
-            ledger_tokens = min(ledger.MAX_TOKENS, self._summary_budget(overhead, reserve)
+            ledger_tokens = min(ledger.MAX_TOKENS, self._summary_budget(overhead, reserve, summary_reserve)
                                 - estimate_tokens(summary) - quote_room - 4)
             block = ledger.build(messages[:start], prefixes, ledger_tokens) if ledger_tokens > 0 else ""
             if block:
@@ -453,7 +466,8 @@ class WarmCompactionEngine(ContextEngine):
                     # takes only what the summary budget has left (the tail cap stays at least the cap of the
                     # fallback transcript); the room keeps space for it.
                     left = max(0, min(fallback.CUT_QUOTE_CHARS // 4,
-                                      self._summary_budget(overhead, reserve) - estimate_tokens(summary) - 4))
+                                      self._summary_budget(overhead, reserve, summary_reserve)
+                                      - estimate_tokens(summary) - 4))
                     fitted = layout.fit_user_row(prepend, allowed - left, cut)
                     block = fallback.cut_quote(cut, left)
                     if block or not fallback.cut_quote(cut, fallback.CUT_QUOTE_CHARS // 4):
@@ -552,7 +566,8 @@ class WarmCompactionEngine(ContextEngine):
         usable capture, the reply reserve, and a summary (_tail_cap). A large system prompt or tool schema can
         leave no room for a history that fits the tail setting."""
         budget = self._budget_capture(capture, messages)
-        return self._tail_cap(SUMMARY_RESERVE, request_overhead(budget, messages),
+        return self._tail_cap(self._summary_reserve(messages, self._policy(messages)),
+                              request_overhead(budget, messages),
                               request_reserve(budget, int(self.context_length or 0)))
 
     def _attempt(self) -> tuple:
@@ -562,7 +577,8 @@ class WarmCompactionEngine(ContextEngine):
                 int(self.context_length or 0), int(self.threshold_tokens or 0), self._wc_attempt_serial)
 
     def _warm_summary(self, messages: list, capture: dict[str, Any] | None, focus_topic: str | None, memory: str,
-                      prefixes: tuple[str, ...], record: dict[str, Any], attempt: tuple) -> str | None:
+                      prefixes: tuple[str, ...], record: dict[str, Any], attempt: tuple,
+                      words: int | None = None) -> str | None:
         try:
             if not self._settings["warm"]:
                 raise warm.WarmRefusal("disabled")
@@ -578,7 +594,8 @@ class WarmCompactionEngine(ContextEngine):
             key = warm.api_key_text(attempt[1])
             if capture.get("key_stamp") != key_stamp(key):
                 raise warm.WarmRefusal("credential_changed")
-            instruction = handoff.build_instruction(focus_topic, memory, self._settings["summary_words"])
+            instruction = handoff.build_instruction(focus_topic, memory,
+                                                     words if words is not None else self._settings["summary_words"])
             body = warm.build_request(capture, messages, attempt[0], self.context_length, instruction,
                                       warm.native_details_type(attempt[2]))
             if self._cancelled():
@@ -719,15 +736,34 @@ class WarmCompactionEngine(ContextEngine):
         return limit - (overhead + estimate_tokens(sent_rows(tail_rows, policy)) + estimate_tokens(summary)
                         + CARRIER_TOKENS)
 
-    def _summary_budget(self, overhead: int | None, reserve: int) -> int:
+    def _summary_reserve(self, messages: list, policy: SendPolicy = SendPolicy()) -> int:
+        """The summary size that the tail cap keeps free: the summary target and fallback.MAX_TOKENS for the
+        ledger and the quotes."""
+        return self._summary_target(messages, policy) + fallback.MAX_TOKENS
+
+    def _summary_target(self, messages: list, policy: SendPolicy = SendPolicy()) -> int:
+        """The size of the model summary: SUMMARY_RATIO of the estimated tokens before the tail, from
+        fallback.MAX_TOKENS to the smaller of SUMMARY_CEILING and SUMMARY_WINDOW_SHARE of the window."""
+        history = estimate_tokens(sent_rows(messages, policy))
+        region = max(0, history - self._tail_tokens())
+        window = int(self.context_length or 0)
+        ceiling = min(SUMMARY_CEILING, int(window * SUMMARY_WINDOW_SHARE)) if window > 0 else fallback.MAX_TOKENS
+        return max(fallback.MAX_TOKENS, min(int(region * SUMMARY_RATIO), ceiling))
+
+    def _summary_words(self, target: int) -> int:
+        """The word count to ask for: the setting, and more words for the part of the target above
+        fallback.MAX_TOKENS. A small compacted region keeps the setting."""
+        return int(self._settings["summary_words"]) + int(max(0, target - fallback.MAX_TOKENS) * WORDS_PER_TOKEN)
+
+    def _summary_budget(self, overhead: int | None, reserve: int, summary_reserve: int = SUMMARY_RESERVE) -> int:
         """The token budget of the model summary and its quotes: at most the free room (half of it with
         an unknown overhead)."""
         free = self._room([], "", overhead or 0, reserve)
         if free is None:
-            return SUMMARY_RESERVE
+            return summary_reserve
         if overhead is None:
             free //= 2
-        return max(0, min(SUMMARY_RESERVE, free))
+        return max(0, min(summary_reserve, free))
 
     def _summary_fits(self, summary: str, overhead: int | None, reserve: int) -> bool:
         """True when the summary row fits in the free room (as _tail_cap: half of it with an unknown overhead)."""

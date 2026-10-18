@@ -120,7 +120,7 @@ FALLBACK_INSTRUCTION = FALLBACK_INSTRUCTION_TEMPLATE.replace(SUMMARY_WORDS_TOKEN
 # quotes. A small model can write it. The work ledger keeps the exact command results and file changes.
 RELAXED_INSTRUCTION_TEMPLATE = (
     FALLBACK_INSTRUCTION_TEMPLATE[:FALLBACK_INSTRUCTION_TEMPLATE.index("Use these five headings")]
-    + INSTRUCTION_TEMPLATE[INSTRUCTION_TEMPLATE.index("Use these six headings"):]
+    + INSTRUCTION_TEMPLATE[INSTRUCTION_TEMPLATE.index("Use these seven headings"):]
     + "\nEnd the summary with this line:\n" + END_LINE + "\n")
 
 
@@ -610,7 +610,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
                 ready: Callable[[], bool] | None = None,
-                failure: dict[str, Any] | None = None, quoted: bool = True) -> tuple[str | None, int | None]:
+                failure: dict[str, Any] | None = None, quoted: bool = True,
+                max_tokens: int = MAX_TOKENS) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
     An invalid reply gets one retry; after an end-marker failure it gets two. All calls share one time limit, and
@@ -618,6 +619,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     quoted builds every section from verified source quotes. Otherwise the reply uses the free handoff sections
     of the warm request, and a reply without its end marker passes when it has all headings and stopped below the
     generation limit.
+    max_tokens is the limit of a relaxed summary (estimated tokens, at least MAX_TOKENS); a quoted summary keeps
+    MAX_TOKENS.
     failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
@@ -627,6 +630,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         return None, None
     deadline = time.monotonic() + timeout_s
     prefixes = tuple(prefixes)
+    limit = MAX_TOKENS if quoted else max(MAX_TOKENS, int(max_tokens))
     # The start (the focus line) and the end of a large memory context.
     extra = _bound(extras(focus_topic, memory_context), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
     content: list[str] = []
@@ -701,7 +705,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         if reason is None:
             if len(body.encode("utf-8", "surrogatepass")) > MAX_REPLY_BYTES:
                 reason = "byte_bound"
-            elif estimate_tokens(body) > MAX_TOKENS:
+            elif estimate_tokens(body) > limit:
                 reason = "body_token_limit"
             elif not quoted:
                 text, reason = gate_content(body, prefixes)

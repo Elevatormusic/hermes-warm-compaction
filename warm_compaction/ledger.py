@@ -19,7 +19,25 @@ HEADING = "## Work ledger"
 NOTE = "Recorded by the plugin from tool calls and results before this point. Reference only; not new tasks."
 COMMANDS_HEADING = "### Commands"
 FILES_HEADING = "### Files changed"
-MAX_TOKENS = 1_000
+IDENTIFIERS_HEADING = "### Identifiers"
+REASONS_HEADING = "### Reasons"
+MAX_TOKENS = 1_500
+# Exact identifiers from the rows: no model can paraphrase them. Each kind keeps its most frequent values
+# (the latest first for a tie), at most its cap.
+IDENTIFIER_KINDS = (
+    ("names", re.compile(r"\b(?:[a-z][a-z0-9]*_[a-z0-9_]*[a-z0-9]|[A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9]"
+                         r"|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*)\b"), 40),
+    ("addresses", re.compile(r"https?://[^\s<>\"'`)\]]{4,120}|\b(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|[\w-]+(?:\.[\w-]+)+)"
+                             r":\d{2,5}\b"), 20),
+    ("references", re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b|(?<![\w&])#\d{2,6}\b|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)"
+                              r"[0-9a-f]{7,40}\b|\bv\d+\.\d+(?:\.\d+)?\b"), 30),
+    ("errors", re.compile(r"\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b"), 15),
+)
+IDENTIFIER_CHARS = 2_400
+# A sentence of the assistant that gives a reason: the exact words keep a decision and why it was made.
+REASON_WORDS = re.compile(r"\b(?:because|since|so that|instead of|rather than|in order to|due to)\b", re.I)
+REASON_CHARS = 240
+MAX_REASONS = 20
 COMMAND_CHARS = 160
 DETAIL_CHARS = 200
 PATH_CHARS = 200
@@ -105,10 +123,10 @@ def _file_action(name: str) -> str | None:
     return None
 
 
-def _prior(messages: list, prefixes: tuple[str, ...]) -> tuple[list[str], dict[str, str]]:
-    """The ledger lines of earlier summary rows, so that a later compaction keeps them."""
-    commands: list[str] = []
-    files: dict[str, str] = {}
+def _prior_lines(messages: list, prefixes: tuple[str, ...]) -> dict[str, list[str]]:
+    """The bullet lines of each ledger section of earlier summary rows, so that a later compaction keeps them."""
+    found: dict[str, list[str]] = {COMMANDS_HEADING: [], FILES_HEADING: [], IDENTIFIERS_HEADING: [],
+                                   REASONS_HEADING: []}
     for row in messages:
         if not is_summary(row, prefixes):
             continue
@@ -117,17 +135,91 @@ def _prior(messages: list, prefixes: tuple[str, ...]) -> tuple[list[str], dict[s
             continue
         section = None
         for line in lines[lines.index(HEADING) + 1:]:
-            if line in (COMMANDS_HEADING, FILES_HEADING):
+            if line in found:
                 section = line
             elif line.startswith("## ") or line == COPY_HEADING:
                 break
-            elif line.startswith("- ") and section == COMMANDS_HEADING:
-                commands.append(line)
-            elif line.startswith("- ") and section == FILES_HEADING and ": " in line:
-                path, _, action = line[2:].rpartition(": ")
-                files.pop(path, None)
-                files[path] = action
-    return commands, files
+            elif line.startswith("- ") and section is not None:
+                found[section].append(line)
+    return found
+
+
+def _prior(messages: list, prefixes: tuple[str, ...]) -> tuple[list[str], dict[str, str]]:
+    """The command lines and the file changes of earlier summary rows."""
+    found = _prior_lines(messages, prefixes)
+    files: dict[str, str] = {}
+    for line in found[FILES_HEADING]:
+        if ": " in line:
+            path, _, action = line[2:].rpartition(": ")
+            files.pop(path, None)
+            files[path] = action
+    return found[COMMANDS_HEADING], files
+
+
+def _values(value: Any) -> list[str]:
+    """The string values of tool call arguments, without their keys (a key such as old_string is not a name of
+    the work)."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _values(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _values(item)]
+    return []
+
+
+def _sentences(text: str) -> list[str]:
+    return [part for part in re.split(r"(?<=[.!?])\s+|\n+", text) if part.strip()]
+
+
+def notes(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[dict[str, list[str]], list[str]]:
+    """Return ({kind: identifiers}, reason lines) of the rows and of earlier summary rows.
+    Identifier names come from user and assistant text and tool call arguments, not from tool results: a file read
+    has many names that the work did not use. The other kinds come from all rows. A reason line is one sentence of
+    the assistant that gives a reason, in its exact words."""
+    messages = list(messages)
+    prefixes = tuple(prefixes)
+    found = _prior_lines(messages, prefixes)
+    counts: dict[str, dict[str, int]] = {kind: {} for kind, _pattern, _cap in IDENTIFIER_KINDS}
+    seen: dict[str, dict[str, int]] = {kind: {} for kind, _pattern, _cap in IDENTIFIER_KINDS}
+    order = 0
+    # Earlier identifiers count one time each, older than every row.
+    for line in found[IDENTIFIERS_HEADING]:
+        kind, _, values = line[2:].partition(": ")
+        if kind in counts:
+            for value in values.split(", "):
+                if value:
+                    counts[kind][value] = counts[kind].get(value, 0) + 1
+                    seen[kind].setdefault(value, -1)
+    reasons = [line[2:] for line in found[REASONS_HEADING]]
+    for row in messages:
+        if is_summary(row, prefixes):
+            continue
+        role = attr(row, "role")
+        text = plain_text(attr(row, "content"))
+        arguments = "\n".join(text for _call_id, _name, raw in tool_calls_of(row)
+                              for text in _values(_arguments(raw))) if role == "assistant" else ""
+        for kind, pattern, _cap in IDENTIFIER_KINDS:
+            source = text if role == "tool" and kind != "names" else ""
+            if role != "tool":
+                source = text + "\n" + arguments
+            for match in pattern.finditer(source):
+                value = match.group(0).rstrip(".,;:")
+                order += 1
+                counts[kind][value] = counts[kind].get(value, 0) + 1
+                seen[kind][value] = order
+        if role == "assistant":
+            for sentence in _sentences(text):
+                if REASON_WORDS.search(sentence):
+                    line = _one_line(sentence, REASON_CHARS)
+                    if line not in reasons:
+                        reasons.append(line)
+    identifiers: dict[str, list[str]] = {}
+    for kind, _pattern, cap in IDENTIFIER_KINDS:
+        ranked = sorted(counts[kind], key=lambda value: (-counts[kind][value], -seen[kind][value]))[:cap]
+        if ranked:
+            identifiers[kind] = ranked
+    return identifiers, reasons[-MAX_REASONS:]
 
 
 def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list[str], dict[str, str]]:
@@ -177,11 +269,27 @@ def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list
     return commands, files
 
 
-def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int = MAX_TOKENS) -> str:
-    """Return the ledger block, or "" when it is empty or does not fit in max_tokens.
-    The oldest command lines go first when the block is too large, then the oldest files."""
+def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int = MAX_TOKENS,
+          require_work: bool = False) -> str:
+    """Return the ledger block, or "" when it is empty or does not fit in max_tokens. With require_work, a block
+    without commands or file changes is "" too.
+    When the block is too large, the oldest command lines go first, then the oldest reasons, then the oldest
+    files, then the identifier kinds from the last."""
+    messages = list(messages)
+    prefixes = tuple(prefixes)
     commands, files = entries(messages, prefixes)
     paths = list(files.items())
+    identifiers, reasons = notes(messages, prefixes)
+    kinds: list[str] = []
+    used = 0
+    for kind, values in identifiers.items():
+        line = f"- {kind}: " + ", ".join(values)
+        while len(line) > IDENTIFIER_CHARS - used and values:
+            values = values[:-1]
+            line = f"- {kind}: " + ", ".join(values)
+        if values:
+            kinds.append(line)
+            used += len(line)
 
     def render() -> str:
         lines = [HEADING, NOTE]
@@ -189,15 +297,29 @@ def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int
             lines += [COMMANDS_HEADING, *commands]
         if paths:
             lines += [FILES_HEADING, *(f"- {path}: {action}" for path, action in paths)]
+        if kinds:
+            lines += [IDENTIFIERS_HEADING, *kinds]
+        if reasons:
+            lines += [REASONS_HEADING, *(f"- {reason}" for reason in reasons)]
         return "\n".join(lines)
 
-    if not commands and not paths:
+    if require_work and not commands and not paths:
+        return ""
+    if not (commands or paths or kinds or reasons):
         return ""
     text = render()
-    while estimate_tokens(text) > max_tokens and (commands or paths):
+    while estimate_tokens(text) > max_tokens:
         if commands:
             commands.pop(0)
-        else:
+        elif reasons:
+            reasons.pop(0)
+        elif paths:
             paths.pop(0)
-        text = render() if commands or paths else ""
+        elif kinds:
+            kinds.pop()
+        else:
+            return ""
+        if not (commands or paths or kinds or reasons):
+            return ""
+        text = render()
     return text
