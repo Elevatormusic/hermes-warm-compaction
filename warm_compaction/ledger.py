@@ -162,9 +162,11 @@ def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list
         for value in arguments.values():
             if isinstance(value, str):
                 touched.extend((path, PATCH_ACTIONS[kind]) for kind, path in PATCH_HEADER.findall(value))
-        if failed:
-            # A failed edit did not change the file: report the failure as a tool line instead.
-            target = f" {_one_line(paths[0], PATH_CHARS)}" if paths else ""
+        if failed or (touched and slot[0] is None):
+            # A failed edit did not change the file, and an edit without a result is not confirmed: report a tool
+            # line instead of a changed file.
+            first = paths[0] if paths else touched[0][0] if touched else ""
+            target = f" {_one_line(first, PATH_CHARS)}" if first else ""
             commands.append(f"- tool {_one_line(name, 60)}{target}: {outcome}")
             continue
         for path, kind in touched:

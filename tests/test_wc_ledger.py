@@ -65,6 +65,14 @@ class LedgerTest(unittest.TestCase):
         self.assertIn("- tool patch src/x.py: error; old_string not found in src/x.py", text)
         self.assertNotIn(ledger.FILES_HEADING, text)
 
+    def test_an_edit_without_a_result_is_a_tool_line_not_a_changed_file(self):
+        edit = json.dumps({"path": "src/x.py", "old_string": "a", "new_string": "b"})
+        patch = json.dumps({"mode": "patch", "patch": "*** Begin Patch\n*** Update File: y.py\n@@\n-x\n+y\n"})
+        text = ledger.build([assistant("", [("u1", "patch", edit), ("u2", "patch", patch)])], PREFIXES)
+        self.assertIn("- tool patch src/x.py: no result recorded", text)
+        self.assertIn("- tool patch y.py: no result recorded", text)
+        self.assertNotIn(ledger.FILES_HEADING, text)
+
     def test_v4a_patch_headers_give_each_file_and_action(self):
         patch = "*** Begin Patch\n*** Update File: a.py\n@@\n-x\n+y\n*** Add File: b.py\n+z\n*** Delete File: c.py\n"
         rows = [assistant("", [("p1", "patch", json.dumps({"mode": "patch", "patch": patch}))]),
