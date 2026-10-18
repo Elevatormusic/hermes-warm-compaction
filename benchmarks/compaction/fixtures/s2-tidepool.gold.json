@@ -1,0 +1,915 @@
+{
+ "label": "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values.",
+ "id": "s2-tidepool",
+ "target_tokens": 36000,
+ "history_sha256": "ed7965d27ea32d7488032ea7fb36f6a9a70e1dd570935b965c7ac167c5692a89",
+ "rows": 110,
+ "est_tokens": 34494,
+ "continuation_est_tokens": [
+  18470,
+  18787
+ ],
+ "questions": [
+  {
+   "id": "s2-tidepool:01",
+   "category": "goal",
+   "question": "What is the main goal of this session? Answer in one sentence.",
+   "kind": "keywords",
+   "gold": [
+    [
+     "since"
+    ],
+    [
+     "export"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "since"
+    ],
+    [
+     "export"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:02",
+   "category": "goal",
+   "question": "Which source file is the main target of the change? Give the path.",
+   "kind": "path",
+   "gold": "cmd/tidepool/export.go",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "cmd/tidepool/export.go"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:03",
+   "category": "goal",
+   "question": "What acceptance criterion did the user set for the work to count as finished?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "2026-09-01"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "2026-09-01"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:04",
+   "category": "goal",
+   "question": "Which release is this work for?",
+   "kind": "text",
+   "gold": "v0.9.0",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "v0.9.0"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:05",
+   "category": "goal",
+   "question": "What did the user say is out of scope?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "import"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "import"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:06",
+   "category": "user_instruction",
+   "question": "The user gave a rule about formatting. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Run gofmt on every file you change.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Run gofmt on every file you change."
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:07",
+   "category": "user_instruction",
+   "question": "The user gave a rule about dependencies. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not add new third-party modules to go.mod.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Do not add new third-party modules to go.mod."
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:08",
+   "category": "user_instruction",
+   "question": "The user gave a rule about time zones. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Parse all dates as UTC.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Parse all dates as UTC."
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:09",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the old flag. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Keep the old --after flag working as a hidden alias.",
+   "evidence_rows": [
+    30
+   ],
+   "retention": [
+    [
+     "Keep the old --after flag working as a hidden alias."
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:10",
+   "category": "user_instruction",
+   "question": "The user gave a rule about error messages. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Write error messages in lowercase without a final period.",
+   "evidence_rows": [
+    63
+   ],
+   "retention": [
+    [
+     "Write error messages in lowercase without a final period."
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:11",
+   "category": "command_outcome",
+   "question": "What exit code did the command `go build ./...` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "go build ./..."
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s2-tidepool:12",
+   "category": "command_outcome",
+   "question": "What exit code did the command `go test ./internal/store/...` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    25
+   ],
+   "retention": [
+    [
+     "go test ./internal/store/..."
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s2-tidepool:13",
+   "category": "command_outcome",
+   "question": "What exit code did the command `go vet ./cmd/...` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    44
+   ],
+   "retention": [
+    [
+     "go vet ./cmd/..."
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s2-tidepool:14",
+   "category": "command_outcome",
+   "question": "What exit code did the command `go test ./cmd/tidepool -run TestExportSince` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    53
+   ],
+   "retention": [
+    [
+     "go test ./cmd/tidepool -run TestExportSince"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s2-tidepool:15",
+   "category": "command_outcome",
+   "question": "What exit code did the command `./bin/tidepool export --since 2026-09-01 --format json --out /tmp/since.json` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    69
+   ],
+   "retention": [
+    [
+     "./bin/tidepool export --since 2026-09-01 --format json --out"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s2-tidepool:16",
+   "category": "command_outcome",
+   "question": "What exit code did the command `golangci-lint run ./...` return? Answer with the number.",
+   "kind": "number",
+   "gold": "127",
+   "evidence_rows": [
+    79
+   ],
+   "retention": [
+    [
+     "golangci-lint run ./..."
+    ],
+    [
+     "exit 127",
+     "exit_code: 127",
+     "exit code 127",
+     "exit code: 127",
+     "exited 127",
+     "exited with 127",
+     "returned 127",
+     "status 127",
+     "code 127"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s2-tidepool:17",
+   "category": "command_outcome",
+   "question": "What error line did the command `go test ./internal/store/...` print? Quote it.",
+   "kind": "text",
+   "gold": "store_test.go:57: got 14 records, want 9",
+   "evidence_rows": [
+    25
+   ],
+   "retention": [
+    [
+     "store_test.go:57: got 14 records, want 9"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s2-tidepool:18",
+   "category": "command_outcome",
+   "question": "What error line did the command `go vet ./cmd/...` print? Quote it.",
+   "kind": "text",
+   "gold": "cmd/tidepool/export.go:41:2: unreachable code",
+   "evidence_rows": [
+    44
+   ],
+   "retention": [
+    [
+     "cmd/tidepool/export.go:41:2: unreachable code"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s2-tidepool:19",
+   "category": "command_outcome",
+   "question": "What error line did the command `go test ./cmd/tidepool -run TestExportSince` print? Quote it.",
+   "kind": "text",
+   "gold": "--- FAIL: TestExportSince/utc_boundary",
+   "evidence_rows": [
+    53
+   ],
+   "retention": [
+    [
+     "--- FAIL: TestExportSince/utc_boundary"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s2-tidepool:20",
+   "category": "file_changed",
+   "question": "Which file did the agent create to parse the --since date? Give the path.",
+   "kind": "path",
+   "gold": "internal/timeparse/since.go",
+   "evidence_rows": [
+    12,
+    13
+   ],
+   "retention": [
+    [
+     "internal/timeparse/since.go"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:21",
+   "category": "file_changed",
+   "question": "Which file did the agent change to register the new flag on the export command? Give the path.",
+   "kind": "path",
+   "gold": "cmd/tidepool/export.go",
+   "evidence_rows": [
+    16,
+    17
+   ],
+   "retention": [
+    [
+     "cmd/tidepool/export.go"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:22",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the table tests for date parsing? Give the path.",
+   "kind": "path",
+   "gold": "internal/timeparse/since_test.go",
+   "evidence_rows": [
+    39,
+    40
+   ],
+   "retention": [
+    [
+     "internal/timeparse/since_test.go"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:23",
+   "category": "file_changed",
+   "question": "Which file did the agent change to add the time filter to the record query? Give the path.",
+   "kind": "path",
+   "gold": "internal/store/query.go",
+   "evidence_rows": [
+    56,
+    57
+   ],
+   "retention": [
+    [
+     "internal/store/query.go"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:24",
+   "category": "file_changed",
+   "question": "Which file did the agent change to mark the old --after flag as a hidden alias? Give the path.",
+   "kind": "path",
+   "gold": "cmd/tidepool/flags.go",
+   "evidence_rows": [
+    70,
+    71
+   ],
+   "retention": [
+    [
+     "cmd/tidepool/flags.go"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:25",
+   "category": "identifier",
+   "question": "Which GitHub issue number tracks this feature?",
+   "kind": "text",
+   "gold": "318",
+   "evidence_rows": [
+    9
+   ],
+   "retention": [
+    [
+     "318"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:26",
+   "category": "identifier",
+   "question": "Which Go layout string did the agent use to parse the --since date?",
+   "kind": "text",
+   "gold": "2006-01-02",
+   "evidence_rows": [
+    28
+   ],
+   "retention": [
+    [
+     "2006-01-02"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:27",
+   "category": "identifier",
+   "question": "What is the default page size of the exporter?",
+   "kind": "text",
+   "gold": "250",
+   "evidence_rows": [
+    48
+   ],
+   "retention": [
+    [
+     "250"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:28",
+   "category": "identifier",
+   "question": "Which environment variable sets the export directory?",
+   "kind": "text",
+   "gold": "TIDEPOOL_EXPORT_DIR",
+   "evidence_rows": [
+    61
+   ],
+   "retention": [
+    [
+     "TIDEPOOL_EXPORT_DIR"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:29",
+   "category": "identifier",
+   "question": "How many records were in the fixture database before filtering?",
+   "kind": "text",
+   "gold": "14",
+   "evidence_rows": [
+    75
+   ],
+   "retention": [
+    [
+     "14"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:30",
+   "category": "decision",
+   "question": "Why did the agent compare times with !Before instead of After?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "midnight",
+     "inclusive",
+     "exactly",
+     "same day",
+     "equal"
+    ]
+   ],
+   "evidence_rows": [
+    20
+   ],
+   "retention": [
+    [
+     "midnight",
+     "inclusive",
+     "exactly",
+     "same day",
+     "equal"
+    ],
+    [
+     "compare"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:31",
+   "category": "decision",
+   "question": "Why did the agent put the date parser in internal/timeparse instead of cmd/tidepool?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "reuse",
+     "share"
+    ]
+   ],
+   "evidence_rows": [
+    35
+   ],
+   "retention": [
+    [
+     "reuse",
+     "share"
+    ],
+    [
+     "timeparse"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:32",
+   "category": "decision",
+   "question": "Why did the agent keep the record query as a single SQL statement?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "double",
+     "2-million",
+     "2 million",
+     "two million",
+     "twice"
+    ]
+   ],
+   "evidence_rows": [
+    49
+   ],
+   "retention": [
+    [
+     "double",
+     "2-million",
+     "2 million",
+     "two million",
+     "twice"
+    ],
+    [
+     "statement"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:33",
+   "category": "decision",
+   "question": "Why did the agent truncate the --since value to a whole day?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "day precision",
+     "archived"
+    ]
+   ],
+   "evidence_rows": [
+    62
+   ],
+   "retention": [
+    [
+     "day precision",
+     "archived"
+    ],
+    [
+     "truncate"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:34",
+   "category": "decision",
+   "question": "Why did the agent name the flag --since and not --from?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "already used",
+     "already taken",
+     "file path",
+     "conflict",
+     "clash"
+    ]
+   ],
+   "evidence_rows": [
+    76
+   ],
+   "retention": [
+    [
+     "already used",
+     "already taken",
+     "file path",
+     "conflict",
+     "clash"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:35",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"parse the --since value\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    22
+   ],
+   "retention": [
+    [
+     "parse the --since value"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:36",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add table tests for date parsing\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    22
+   ],
+   "retention": [
+    [
+     "add table tests for date parsing"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:37",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"filter records in the exporter\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    82
+   ],
+   "retention": [
+    [
+     "filter records in the exporter"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:38",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"update the shell completion script\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    82
+   ],
+   "retention": [
+    [
+     "update the shell completion script"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:39",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add the flag to the man page\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "blocked",
+   "evidence_rows": [
+    51
+   ],
+   "retention": [
+    [
+     "add the flag to the man page"
+    ],
+    [
+     "blocked",
+     "waiting"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:40",
+   "category": "next_step",
+   "question": "What did the user say to do once the completion script is updated?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "end-to-end",
+     "end to end",
+     "e2e"
+    ]
+   ],
+   "evidence_rows": [
+    63
+   ],
+   "retention": [
+    [
+     "end-to-end",
+     "end to end",
+     "e2e"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:41",
+   "category": "next_step",
+   "question": "Which file is the target of that next step? Give the path.",
+   "kind": "path",
+   "gold": "scripts/e2e_export.sh",
+   "evidence_rows": [
+    63
+   ],
+   "retention": [
+    [
+     "scripts/e2e_export.sh"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:42",
+   "category": "next_step",
+   "question": "What did the user say comes after that step?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "release candidate",
+     "rc"
+    ]
+   ],
+   "evidence_rows": [
+    63
+   ],
+   "retention": [
+    [
+     "release candidate",
+     "rc"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:43",
+   "category": "next_step",
+   "question": "Who must approve before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "brandt"
+    ]
+   ],
+   "evidence_rows": [
+    63
+   ],
+   "retention": [
+    [
+     "brandt"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:44",
+   "category": "next_step",
+   "question": "Besides the approval, which condition must hold before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "windows"
+    ]
+   ],
+   "evidence_rows": [
+    63
+   ],
+   "retention": [
+    [
+     "windows"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:45",
+   "category": "recent",
+   "question": "How many seconds did the last timeparse test run take?",
+   "kind": "number",
+   "gold": "0.412",
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "0.412"
+    ]
+   ]
+  },
+  {
+   "id": "s2-tidepool:46",
+   "category": "recent",
+   "question": "Which git branch is checked out at the end of the session?",
+   "kind": "text",
+   "gold": "feat/export-since",
+   "evidence_rows": [
+    108
+   ],
+   "retention": [
+    [
+     "feat/export-since"
+    ]
+   ]
+  }
+ ]
+}

@@ -1,0 +1,199 @@
+"""Rule-based scoring and statistics for the compaction benchmark. No model judges an answer.
+
+Answer rules (the question "kind" in a gold file):
+- number: the first number in the answer, after numbers that the question itself contains, equals the gold value.
+- text: the normalized gold text occurs in the normalized answer, not as part of a longer word or number.
+- path: as text, with slashes normalized.
+- verbatim: as text, but punctuation and case are ignored.
+- choice: the answer names exactly one status class (done, open, blocked), and it is the gold class.
+- keywords: every keyword group has one alternative in the answer.
+An answer "unknown" or an empty answer is wrong.
+
+Retention (model-free): the compacted history text has the fact. Each retention group needs one alternative, and
+all groups must occur within RETENTION_WINDOW characters. This check is approximate: it shows whether the text is
+still there, not whether a model can use it.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+from typing import Any
+
+RETENTION_WINDOW = 600
+STATUS_CLASSES = {"done": ("done", "completed", "complete", "finished"),
+                  "open": ("open", "pending", "not started", "in progress", "todo", "to do", "not done"),
+                  "blocked": ("blocked", "waiting")}
+NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def normalize(text: Any) -> str:
+    """Lower case, one space between words, no quote characters or backticks, forward slashes."""
+    text = str(text or "")
+    text = text.replace("\\\\", "\\").replace('\\"', '"').replace("\\n", "\n").replace("\\t", " ")
+    text = re.sub(r"[`\"'‘’“”]", "", text).replace("\\", "/")
+    return " ".join(text.lower().split())
+
+
+def loose(text: Any) -> str:
+    """normalize, and only letters, digits, and single spaces."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", normalize(text)).split())
+
+
+def contains(haystack: str, needle: str) -> bool:
+    """needle occurs in haystack, and an edge that is a letter or digit is not part of a longer word."""
+    if not needle:
+        return False
+    left = r"(?<![a-z0-9])" if needle[0].isalnum() else ""
+    right = r"(?![a-z0-9])" if needle[-1].isalnum() else ""
+    return re.search(left + re.escape(needle) + right, haystack) is not None
+
+
+def keyword_in(text: str, keyword: str) -> bool:
+    """A keyword is a word start ("round" matches "rounding"). A short or numeric keyword is a whole word."""
+    if len(keyword) <= 2 or re.fullmatch(r"[\d.,%]+", keyword):
+        return contains(text, keyword)
+    return re.search(r"(?<![a-z0-9])" + re.escape(keyword), text) is not None
+
+
+def status_class(answer: str) -> str | None:
+    """The one status class that the answer names, or None for no class or more than one."""
+    text = normalize(answer)
+    found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
+    if {"open", "done"} <= found and contains(text, "not done"):
+        found.discard("done")
+    return found.pop() if len(found) == 1 else None
+
+
+def is_unknown(answer: Any) -> bool:
+    text = normalize(answer)
+    return not text or text in ("unknown", "unknown.", "n/a", "none", "not stated", "not given")
+
+
+def score(question: dict, answer: Any) -> bool:
+    """True when the answer passes the rule of the question."""
+    if is_unknown(answer):
+        return False
+    kind, gold = question["kind"], question["gold"]
+    text = normalize(answer)
+    if kind == "number":
+        skip = set(NUMBER.findall(question["question"].replace(",", "")))
+        numbers = [value for value in NUMBER.findall(text.replace(",", "")) if value not in skip]
+        return bool(numbers) and float(numbers[0]) == float(gold)
+    if kind in ("text", "path"):
+        return contains(text, normalize(gold))
+    if kind == "verbatim":
+        return contains(loose(answer), loose(gold))
+    if kind == "choice":
+        return status_class(str(answer)) == gold
+    if kind == "keywords":
+        return all(any(keyword_in(text, normalize(alternative)) for alternative in group) for group in gold)
+    raise ValueError(f"unknown question kind {kind}")
+
+
+def history_text(rows: list) -> str:
+    """The text of all compacted rows: content, tool call names, and tool call arguments."""
+    parts = []
+    for row in rows:
+        content = row.get("content")
+        if isinstance(content, list):
+            content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+        parts.append(str(content or ""))
+        for call in row.get("tool_calls") or []:
+            function = call.get("function") or {}
+            parts.append(f"{function.get('name', '')} {function.get('arguments', '')}")
+    return "\n".join(parts)
+
+
+def retained(question: dict, text: str) -> bool:
+    """True when the fact is still in the normalized compacted text (approximate)."""
+    if question["kind"] == "verbatim":
+        return loose(question["gold"]) in loose(text)
+    normal = normalize(text)
+    positions = []
+    for group in question["retention"]:
+        found = []
+        for alternative in group:
+            needle = normalize(alternative)
+            found += [match.start() for match in re.finditer(re.escape(needle), normal)] if needle else []
+        if not found:
+            return False
+        positions.append(sorted(found))
+    if len(positions) == 1:
+        return True
+    # Every group within one window: take each occurrence of the first group as the window start.
+    for start in positions[0]:
+        if all(any(abs(position - start) <= RETENTION_WINDOW for position in group) for group in positions[1:]):
+            return True
+    return False
+
+
+def parse_answers(text: str, numbers: list[int]) -> tuple[dict[str, str], bool]:
+    """Return ({question number: answer}, parsed). Accept a JSON object, also inside a code fence or after
+    thinking text; else accept lines of the form "N. answer" or "N: answer"."""
+    text = re.sub(r"<think>.*?</think>", "", str(text or ""), flags=re.S)
+    for match in sorted(re.finditer(r"\{.*\}", text, re.S), key=lambda m: -len(m.group(0)))[:1]:
+        try:
+            data = json.loads(match.group(0))
+        except ValueError:
+            break
+        if isinstance(data, dict):
+            return {str(key).strip().rstrip("."): ("" if value is None else
+                                                     json.dumps(value) if isinstance(value, (dict, list))
+                                                     else str(value)) for key, value in data.items()}, True
+    answers = {}
+    for line in text.splitlines():
+        match = re.match(r"\s*\"?(\d+)\"?\s*[.:)\-]\s*(.+)", line)
+        if match and int(match.group(1)) in numbers:
+            answers[match.group(1)] = match.group(2).strip().strip('",')
+    return answers, bool(answers)
+
+
+def wilson(successes: int, total: int, z: float = 1.959964) -> tuple[float | None, float | None]:
+    """The 95% Wilson score interval of a rate."""
+    if total <= 0:
+        return None, None
+    p = successes / total
+    denominator = 1 + z * z / total
+    centre = (p + z * z / (2 * total)) / denominator
+    half = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / denominator
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+T_975 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+         11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
+         20: 2.086, 25: 2.060, 30: 2.042, 40: 2.021, 60: 2.000, 120: 1.980}
+
+
+def t_quantile(df: int) -> float:
+    if df <= 0:
+        return float("nan")
+    keys = sorted(T_975)
+    for key in keys:
+        if df <= key:
+            return T_975[key]
+    return 1.960
+
+
+def mean_interval(values: list[float]) -> dict[str, Any]:
+    """Mean, sample standard deviation, and the 95% t interval of the mean."""
+    values = [float(value) for value in values if value is not None]
+    if not values:
+        return {"n": 0, "mean": None, "sd": None, "low": None, "high": None}
+    mean = sum(values) / len(values)
+    if len(values) == 1:
+        return {"n": 1, "mean": mean, "sd": None, "low": None, "high": None}
+    sd = math.sqrt(sum((value - mean) ** 2 for value in values) / (len(values) - 1))
+    half = t_quantile(len(values) - 1) * sd / math.sqrt(len(values))
+    return {"n": len(values), "mean": mean, "sd": sd, "low": mean - half, "high": mean + half}
+
+
+def mcnemar(first_only: int, second_only: int) -> float | None:
+    """Exact two-sided McNemar p-value from the discordant pairs (binomial test with p = 0.5)."""
+    n = first_only + second_only
+    if n == 0:
+        return None
+    k = min(first_only, second_only)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n
+    return min(1.0, 2 * tail)

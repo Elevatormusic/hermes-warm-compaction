@@ -1,0 +1,897 @@
+{
+ "label": "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values.",
+ "id": "s1-ledgerline",
+ "target_tokens": 24000,
+ "history_sha256": "bf025abbf649eab18c9a8edd8ff31bedb13660eec7e58ae8fd651e6f31214dff",
+ "rows": 91,
+ "est_tokens": 23331,
+ "continuation_est_tokens": [
+  12159,
+  12555
+ ],
+ "questions": [
+  {
+   "id": "s1-ledgerline:01",
+   "category": "goal",
+   "question": "What is the main goal of this session? Answer in one sentence.",
+   "kind": "keywords",
+   "gold": [
+    [
+     "round"
+    ],
+    [
+     "cent",
+     "0.01",
+     "invoice total",
+     "totals"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "round"
+    ],
+    [
+     "cent",
+     "0.01",
+     "invoice total",
+     "totals"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:02",
+   "category": "goal",
+   "question": "Which source file is the main target of the change? Give the path.",
+   "kind": "path",
+   "gold": "ledgerline/billing/totals.py",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "ledgerline/billing/totals.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:03",
+   "category": "goal",
+   "question": "What acceptance criterion did the user set for the work to count as finished?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "1284.37",
+     "1,284.37"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "1284.37",
+     "1,284.37"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:04",
+   "category": "goal",
+   "question": "Which release is this work for?",
+   "kind": "text",
+   "gold": "v2.4.1",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "v2.4.1"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:05",
+   "category": "goal",
+   "question": "What did the user say is out of scope?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "pdf"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "pdf"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:06",
+   "category": "user_instruction",
+   "question": "The user gave a rule about editing vendored code. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not edit anything under vendor/.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Do not edit anything under vendor/."
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:07",
+   "category": "user_instruction",
+   "question": "The user gave a rule about how to run the tests. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Run tests with pytest -q -p no:cacheprovider only.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Run tests with pytest -q -p no:cacheprovider only."
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:08",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the number type for money. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Use decimal.Decimal for all money values, never float.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Use decimal.Decimal for all money values, never float."
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:09",
+   "category": "user_instruction",
+   "question": "The user gave a rule about commits. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not commit; I will review the diff myself.",
+   "evidence_rows": [
+    16
+   ],
+   "retention": [
+    [
+     "Do not commit; I will review the diff myself."
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:10",
+   "category": "user_instruction",
+   "question": "The user gave a rule about log messages. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Keep log messages free of customer names.",
+   "evidence_rows": [
+    39
+   ],
+   "retention": [
+    [
+     "Keep log messages free of customer names."
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:11",
+   "category": "command_outcome",
+   "question": "What exit code did the command `pytest -q -p no:cacheprovider tests/billing/test_totals.py` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "pytest -q -p no:cacheprovider tests/billing/test_totals.py"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s1-ledgerline:12",
+   "category": "command_outcome",
+   "question": "What exit code did the command `python scripts/replay_invoice.py --sample INV-0042` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    12
+   ],
+   "retention": [
+    [
+     "python scripts/replay_invoice.py --sample INV-0042"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s1-ledgerline:13",
+   "category": "command_outcome",
+   "question": "What exit code did the command `pytest -q -p no:cacheprovider tests/billing/test_tax_table.py` return? Answer with the number.",
+   "kind": "number",
+   "gold": "2",
+   "evidence_rows": [
+    22
+   ],
+   "retention": [
+    [
+     "pytest -q -p no:cacheprovider tests/billing/test_tax_table.p"
+    ],
+    [
+     "exit 2",
+     "exit_code: 2",
+     "exit code 2",
+     "exit code: 2",
+     "exited 2",
+     "exited with 2",
+     "returned 2",
+     "status 2",
+     "code 2"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s1-ledgerline:14",
+   "category": "command_outcome",
+   "question": "What exit code did the command `python -m mypy ledgerline/billing` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    31
+   ],
+   "retention": [
+    [
+     "python -m mypy ledgerline/billing"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s1-ledgerline:15",
+   "category": "command_outcome",
+   "question": "What exit code did the command `pytest -q -p no:cacheprovider tests/billing -k inv_0042` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    41
+   ],
+   "retention": [
+    [
+     "pytest -q -p no:cacheprovider tests/billing -k inv_0042"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s1-ledgerline:16",
+   "category": "command_outcome",
+   "question": "What exit code did the command `git diff --stat` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    49
+   ],
+   "retention": [
+    [
+     "git diff --stat"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s1-ledgerline:17",
+   "category": "command_outcome",
+   "question": "What error line did the command `pytest -q -p no:cacheprovider tests/billing/test_totals.py` print? Quote it.",
+   "kind": "text",
+   "gold": "AssertionError: Decimal('1284.36') != Decimal('1284.37')",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "AssertionError: Decimal('1284.36') != Decimal('1284.37')"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s1-ledgerline:18",
+   "category": "command_outcome",
+   "question": "What error line did the command `pytest -q -p no:cacheprovider tests/billing/test_tax_table.py` print? Quote it.",
+   "kind": "text",
+   "gold": "ModuleNotFoundError: No module named 'ledgerline.billing.rates_2026'",
+   "evidence_rows": [
+    22
+   ],
+   "retention": [
+    [
+     "ModuleNotFoundError: No module named 'ledgerline.billing.rates_2026'"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s1-ledgerline:19",
+   "category": "command_outcome",
+   "question": "What error line did the command `python -m mypy ledgerline/billing` print? Quote it.",
+   "kind": "text",
+   "gold": "ledgerline/billing/format.py:31: error: Argument 1 to \"quantize\" of \"Decimal\" has incompatible type \"float\"",
+   "evidence_rows": [
+    31
+   ],
+   "retention": [
+    [
+     "ledgerline/billing/format.py:31: error: Argument 1 to \"quantize\" of \"Decimal\" has incompatible type \"float\""
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s1-ledgerline:20",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the new Decimal helper functions? Give the path.",
+   "kind": "path",
+   "gold": "ledgerline/billing/money.py",
+   "evidence_rows": [
+    7,
+    8
+   ],
+   "retention": [
+    [
+     "ledgerline/billing/money.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:21",
+   "category": "file_changed",
+   "question": "Which file did the agent change to replace the float arithmetic in the line totals? Give the path.",
+   "kind": "path",
+   "gold": "ledgerline/billing/totals.py",
+   "evidence_rows": [
+    9,
+    10
+   ],
+   "retention": [
+    [
+     "ledgerline/billing/totals.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:22",
+   "category": "file_changed",
+   "question": "Which file did the agent create to add the regression test for the sample invoice? Give the path.",
+   "kind": "path",
+   "gold": "tests/billing/test_inv_0042.py",
+   "evidence_rows": [
+    17,
+    18
+   ],
+   "retention": [
+    [
+     "tests/billing/test_inv_0042.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:23",
+   "category": "file_changed",
+   "question": "Which file did the agent change to remove the float cast in the currency formatter? Give the path.",
+   "kind": "path",
+   "gold": "ledgerline/billing/format.py",
+   "evidence_rows": [
+    34,
+    35
+   ],
+   "retention": [
+    [
+     "ledgerline/billing/format.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:24",
+   "category": "file_changed",
+   "question": "Which file did the agent change to add a fixture that loads the sample invoice? Give the path.",
+   "kind": "path",
+   "gold": "tests/billing/conftest.py",
+   "evidence_rows": [
+    42,
+    43
+   ],
+   "retention": [
+    [
+     "tests/billing/conftest.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:25",
+   "category": "identifier",
+   "question": "Which environment variable selects the rounding mode?",
+   "kind": "text",
+   "gold": "LEDGERLINE_ROUNDING_MODE",
+   "evidence_rows": [
+    6
+   ],
+   "retention": [
+    [
+     "LEDGERLINE_ROUNDING_MODE"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:26",
+   "category": "identifier",
+   "question": "What is the ticket ID of this bug?",
+   "kind": "text",
+   "gold": "BILL-2291",
+   "evidence_rows": [
+    13
+   ],
+   "retention": [
+    [
+     "BILL-2291"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:27",
+   "category": "identifier",
+   "question": "What is the name of the new helper function that rounds to cents?",
+   "kind": "text",
+   "gold": "round_half_even_cents",
+   "evidence_rows": [
+    25
+   ],
+   "retention": [
+    [
+     "round_half_even_cents"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:28",
+   "category": "identifier",
+   "question": "Which port does the local billing preview server use?",
+   "kind": "text",
+   "gold": "8743",
+   "evidence_rows": [
+    37
+   ],
+   "retention": [
+    [
+     "8743"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:29",
+   "category": "identifier",
+   "question": "How many of the replayed invoices drifted by one cent?",
+   "kind": "text",
+   "gold": "37",
+   "evidence_rows": [
+    45
+   ],
+   "retention": [
+    [
+     "37"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:30",
+   "category": "decision",
+   "question": "Why did the agent choose ROUND_HALF_EVEN instead of ROUND_HALF_UP?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "audit",
+     "banker"
+    ]
+   ],
+   "evidence_rows": [
+    11
+   ],
+   "retention": [
+    [
+     "audit",
+     "banker"
+    ],
+    [
+     "ROUND_HALF_EVEN"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:31",
+   "category": "decision",
+   "question": "Why did the agent keep the old float-based total function instead of deleting it?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "pdf"
+    ]
+   ],
+   "evidence_rows": [
+    17
+   ],
+   "retention": [
+    [
+     "pdf"
+    ],
+    [
+     "function"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:32",
+   "category": "decision",
+   "question": "Why did the agent put the rounding helpers in a new module instead of in totals.py?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "circular"
+    ]
+   ],
+   "evidence_rows": [
+    27
+   ],
+   "retention": [
+    [
+     "circular"
+    ],
+    [
+     "totals.py"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:33",
+   "category": "decision",
+   "question": "Why did the agent round each line item instead of only the final total?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "two decimal",
+     "2 decimal",
+     "two-decimal",
+     "decimals"
+    ]
+   ],
+   "evidence_rows": [
+    38
+   ],
+   "retention": [
+    [
+     "two decimal",
+     "2 decimal",
+     "two-decimal",
+     "decimals"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:34",
+   "category": "decision",
+   "question": "Why did the agent not change the global decimal context precision?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "report"
+    ]
+   ],
+   "evidence_rows": [
+    46
+   ],
+   "retention": [
+    [
+     "report"
+    ],
+    [
+     "context"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:35",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"reproduce the one-cent drift\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    11
+   ],
+   "retention": [
+    [
+     "reproduce the one-cent drift"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:36",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"switch the totals to Decimal\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    11
+   ],
+   "retention": [
+    [
+     "switch the totals to Decimal"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:37",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"update the tax rounding table\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "blocked",
+   "evidence_rows": [
+    29
+   ],
+   "retention": [
+    [
+     "update the tax rounding table"
+    ],
+    [
+     "blocked",
+     "waiting"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:38",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add a regression test for INV-0042\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    50
+   ],
+   "retention": [
+    [
+     "add a regression test for INV-0042"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:39",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"update the billing docs\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    50
+   ],
+   "retention": [
+    [
+     "update the billing docs"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:40",
+   "category": "next_step",
+   "question": "What did the user say to do once the regression test passes?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "doc"
+    ]
+   ],
+   "evidence_rows": [
+    39
+   ],
+   "retention": [
+    [
+     "doc"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:41",
+   "category": "next_step",
+   "question": "Which file is the target of that next step? Give the path.",
+   "kind": "path",
+   "gold": "docs/billing/rounding.md",
+   "evidence_rows": [
+    39
+   ],
+   "retention": [
+    [
+     "docs/billing/rounding.md"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:42",
+   "category": "next_step",
+   "question": "What did the user say comes after that step?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "release note"
+    ]
+   ],
+   "evidence_rows": [
+    39
+   ],
+   "retention": [
+    [
+     "release note"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:43",
+   "category": "next_step",
+   "question": "Who must approve before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "whitfield"
+    ]
+   ],
+   "evidence_rows": [
+    39
+   ],
+   "retention": [
+    [
+     "whitfield"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:44",
+   "category": "next_step",
+   "question": "Besides the approval, which condition must hold before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "nightly"
+    ]
+   ],
+   "evidence_rows": [
+    39
+   ],
+   "retention": [
+    [
+     "nightly"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:45",
+   "category": "recent",
+   "question": "What total coverage percentage did the last coverage report show?",
+   "kind": "number",
+   "gold": "91.6",
+   "evidence_rows": [
+    85
+   ],
+   "retention": [
+    [
+     "91.6"
+    ]
+   ]
+  },
+  {
+   "id": "s1-ledgerline:46",
+   "category": "recent",
+   "question": "Which linter command ran last in the session?",
+   "kind": "text",
+   "gold": "ruff check ledgerline",
+   "evidence_rows": [
+    89
+   ],
+   "retention": [
+    [
+     "ruff check ledgerline"
+    ]
+   ]
+  }
+ ]
+}

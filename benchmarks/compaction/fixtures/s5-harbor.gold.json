@@ -1,0 +1,919 @@
+{
+ "label": "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values.",
+ "id": "s5-harbor",
+ "target_tokens": 80000,
+ "history_sha256": "bd24bbcf17939c0fe4148b3658a5fdd719097d2c4440bf02e47ca55a214efdad",
+ "rows": 206,
+ "est_tokens": 78735,
+ "continuation_est_tokens": [
+  40460,
+  41556
+ ],
+ "questions": [
+  {
+   "id": "s5-harbor:01",
+   "category": "goal",
+   "question": "What is the main goal of this session? Answer in one sentence.",
+   "kind": "keywords",
+   "gold": [
+    [
+     "retr",
+     "backoff"
+    ],
+    [
+     "upload",
+     "s3"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "retr",
+     "backoff"
+    ],
+    [
+     "upload",
+     "s3"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:02",
+   "category": "goal",
+   "question": "Which source file is the main target of the change? Give the path.",
+   "kind": "path",
+   "gold": "harbor_sync/upload/s3_client.py",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "harbor_sync/upload/s3_client.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:03",
+   "category": "goal",
+   "question": "What acceptance criterion did the user set for the work to count as finished?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "1000",
+     "1,000"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "1000",
+     "1,000"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:04",
+   "category": "goal",
+   "question": "Which release is this work for?",
+   "kind": "text",
+   "gold": "5.2.0",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "5.2.0"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:05",
+   "category": "goal",
+   "question": "What did the user say is out of scope?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "azure"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "azure"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:06",
+   "category": "user_instruction",
+   "question": "The user gave a rule about retry libraries. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not add tenacity or any other retry library.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Do not add tenacity or any other retry library."
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:07",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the total retry time. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Cap the total retry time at 120 seconds.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Cap the total retry time at 120 seconds."
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:08",
+   "category": "user_instruction",
+   "question": "The user gave a rule about credentials. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Never print or log AWS credentials, even partly.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Never print or log AWS credentials, even partly."
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:09",
+   "category": "user_instruction",
+   "question": "The user gave a rule about S3 in tests. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Use moto for S3 in tests; no real AWS calls.",
+   "evidence_rows": [
+    44
+   ],
+   "retention": [
+    [
+     "Use moto for S3 in tests; no real AWS calls."
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:10",
+   "category": "user_instruction",
+   "question": "The user gave a rule about new settings. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "New settings go in harbor.toml under [upload], not in environment variables.",
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "New settings go in harbor.toml under [upload], not in environment variables."
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:11",
+   "category": "command_outcome",
+   "question": "What exit code did the command `pytest tests/upload -q` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    6
+   ],
+   "retention": [
+    [
+     "pytest tests/upload -q"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s5-harbor:12",
+   "category": "command_outcome",
+   "question": "What exit code did the command `python -m harbor_sync.cli upload --dry-run samples/batch-17` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    36
+   ],
+   "retention": [
+    [
+     "python -m harbor_sync.cli upload --dry-run samples/batch-17"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s5-harbor:13",
+   "category": "command_outcome",
+   "question": "What exit code did the command `pytest tests/upload/test_chaos.py -q --chaos-rate 0.3` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    62
+   ],
+   "retention": [
+    [
+     "pytest tests/upload/test_chaos.py -q --chaos-rate 0.3"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s5-harbor:14",
+   "category": "command_outcome",
+   "question": "What exit code did the command `python -m pip install moto==5.0.14` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    83
+   ],
+   "retention": [
+    [
+     "python -m pip install moto==5.0.14"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s5-harbor:15",
+   "category": "command_outcome",
+   "question": "What exit code did the command `ruff check harbor_sync/upload` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    108
+   ],
+   "retention": [
+    [
+     "ruff check harbor_sync/upload"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s5-harbor:16",
+   "category": "command_outcome",
+   "question": "What exit code did the command `timeout 300 python scripts/throughput.py --objects 200` return? Answer with the number.",
+   "kind": "number",
+   "gold": "124",
+   "evidence_rows": [
+    123
+   ],
+   "retention": [
+    [
+     "timeout 300 python scripts/throughput.py --objects 200"
+    ],
+    [
+     "exit 124",
+     "exit_code: 124",
+     "exit code 124",
+     "exit code: 124",
+     "exited 124",
+     "exited with 124",
+     "returned 124",
+     "status 124",
+     "code 124"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s5-harbor:17",
+   "category": "command_outcome",
+   "question": "What error line did the command `pytest tests/upload -q` print? Quote it.",
+   "kind": "text",
+   "gold": "botocore.exceptions.EndpointConnectionError: Could not connect to the endpoint URL",
+   "evidence_rows": [
+    6
+   ],
+   "retention": [
+    [
+     "botocore.exceptions.EndpointConnectionError: Could not connect to the endpoint URL"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s5-harbor:18",
+   "category": "command_outcome",
+   "question": "What error line did the command `pytest tests/upload/test_chaos.py -q --chaos-rate 0.3` print? Quote it.",
+   "kind": "text",
+   "gold": "AssertionError: uploaded 974 of 1000 objects",
+   "evidence_rows": [
+    62
+   ],
+   "retention": [
+    [
+     "AssertionError: uploaded 974 of 1000 objects"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s5-harbor:19",
+   "category": "command_outcome",
+   "question": "What error line did the command `ruff check harbor_sync/upload` print? Quote it.",
+   "kind": "text",
+   "gold": "B008 Do not perform function call `Random` in argument defaults",
+   "evidence_rows": [
+    108
+   ],
+   "retention": [
+    [
+     "B008 Do not perform function call `Random` in argument defaults"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s5-harbor:20",
+   "category": "file_changed",
+   "question": "Which file did the agent create to compute the backoff delays? Give the path.",
+   "kind": "path",
+   "gold": "harbor_sync/upload/backoff.py",
+   "evidence_rows": [
+    13,
+    14
+   ],
+   "retention": [
+    [
+     "harbor_sync/upload/backoff.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:21",
+   "category": "file_changed",
+   "question": "Which file did the agent change to retry failed part uploads? Give the path.",
+   "kind": "path",
+   "gold": "harbor_sync/upload/s3_client.py",
+   "evidence_rows": [
+    23,
+    24
+   ],
+   "retention": [
+    [
+     "harbor_sync/upload/s3_client.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:22",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the chaos test? Give the path.",
+   "kind": "path",
+   "gold": "tests/upload/test_chaos.py",
+   "evidence_rows": [
+    53,
+    54
+   ],
+   "retention": [
+    [
+     "tests/upload/test_chaos.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:23",
+   "category": "file_changed",
+   "question": "Which file did the agent change to read the new [upload] settings? Give the path.",
+   "kind": "path",
+   "gold": "harbor_sync/config.py",
+   "evidence_rows": [
+    88,
+    89
+   ],
+   "retention": [
+    [
+     "harbor_sync/config.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:24",
+   "category": "file_changed",
+   "question": "Which file did the agent change to document the new retry settings? Give the path.",
+   "kind": "path",
+   "gold": "harbor.toml.example",
+   "evidence_rows": [
+    111,
+    112
+   ],
+   "retention": [
+    [
+     "harbor.toml.example"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:25",
+   "category": "identifier",
+   "question": "What is the base delay of the backoff, in milliseconds?",
+   "kind": "text",
+   "gold": "250",
+   "evidence_rows": [
+    13
+   ],
+   "retention": [
+    [
+     "250"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:26",
+   "category": "identifier",
+   "question": "What growth factor does the backoff use?",
+   "kind": "text",
+   "gold": "1.7",
+   "evidence_rows": [
+    41
+   ],
+   "retention": [
+    [
+     "1.7"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:27",
+   "category": "identifier",
+   "question": "Which setting holds the maximum number of upload attempts?",
+   "kind": "text",
+   "gold": "upload_max_attempts",
+   "evidence_rows": [
+    72
+   ],
+   "retention": [
+    [
+     "upload_max_attempts"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:28",
+   "category": "identifier",
+   "question": "Which S3 bucket do the tests use?",
+   "kind": "text",
+   "gold": "harbor-test-ingest-eu",
+   "evidence_rows": [
+    97
+   ],
+   "retention": [
+    [
+     "harbor-test-ingest-eu"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:29",
+   "category": "identifier",
+   "question": "What is the ticket number for this work?",
+   "kind": "text",
+   "gold": "HS-5120",
+   "evidence_rows": [
+    115
+   ],
+   "retention": [
+    [
+     "HS-5120"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:30",
+   "category": "decision",
+   "question": "Why did the agent add full jitter to the backoff?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "thundering herd",
+     "same moment",
+     "same time",
+     "at once",
+     "synchron"
+    ]
+   ],
+   "evidence_rows": [
+    27
+   ],
+   "retention": [
+    [
+     "thundering herd",
+     "same moment",
+     "same time",
+     "at once",
+     "synchron"
+    ],
+    [
+     "jitter"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:31",
+   "category": "decision",
+   "question": "Why does the uploader not retry HTTP 403 errors?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "credential",
+     "permission"
+    ]
+   ],
+   "evidence_rows": [
+    51
+   ],
+   "retention": [
+    [
+     "credential",
+     "permission"
+    ],
+    [
+     "errors"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:32",
+   "category": "decision",
+   "question": "Why does a failed multipart upload restart from the failed part instead of from the start?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "tripl",
+     "transfer volume",
+     "3x",
+     "three times"
+    ]
+   ],
+   "evidence_rows": [
+    75
+   ],
+   "retention": [
+    [
+     "tripl",
+     "transfer volume",
+     "3x",
+     "three times"
+    ],
+    [
+     "multipart"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:33",
+   "category": "decision",
+   "question": "Why did the agent use time.monotonic for the retry deadline?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "ntp",
+     "clock jump",
+     "wall-clock",
+     "wall clock"
+    ]
+   ],
+   "evidence_rows": [
+    98
+   ],
+   "retention": [
+    [
+     "ntp",
+     "clock jump",
+     "wall-clock",
+     "wall clock"
+    ],
+    [
+     "time.monotonic"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:34",
+   "category": "decision",
+   "question": "Why did the agent keep the retry code inside s3_client.py instead of a decorator?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "state"
+    ]
+   ],
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "state"
+    ],
+    [
+     "s3_client.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:35",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"write the backoff helper\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    31
+   ],
+   "retention": [
+    [
+     "write the backoff helper"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:36",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"wire retries into multipart uploads\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    31
+   ],
+   "retention": [
+    [
+     "wire retries into multipart uploads"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:37",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add the chaos test\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    126
+   ],
+   "retention": [
+    [
+     "add the chaos test"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:38",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"update the operator runbook\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "blocked",
+   "evidence_rows": [
+    79
+   ],
+   "retention": [
+    [
+     "update the operator runbook"
+    ],
+    [
+     "blocked",
+     "waiting"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:39",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"measure the upload throughput\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    126
+   ],
+   "retention": [
+    [
+     "measure the upload throughput"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:40",
+   "category": "next_step",
+   "question": "What did the user say to do once multipart retries are wired in?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "50",
+     "0.5"
+    ]
+   ],
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "50",
+     "0.5"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:41",
+   "category": "next_step",
+   "question": "Which file is the target of that next step? Give the path.",
+   "kind": "path",
+   "gold": "tests/upload/test_chaos.py",
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "tests/upload/test_chaos.py"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:42",
+   "category": "next_step",
+   "question": "What did the user say comes after that step?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "2000",
+     "2,000"
+    ]
+   ],
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "2000",
+     "2,000"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:43",
+   "category": "next_step",
+   "question": "Who must approve before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "natarajan"
+    ]
+   ],
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "natarajan"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:44",
+   "category": "next_step",
+   "question": "Besides the approval, which condition must hold before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "3.10"
+    ]
+   ],
+   "evidence_rows": [
+    104
+   ],
+   "retention": [
+    [
+     "3.10"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:45",
+   "category": "recent",
+   "question": "What median upload time per object did the last run report, in milliseconds?",
+   "kind": "number",
+   "gold": "38",
+   "evidence_rows": [
+    200
+   ],
+   "retention": [
+    [
+     "38"
+    ]
+   ]
+  },
+  {
+   "id": "s5-harbor:46",
+   "category": "recent",
+   "question": "Which sample batch did the last dry run use?",
+   "kind": "text",
+   "gold": "batch-22",
+   "evidence_rows": [
+    204
+   ],
+   "retention": [
+    [
+     "batch-22"
+    ]
+   ]
+  }
+ ]
+}
