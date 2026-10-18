@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   ruff:
-    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main' || 'ci-approval' }}
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ci-main' || (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'ci-approval' || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
