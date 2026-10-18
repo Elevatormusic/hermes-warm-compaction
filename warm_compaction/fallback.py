@@ -27,7 +27,16 @@ PURPOSE = "warm_compaction_fallback"
 MAX_TOKENS = 2048
 MAX_STATE_TOKENS = 512
 REQUEST_MAX_TOKENS = 8192
+# The attempts of one fallback summary. After a reply fails the end-marker check (at any attempt), the summary
+# gets up to three attempts; otherwise it stops after two, so a hopeless content failure does not use a third
+# summary call.
+MAX_ATTEMPTS = 3
+MAX_ATTEMPTS_OTHER = 2
+MARKER_FAILURES = ("missing_end_marker", "duplicate_end_marker")
 TIMEOUT_S = 120.0
+# A retry starts only when this share of the time limit remains. The host cannot stop an in-flight call, so a
+# retry with too little time keeps a slow model busy and then fails on the deadline.
+RETRY_MIN_SHARE = 0.25
 TRANSCRIPT_CHARS = 32_000
 EARLIER_SUMMARY_CHARS = 8_000
 FIRST_USER_CHARS = 4_000
@@ -325,6 +334,20 @@ def _complete_reply(raw: str, end_line: str) -> tuple[str | None, str]:
     return None, "\n".join(lines[:-1])
 
 
+def _refuse(failure: dict[str, Any] | None, reason: str | None, result: Any, raw: str, end_line: str, body: str,
+            attempts: int) -> tuple[None, None]:
+    """Record a gate refusal with safe reply metadata only, and return (None, None)."""
+    metadata = _reply_metadata(result, raw, end_line, body, attempts)
+    if failure is not None:
+        failure["reason"] = f"gate:{reason}"
+        failure.update(metadata)
+    logger.warning("Warm compaction fallback summary refused (%s) output_tokens=%s requested_max_tokens=%s "
+                   "end_marker=%s attempts=%s body_tokens=%s", reason, metadata["output_tokens"],
+                   metadata["requested_max_tokens"], metadata["end_marker"], metadata["attempts"],
+                   metadata["body_tokens"])
+    return None, None
+
+
 def _reply_metadata(result: Any, raw: str, end_line: str, body: str, attempts: int) -> dict[str, Any]:
     """Return bounded counts and fixed codes. Do not return reply text or the nonce."""
     output = getattr(getattr(result, "usage", None), "output_tokens", None)
@@ -568,7 +591,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 failure: dict[str, Any] | None = None) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
-    Only an invalid reply gets one retry. Both calls share one time limit.
+    An invalid reply gets one retry; after an end-marker failure it gets two. All calls share one time limit, and
+    a retry starts only when RETRY_MIN_SHARE of it remains.
     failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
@@ -583,13 +607,29 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     content: list[str] = []
     original = transcript(messages, prefixes, len(extra), estimate_tokens(extra), _content=content)
     source = _SourceTable(original, _earlier_summary(messages, prefixes), extra, content)
-    for attempt in range(1, 3):
+    reason: str | None = None  # The failure code of the previous attempt; the loop only continues after one.
+    marker_failed = False  # True after any reply failed the end-marker check.
+    refused: tuple[Any, str, str, str] = (None, "", "", "")  # The previous refused reply: result, raw, end_line, body.
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         end_line = END_LINE.replace("{nonce}", secrets.token_hex(16))
         words = int(summary_words) if attempt == 1 else min(int(summary_words), 300)
         instruction = FALLBACK_INSTRUCTION_TEMPLATE.replace(SUMMARY_WORDS_TOKEN, str(words))
         instruction = instruction.replace(END_LINE, end_line)
-        if attempt == 2:
-            extra_instruction = "\nThe previous reply failed a summary check. Write a shorter, complete summary.\n"
+        if attempt > 1:
+            # The most frequent failure of a local model is the marker line; state that requirement instead of the
+            # generic shorter-summary note.
+            if reason == "duplicate_end_marker":
+                extra_instruction = ("\nThe previous reply had the marker line more than once. Write the "
+                                     "summary again. Write the marker line below exactly once, as the final "
+                                     "line of your reply, with nothing after it.\n")
+            elif reason == "missing_end_marker":
+                extra_instruction = ("\nThe previous reply did not end with the marker line. Write the "
+                                     "summary again. The marker line below must be the final line of "
+                                     "your reply, with nothing after it.\n")
+            else:
+                extra_instruction = ("\nThe previous reply failed a summary check. Write a shorter, "
+                                     "complete summary. The marker line below must be the final line "
+                                     "of your reply, with nothing after it.\n")
         else:
             extra_instruction = ""
         instruction = instruction.replace("End the summary with this line:",
@@ -605,6 +645,9 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
             if failure is not None:
                 failure["reason"] = "deadline"
             return None, None
+        if attempt > 1 and remaining < timeout_s * RETRY_MIN_SHARE:
+            # Too little time for a retry: report the failure of the previous reply.
+            return _refuse(failure, reason, *refused, attempt - 1)
         try:
             result = llm.complete(request, task=task, max_tokens=REQUEST_MAX_TOKENS,
                                   timeout=remaining, purpose=PURPOSE)
@@ -648,16 +691,11 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
         if text is not None:
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None
-        if attempt == 2:
-            metadata = _reply_metadata(result, raw, end_line, body, attempt)
-            if failure is not None:
-                failure["reason"] = f"gate:{reason}"
-                failure.update(metadata)
-            logger.warning("Warm compaction fallback summary refused (%s) output_tokens=%s requested_max_tokens=%s "
-                           "end_marker=%s attempts=%s body_tokens=%s", reason, metadata["output_tokens"],
-                           metadata["requested_max_tokens"], metadata["end_marker"], metadata["attempts"],
-                           metadata["body_tokens"])
-    return None, None
+        marker_failed = marker_failed or reason in MARKER_FAILURES
+        refused = (result, raw, end_line, body)
+        if attempt >= (MAX_ATTEMPTS if marker_failed else MAX_ATTEMPTS_OTHER):
+            return _refuse(failure, reason, *refused, attempt)
+    return None, None  # Not reached: the last attempt returns in the loop.
 
 
 def cut_quote(rows: list, max_tokens: int) -> str:
