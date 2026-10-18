@@ -68,6 +68,8 @@ Run these commands in a terminal (PowerShell, Terminal, or any shell) where the 
 
 At each compaction, the plugin sends the last main-model request of the session again. It adds the rows that came after that request and one handoff instruction at the end. This is the *warm request*. The server can reuse the cached prefix of the earlier request, so it reads only the new rows. The reply is a Markdown handoff with five headings: Goal, User instructions, Current state, Key facts, and Next step. The plugin replaces the older rows with the handoff and keeps a verbatim tail of recent rows.
 
+After the handoff, the plugin adds a **work ledger**. Code writes the ledger from the tool calls and tool results before the tail; no model writes it. It has two lists: the commands that ran, each with its exit code (or `exit unknown`) and the first error line of its output, and the files that tools wrote, changed, moved, or deleted. A failed edit is listed as a failed tool call, not as a changed file. Reads are not listed. A later compaction keeps the ledger lines of the earlier summary and adds the new ones. The ledger uses the summary budget that the handoff leaves, at most 1,000 estimated tokens; when it is too large, the oldest commands go first, then the oldest files. It is reference data for the next request, not a list of tasks. Set `ledger: false` to turn it off.
+
 If the warm request cannot run, or if its reply fails the gate, the same compaction attempt uses a model-based fallback summary through the Hermes auxiliary route. If neither path produces a usable summary, the plugin stops the current compaction pass, preserves its original input history, and reports an error with safe codes only. It never creates a summary without a model. Hermes can retry an automatic failure; the plugin cannot stop the entire host turn through its documented API. When Hermes cancels an attempt, the history stays unchanged.
 
 The plugin does this for manual `/compress` and for automatic compaction.
@@ -169,6 +171,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
 | `summary_words` | int, 1 or more | 600 | Word count the handoff instruction asks for. It applies to the warm request and the fallback summary. A larger value records more of a long session. The task, not this value, controls the final reply size |
 | `warm_providers` | text | empty: every provider | Comma-separated provider names that may use the warm path. A provider outside the list sends no warm request, so a route that can miss its prefix cache does not pay for the whole prompt. Names are matched without case. An empty value keeps every provider |
+| `ledger` | bool | true | Add the work ledger (commands with exit codes and first error lines, changed files) after the summary. Set false for comparison runs |
 
 ```yaml
 plugins:
