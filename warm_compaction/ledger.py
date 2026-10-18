@@ -134,39 +134,44 @@ def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list
     """Return (command lines, {path: action}) in the order of the rows, oldest first."""
     messages = list(messages)
     commands, files = _prior(messages, tuple(prefixes))
-    results: dict[str, str] = {}
+    # Each result goes to the oldest earlier call with its id that has no result yet: a provider can use the same
+    # call id again in a later turn, and each turn keeps its own result.
+    calls: list[tuple[str, Any, list[str | None]]] = []
+    waiting: dict[str, list[list[str | None]]] = {}
     for row in messages:
-        if attr(row, "role") == "tool":
-            call_id = str(attr(row, "tool_call_id") or "")
-            if call_id:
-                results[call_id] = plain_text(attr(row, "content"))
-    for row in messages:
-        if attr(row, "role") != "assistant":
+        if attr(row, "role") == "assistant":
+            for call_id, name, raw_arguments in tool_calls_of(row):
+                slot: list[str | None] = [None]
+                calls.append((name, raw_arguments, slot))
+                if call_id:
+                    waiting.setdefault(call_id, []).append(slot)
+        elif attr(row, "role") == "tool":
+            pending = waiting.get(str(attr(row, "tool_call_id") or ""))
+            if pending:
+                pending.pop(0)[0] = plain_text(attr(row, "content"))
+    for name, raw_arguments, slot in calls:
+        arguments = _arguments(raw_arguments)
+        outcome, failed = _outcome(slot[0])
+        command = next((arguments[key] for key in COMMAND_KEYS if isinstance(arguments.get(key), str)), None)
+        if command is not None and command.strip():
+            commands.append(f"- `{_one_line(command, COMMAND_CHARS).replace('`', chr(39))}`: {outcome}")
             continue
-        for call_id, name, raw_arguments in tool_calls_of(row):
-            arguments = _arguments(raw_arguments)
-            result = results.get(call_id) if call_id else None
-            outcome, failed = _outcome(result)
-            command = next((arguments[key] for key in COMMAND_KEYS if isinstance(arguments.get(key), str)), None)
-            if command is not None and command.strip():
-                commands.append(f"- `{_one_line(command, COMMAND_CHARS).replace('`', chr(39))}`: {outcome}")
-                continue
-            action = _file_action(name)
-            paths = [arguments[key] for key in PATH_KEYS if isinstance(arguments.get(key), str)]
-            touched = [(path, action) for path in paths if action] if paths else []
-            for value in arguments.values():
-                if isinstance(value, str):
-                    touched.extend((path, PATCH_ACTIONS[kind]) for kind, path in PATCH_HEADER.findall(value))
-            if failed:
-                # A failed edit did not change the file: report the failure as a tool line instead.
-                target = f" {_one_line(paths[0], PATH_CHARS)}" if paths else ""
-                commands.append(f"- tool {_one_line(name, 60)}{target}: {outcome}")
-                continue
-            for path, kind in touched:
-                path = _one_line(path, PATH_CHARS)
-                if path:
-                    files.pop(path, None)
-                    files[path] = kind
+        action = _file_action(name)
+        paths = [arguments[key] for key in PATH_KEYS if isinstance(arguments.get(key), str)]
+        touched = [(path, action) for path in paths if action] if paths else []
+        for value in arguments.values():
+            if isinstance(value, str):
+                touched.extend((path, PATCH_ACTIONS[kind]) for kind, path in PATCH_HEADER.findall(value))
+        if failed:
+            # A failed edit did not change the file: report the failure as a tool line instead.
+            target = f" {_one_line(paths[0], PATH_CHARS)}" if paths else ""
+            commands.append(f"- tool {_one_line(name, 60)}{target}: {outcome}")
+            continue
+        for path, kind in touched:
+            path = _one_line(path, PATH_CHARS)
+            if path:
+                files.pop(path, None)
+                files[path] = kind
     return commands, files
 
 

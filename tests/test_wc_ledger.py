@@ -86,6 +86,17 @@ class LedgerTest(unittest.TestCase):
                    result("t2", exit_code=124, error="Command timed out after 180 seconds")]
         self.assertIn("- `sleep 999`: exit 124; Command timed out after 180 seconds", ledger.build(timeout, PREFIXES))
 
+    def test_a_reused_call_id_keeps_the_result_of_each_turn(self):
+        # A provider can use the same call id again in a later turn (synthetic ids).
+        rows = [terminal("call_0", "pytest -q"), result("call_0", "FAILED tests/test_a.py::test_x", exit_code=1),
+                terminal("call_0", "pytest -q"), result("call_0", "3 passed", exit_code=0)]
+        lines = [line for line in ledger.build(rows, PREFIXES).splitlines() if line.startswith("- `")]
+        self.assertEqual(lines, ["- `pytest -q`: exit 1; FAILED tests/test_a.py::test_x", "- `pytest -q`: exit 0"])
+
+    def test_a_result_before_its_call_is_not_used(self):
+        rows = [result("r1", exit_code=1), terminal("r1", "make")]
+        self.assertIn("- `make`: no result recorded", ledger.build(rows, PREFIXES))
+
     def test_a_call_without_a_result_says_so(self):
         self.assertIn("- `ls`: no result recorded", ledger.build([terminal("n1", "ls")], PREFIXES))
 
