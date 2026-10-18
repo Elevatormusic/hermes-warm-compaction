@@ -21,11 +21,13 @@ NAME = "warm_compaction"
 DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
                             "summary_words": handoff.DEFAULT_SUMMARY_WORDS,
                             "warm_providers": "", "ledger": True, "fallback_format": "relaxed",
-                            "ledger_on_failure": True}
+                            "ledger_on_failure": True, "timeout_s": warm.TIMEOUT_S}
 FALLBACK_FORMATS = ("relaxed", "quoted")
 # The text of each section of a ledger-only summary: no model wrote a summary.
 LEDGER_ONLY_LINE = "- unknown: no model summary; see the work ledger and the copied user messages"
 THRESHOLD_RANGE = (0.10, 0.95)
+# The time limit of one summary path, in seconds: the warm request, and the shared deadline of the fallback calls.
+TIMEOUT_RANGE = (10.0, 3600.0)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
 TAIL_MAX = 25_000
@@ -89,6 +91,8 @@ def _valid(key: str, value: Any) -> bool:
         return isinstance(value, int) and value >= 1
     if key == "threshold":
         return isinstance(value, (int, float)) and THRESHOLD_RANGE[0] <= float(value) <= THRESHOLD_RANGE[1]
+    if key == "timeout_s":
+        return isinstance(value, (int, float)) and TIMEOUT_RANGE[0] <= float(value) <= TIMEOUT_RANGE[1]
     return isinstance(value, int) and value >= 0
 
 
@@ -105,7 +109,7 @@ def read_settings(get_config: Callable[..., Any] | None) -> dict[str, Any]:
         if value is None:
             continue
         if _valid(key, value):
-            settings[key] = float(value) if key == "threshold" else value
+            settings[key] = float(value) if key in ("threshold", "timeout_s") else value
         else:
             logger.warning("Invalid warm_compaction setting %s; using the default %r", key, default)
     return settings
@@ -380,6 +384,7 @@ class WarmCompactionEngine(ContextEngine):
             summary, _tokens = fallback.llm_summary(
                 self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
                 task=self._task, summary_words=self._settings["summary_words"],
+                timeout_s=float(self._settings["timeout_s"]),
                 ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure,
                 quoted=self._settings["fallback_format"] == "quoted")
             if summary is None:
@@ -670,8 +675,9 @@ class WarmCompactionEngine(ContextEngine):
             # extra_headers is an SDK option, not part of the JSON body.
             wire_body = ({name: value for name, value in base.items() if name != "extra_headers"}
                          if request_headers else base)
-            result = warm.send(wire_body, route[1], key, post=self._post, extra_headers=headers, ssl_context=tls,
-                               api_mode=route[2], provider=provider)
+            result = warm.send(wire_body, route[1], key, timeout_s=float(self._settings["timeout_s"]),
+                               post=self._post, extra_headers=headers, ssl_context=tls, api_mode=route[2],
+                               provider=provider)
             # The send blocks on the network: a switch can occur before it returns.
             if self._attempt() != attempt:
                 raise warm.WarmRefusal("route_changed")

@@ -24,7 +24,7 @@ DEFAULT_RESERVE = 4096
 # thinking model that counts its reasoning in the same limit.
 HANDOFF_MIN_TOKENS = 2048
 HANDOFF_MAX_TOKENS = 8192
-TIMEOUT_S = 120.0
+TIMEOUT_S = 300.0
 # Cloudflare-fronted routes reject Python's default "Python-urllib/x.y" User-Agent with
 # HTTP 403 (error 1010). Send an explicit one, as the Hermes SDK client does.
 USER_AGENT = "hermes-warm-compaction/0.2"
