@@ -969,6 +969,11 @@ class RelaxedFallbackTest(unittest.TestCase):
         self.assertIn("Use only facts from the transcript.", instruction)
         self.assertEqual(instruction.count("End the summary with this line:"), 1)
         self.assertTrue(self.marker(llm.calls[0][0]).startswith("[END OF SUMMARY "))
+        # The relaxed format asks for the Decisions section; the quoted format keeps its five sections.
+        self.assertIn("\n## Decisions\n", instruction)
+        quoted = FakeLlm(text=lambda messages, kwargs, count: PLAIN + "\n" + self.marker(messages))
+        llm_summary(quoted, [user("hi")], PREFIXES, quoted=True)
+        self.assertNotIn("## Decisions", quoted.calls[0][0][0]["content"])
 
     def test_paraphrased_bullets_pass_in_relaxed_mode_and_fail_in_quoted_mode(self):
         reply = lambda messages, kwargs, count: PLAIN + "\n" + self.marker(messages)  # noqa: E731

@@ -12,6 +12,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Changed
 
+- Keep the verbatim tail when a new user request is at the end of the history. Before, the tail started at the first user row in the tail budget, so a new request just before a compaction left only that request and its reply (2 rows, about 40 tokens, in the synthetic benchmark fixtures). The tail now keeps the rows that fit, and a copy of the request of the first tail turn goes first; the copy counts in the tail budget.
+- Add an optional `## Decisions` section to the warm handoff and the relaxed fallback: each decision with its reason. A reply without it still passes the gate. The quoted fallback format keeps its five sections.
 - The fallback summary uses the free handoff sections of the warm request by default (`fallback_format: relaxed`). The source-quote format stays available as `fallback_format: quoted`. A relaxed reply without its end marker passes when all headings are present and the reported output count is below the generation limit. Small local models could not write the quoted format: a local 4B model passed 0 of 16 quoted replies and 10 of 10 relaxed replies in one synthetic test.
 
 - Give fallback generation an 8,192-token allowance while keeping the visible summary within 2,048 estimated tokens. Check a fresh end marker and the summary content instead of refusing a short reply because its reported output count can include thinking. Retry an invalid reply once from the original transcript, within a shared deadline and cancellation checks. The public API still cannot report the server stop reason or stop an in-flight call.

@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterable
 
 from .handoff import (
     DEFAULT_SUMMARY_WORDS, END_MARKER, HEADINGS, INSTRUCTION_TEMPLATE, LEGACY_PREFIX, MAX_REPLY_BYTES,
-    SUMMARY_WORDS_TOKEN,
+    OPTIONAL_HEADINGS, SUMMARY_WORDS_TOKEN,
     extras, gate_content,
 )
 from .layout import COPY_HEADING, CUT_NOTE, is_real_user, is_summary, quote
@@ -118,10 +118,9 @@ FALLBACK_INSTRUCTION = FALLBACK_INSTRUCTION_TEMPLATE.replace(SUMMARY_WORDS_TOKEN
 
 # The relaxed format: the rules of the quoted format with the handoff sections of the warm request, without source
 # quotes. A small model can write it. The work ledger keeps the exact command results and file changes.
-_SECTIONS = "Use these five headings"
 RELAXED_INSTRUCTION_TEMPLATE = (
-    FALLBACK_INSTRUCTION_TEMPLATE[:FALLBACK_INSTRUCTION_TEMPLATE.index(_SECTIONS)]
-    + INSTRUCTION_TEMPLATE[INSTRUCTION_TEMPLATE.index(_SECTIONS):]
+    FALLBACK_INSTRUCTION_TEMPLATE[:FALLBACK_INSTRUCTION_TEMPLATE.index("Use these five headings")]
+    + INSTRUCTION_TEMPLATE[INSTRUCTION_TEMPLATE.index("Use these six headings"):]
     + "\nEnd the summary with this line:\n" + END_LINE + "\n")
 
 
@@ -396,6 +395,9 @@ def error_class(error: Exception) -> str:
     return name if name.isascii() and name.isidentifier() and len(name) <= 80 else "Exception"
 
 
+# The quoted format has the five required-order sections only, not the optional ones of the handoff. In an earlier
+# summary, an optional heading is section text.
+QUOTED_HEADINGS = tuple(heading for heading in HEADINGS if heading not in OPTIONAL_HEADINGS)
 SOURCE_SECTIONS = (("## Goal", "## User instructions", "- goal unknown"),
                    ("## User instructions", "## Current state", "- instructions unknown"),
                    ("## Current state", "## Key facts", "- progress unknown"),
@@ -430,7 +432,7 @@ def _source_spans(lines: list[str], prior: bool = False) -> list[tuple[int, int,
             continue
         start = headings.index(heading) + 1
         end = headings.index(next_heading) if next_heading is not None else len(lines)
-        if start <= end and not any(line in HEADINGS for line in headings[start:end]):
+        if start <= end and not any(line in QUOTED_HEADINGS for line in headings[start:end]):
             spans.append((start, end, unknown))
     return spans
 
@@ -465,7 +467,7 @@ class _SourceTable:
             structural: set[int] = set()
             for start, end, unknown in spans:
                 structural.add(start - 1)
-                if end < len(earlier_lines) and earlier_lines[end].strip() in HEADINGS:
+                if end < len(earlier_lines) and earlier_lines[end].strip() in QUOTED_HEADINGS:
                     structural.add(end)
                 structural.update(index for index in range(start, end) if earlier_lines[index].strip() == unknown)
                 for index in range(start, end):
