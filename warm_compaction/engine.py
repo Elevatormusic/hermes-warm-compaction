@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 NAME = "warm_compaction"
 DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
                             "summary_words": handoff.DEFAULT_SUMMARY_WORDS,
-                            "warm_providers": "", "ledger": True}
+                            "warm_providers": "", "ledger": True, "fallback_format": "relaxed",
+                            "ledger_on_failure": True}
+FALLBACK_FORMATS = ("relaxed", "quoted")
+# The text of each section of a ledger-only summary: no model wrote a summary.
+LEDGER_ONLY_LINE = "- unknown: no model summary; see the work ledger and the copied user messages"
 THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
@@ -73,8 +77,10 @@ class CompactionAborted(RuntimeError):
 
 
 def _valid(key: str, value: Any) -> bool:
-    if key in ("warm", "ledger"):
+    if key in ("warm", "ledger", "ledger_on_failure"):
         return isinstance(value, bool)
+    if key == "fallback_format":
+        return value in FALLBACK_FORMATS
     if key == "warm_providers":
         return isinstance(value, str)
     if isinstance(value, bool):
@@ -374,7 +380,8 @@ class WarmCompactionEngine(ContextEngine):
             summary, _tokens = fallback.llm_summary(
                 self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
                 task=self._task, summary_words=self._settings["summary_words"],
-                ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure)
+                ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure,
+                quoted=self._settings["fallback_format"] == "quoted")
             if summary is None:
                 record["fallback_reason"] = failure.get("reason", "unavailable")
                 for key in ("output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"):
@@ -399,9 +406,21 @@ class WarmCompactionEngine(ContextEngine):
             record.update(path="cancelled", reason="route_changed")
             self._finish(record, started, attempt[-1])
             return messages
+        if summary is None and self._settings["ledger"] and self._settings["ledger_on_failure"]:
+            # Both model summaries failed (a small model can miss the format): compact with the work ledger and the
+            # copied user messages, under the five headings with an unknown line. Without a ledger, keep history.
+            stub = "\n\n".join(f"{heading}\n{LEDGER_ONLY_LINE}" for heading in handoff.HEADINGS)
+            # Leave room for the cut quote of a long prepended request, as on the fallback path.
+            quote_room = fallback.CUT_QUOTE_CHARS // 4 if prepend else 0
+            room = min(ledger.MAX_TOKENS,
+                       self._summary_budget(overhead, reserve) - estimate_tokens(stub) - quote_room - 4)
+            block = ledger.build(messages[:start], prefixes, room) if room > 0 else ""
+            if block and self._summary_fits(stub + "\n\n" + block, overhead, reserve):
+                summary = stub + "\n\n" + block
+                record["path"] = "ledger"
         if summary is None:
             return self._abort(messages, record, started, attempt)
-        if self._settings["ledger"]:
+        if self._settings["ledger"] and record["path"] != "ledger":
             # The work ledger: commands, results, and file changes of the rows before the tail, written by code.
             # It takes the summary budget that the summary left, with room for a fallback cut quote.
             quote_room = fallback.CUT_QUOTE_CHARS // 4 if record["path"] == "fallback" and prepend else 0
@@ -423,11 +442,11 @@ class WarmCompactionEngine(ContextEngine):
                 if record["path"] == "warm":
                     # The warm request had the whole row.
                     prepend = layout.fit_user_row(prepend, allowed)
-                elif record["path"] == "fallback":
-                    # The fallback transcript had only the start and end of a long row: the middle that this cut
-                    # removes goes after the summary as a quote. The quote takes only what the summary budget has
-                    # left (the tail cap stays at least the cap of the fallback transcript); the room keeps space
-                    # for it.
+                elif record["path"] in ("fallback", "ledger"):
+                    # The fallback transcript had only the start and end of a long row, and no model saw the row on
+                    # the ledger path: the middle that this cut removes goes after the summary as a quote. The quote
+                    # takes only what the summary budget has left (the tail cap stays at least the cap of the
+                    # fallback transcript); the room keeps space for it.
                     left = max(0, min(fallback.CUT_QUOTE_CHARS // 4,
                                       self._summary_budget(overhead, reserve) - estimate_tokens(summary) - 4))
                     fitted = layout.fit_user_row(prepend, allowed - left, cut)
@@ -796,7 +815,7 @@ class WarmCompactionEngine(ContextEngine):
                 logger.info("Warm compaction works again after %d compactions without it", self._warm_failures)
             self._clear_warm_failures()
             return
-        if path != "fallback" or reason in ("disabled", "provider_not_allowed"):
+        if path not in ("fallback", "ledger") or reason in ("disabled", "provider_not_allowed"):
             return
         logger.warning("Warm compaction skipped (%s); used the %s summary", reason, path)
         self._warm_failures += 1

@@ -32,6 +32,14 @@ config_schema:
     type: bool
     default: true
     description: Add the work ledger (commands with exit codes and first error lines, changed files) after the summary. Set false for comparison runs.
+  fallback_format:
+    type: str
+    default: relaxed
+    description: Format of the fallback summary. relaxed uses the free handoff sections; quoted builds every section from verified source quotes.
+  ledger_on_failure:
+    type: bool
+    default: true
+    description: When both model summaries fail and the rows before the tail have tool work, compact with a ledger-only summary instead of stopping. Applies only when ledger is true.
   summary_words:
     type: int
     default: 600
