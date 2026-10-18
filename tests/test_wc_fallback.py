@@ -245,6 +245,46 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertIn("did not end with the marker line", second[0][0]["content"])
         self.assertEqual(failure, {})
 
+    def test_duplicate_marker_retry_asks_for_the_marker_exactly_once(self):
+        def reply(messages, kwargs, count):
+            marker = self.marker(messages)
+            body = useful_summary("hi")
+            return body + " " + marker + "\n" + marker if count == 1 else body + "\n" + marker
+        llm = FakeLlm(text=reply)
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (useful_summary("hi"), 321))
+        second = llm.calls[1][0][0]["content"]
+        self.assertIn("had the marker line more than once", second)
+        self.assertIn("exactly once", second)
+        self.assertNotIn("did not end with the marker line", second)
+
+    def test_a_marker_failure_grants_the_third_attempt_in_either_order(self):
+        # Synthetic replies: SUMMARY with the marker fails the content check (no_useful_evidence).
+        for order in (("missing", "content"), ("content", "missing")):
+            with self.subTest(order=order):
+                def reply(messages, kwargs, count, order=order):
+                    kind = order[count - 1] if count <= 2 else "content"
+                    return SUMMARY if kind == "missing" else SUMMARY + "\n" + self.marker(messages)
+                llm, failure = FakeLlm(text=reply), {}
+                with self.assertLogs("warm_compaction.fallback", level="WARNING"):
+                    self.assertEqual(llm_summary(llm, [user("Check JOB-X3.")], PREFIXES, failure=failure),
+                                     (None, None))
+                self.assertEqual(len(llm.calls), 3)
+                self.assertEqual((failure["reason"], failure["attempts"]), ("gate:no_useful_evidence", 3))
+
+    def test_no_retry_with_too_little_time_reports_the_previous_gate_failure(self):
+        clock = [0.0]
+
+        def reply(messages, kwargs, count):
+            clock[0] += 16.0  # 4 s of 20 s remain: less than RETRY_MIN_SHARE of the limit.
+            return SUMMARY
+        llm, failure = FakeLlm(text=reply), {}
+        with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda: clock[0]), \
+                self.assertLogs("warm_compaction.fallback", level="WARNING"):
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20.0, failure=failure), (None, None))
+        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual((failure["reason"], failure["attempts"], failure["end_marker"]),
+                         ("gate:missing_end_marker", 1, "missing"))
+
     def test_third_attempt_passes_after_two_missing_markers(self):
         def reply(messages, kwargs, count):
             body = useful_summary("hi")
