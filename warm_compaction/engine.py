@@ -410,7 +410,10 @@ class WarmCompactionEngine(ContextEngine):
             # Both model summaries failed (a small model can miss the format): compact with the work ledger and the
             # copied user messages, under the five headings with an unknown line. Without a ledger, keep history.
             stub = "\n\n".join(f"{heading}\n{LEDGER_ONLY_LINE}" for heading in handoff.HEADINGS)
-            room = min(ledger.MAX_TOKENS, self._summary_budget(overhead, reserve) - estimate_tokens(stub) - 4)
+            # Leave room for the cut quote of a long prepended request, as on the fallback path.
+            quote_room = fallback.CUT_QUOTE_CHARS // 4 if prepend else 0
+            room = min(ledger.MAX_TOKENS,
+                       self._summary_budget(overhead, reserve) - estimate_tokens(stub) - quote_room - 4)
             block = ledger.build(messages[:start], prefixes, room) if room > 0 else ""
             if block and self._summary_fits(stub + "\n\n" + block, overhead, reserve):
                 summary = stub + "\n\n" + block
@@ -439,11 +442,11 @@ class WarmCompactionEngine(ContextEngine):
                 if record["path"] == "warm":
                     # The warm request had the whole row.
                     prepend = layout.fit_user_row(prepend, allowed)
-                elif record["path"] == "fallback":
-                    # The fallback transcript had only the start and end of a long row: the middle that this cut
-                    # removes goes after the summary as a quote. The quote takes only what the summary budget has
-                    # left (the tail cap stays at least the cap of the fallback transcript); the room keeps space
-                    # for it.
+                elif record["path"] in ("fallback", "ledger"):
+                    # The fallback transcript had only the start and end of a long row, and no model saw the row on
+                    # the ledger path: the middle that this cut removes goes after the summary as a quote. The quote
+                    # takes only what the summary budget has left (the tail cap stays at least the cap of the
+                    # fallback transcript); the room keeps space for it.
                     left = max(0, min(fallback.CUT_QUOTE_CHARS // 4,
                                       self._summary_budget(overhead, reserve) - estimate_tokens(summary) - 4))
                     fitted = layout.fit_user_row(prepend, allowed - left, cut)

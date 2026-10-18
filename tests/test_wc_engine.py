@@ -1918,6 +1918,23 @@ class EngineTest(unittest.TestCase):
         self.assertIn("## Copied user messages", text)
         self.assertLess(len(new), len(rows) + 1)
 
+    def test_a_ledger_only_summary_fits_a_large_prepended_request(self):
+        # No model saw the request: the middle that the cut removes goes after the ledger as a quote, and the
+        # prepended row fits in the room.
+        from warm_compaction.rows import estimate_tokens
+        self.llm.error = RuntimeError("synthetic failure")
+        rows = [*self.ledger_rows(), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
+                assistant("", [("c3", "read", "{}")]), tool("c3", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "ledger")
+        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
+        self.assertNotIn("MID-REQ", prepended["content"])
+        self.assertIn("MID-REQ", self.summary_text(new))
+        self.assertLess(sum(estimate_tokens(str(row.get("content"))) for row in new), 64_000 * 0.95)
+
     def test_without_a_ledger_or_with_the_setting_off_failed_summaries_keep_history(self):
         self.llm.error = RuntimeError("synthetic failure")
         for settings, history in (({}, [*old_turns(), assistant("final")]),
