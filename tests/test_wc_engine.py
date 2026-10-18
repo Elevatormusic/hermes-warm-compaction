@@ -54,7 +54,7 @@ class FakeLlm:
 
 def fake_post(content=HEADINGS_TEXT, cached=900):
     def post(url, data, headers, timeout_s):
-        post.calls.append({"url": url, "body": json.loads(data), "headers": headers})
+        post.calls.append({"url": url, "body": json.loads(data), "headers": headers, "timeout_s": timeout_s})
         payload = {"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
                    "usage": {"prompt_tokens": 1000, "completion_tokens": 50,
                              "prompt_tokens_details": {"cached_tokens": cached}}}
@@ -1962,6 +1962,29 @@ class EngineTest(unittest.TestCase):
         new = engine.compress([*self.ledger_rows(), assistant("final")])
         self.assertNotIn(ledger.HEADING, self.summary_text(new))
 
+    def test_the_time_limit_setting_reaches_the_warm_request(self):
+        for settings, expected in (({}, 300.0), ({"timeout_s": 900.0}, 900.0)):
+            with self.subTest(settings=settings):
+                self.post.calls.clear()
+                engine = self.make(**settings)
+                rows = old_turns()
+                reply = assistant("final")
+                self.seed(rows, reply)
+                engine.compress([*rows, reply])
+                self.assertEqual(engine.warm_last["path"], "warm")
+                self.assertEqual(self.post.calls[0]["timeout_s"], expected)
+
+    def test_the_time_limit_setting_reaches_the_fallback_summary(self):
+        # A slow local model (synthetic): the fallback call gets the configured limit, not the old fixed 120 s.
+        for settings, expected in (({}, 300.0), ({"timeout_s": 900.0}, 900.0)):
+            with self.subTest(settings=settings):
+                self.llm.calls.clear()
+                engine = self.make(warm=False, **settings)
+                engine.compress([user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")])
+                timeout = self.llm.calls[0][1]["timeout"]
+                self.assertGreater(timeout, expected - 5)
+                self.assertLessEqual(timeout, expected)
+
     def test_a_provider_outside_the_list_skips_the_warm_request(self):
         # The route is kept out of the warm path: no warm request is sent, and the fallback summary runs.
         engine = self.make(warm_providers="opencode-go,commandcode")
@@ -2340,17 +2363,33 @@ class SettingsTest(unittest.TestCase):
     def test_valid_values(self):
         values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
                   "summary_words": 1200, "warm_providers": "opencode-go,commandcode", "ledger": False,
-                  "fallback_format": "quoted", "ledger_on_failure": False}
+                  "fallback_format": "quoted", "ledger_on_failure": False, "timeout_s": 900.0}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
         values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
                   "summary_words": 0, "warm_providers": 7, "ledger": "yes", "fallback_format": "strict",
-                  "ledger_on_failure": 1}
+                  "ledger_on_failure": 1, "timeout_s": 0}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 9)
+        self.assertEqual(len(logs.output), 10)
+
+    def test_the_time_limit_setting(self):
+        def reader(values):
+            return lambda key, default: values.get(key, default)
+
+        self.assertEqual(self.module.DEFAULTS["timeout_s"], 300.0)
+        for good, expected in ((10, 10.0), (600, 600.0), (3600.0, 3600.0), (450.5, 450.5)):
+            with self.subTest(good=good):
+                settings = self.module.read_settings(reader({"timeout_s": good}))
+                self.assertEqual(settings["timeout_s"], expected)
+                self.assertIs(type(settings["timeout_s"]), float)
+        for bad in (0, 9.9, -1, 3601, "600", True, float("nan"), float("inf")):
+            with self.subTest(bad=bad):
+                with self.assertLogs("warm_compaction.engine", level="WARNING"):
+                    settings = self.module.read_settings(reader({"timeout_s": bad}))
+                self.assertEqual(settings["timeout_s"], 300.0)
 
     def test_a_word_count_below_one_uses_the_default(self):
         def reader(values):

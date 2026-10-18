@@ -34,7 +34,7 @@ REQUEST_MAX_TOKENS = 8192
 MAX_ATTEMPTS = 3
 MAX_ATTEMPTS_OTHER = 2
 MARKER_FAILURES = ("missing_end_marker", "duplicate_end_marker")
-TIMEOUT_S = 120.0
+TIMEOUT_S = 300.0
 # A retry starts only when this share of the time limit remains. The host cannot stop an in-flight call, so a
 # retry with too little time keeps a slow model busy and then fails on the deadline.
 RETRY_MIN_SHARE = 0.25

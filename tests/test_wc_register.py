@@ -73,7 +73,7 @@ class RegisterTest(unittest.TestCase):
         engine = engine_of(ctx)
         self.assertTrue(all(call[2].__self__ is engine._store for call in ctx.calls[2:]))
         self.assertEqual((engine._task, engine._llm), ("warm_compaction", ctx.llm))
-        self.assertEqual(ctx.calls[0][2], {"timeout": 120})
+        self.assertEqual(ctx.calls[0][2], {"timeout": 300.0})
 
     def test_missing_method_registers_nothing(self):
         ctx = FakeContext()

@@ -176,7 +176,7 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertEqual((text, tokens), (useful_summary("hi"), 321))
         self.assertEqual((kwargs["task"], kwargs["max_tokens"]), (TASK, REQUEST_MAX_TOKENS))
         self.assertGreater(kwargs["timeout"], 0)
-        self.assertLessEqual(kwargs["timeout"], 120.0)
+        self.assertLessEqual(kwargs["timeout"], 300.0)
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
         self.assertRegex(self.marker(messages), r"^\[END OF SUMMARY [0-9a-f]{32}\]$")
