@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+
+- Add a repeatable compaction benchmark in `benchmarks/compaction/`. It runs each method in the real Hermes agent loop on six synthetic coding sessions, scores 276 questions with fixed rules, and reports accuracy by category, summary success and failure codes, size, time, and drift over three compactions. The decision rule is pre-registered. The benchmark is a development tool; it does not change the plugin.
+
 ### Changed
 
 - Give fallback generation an 8,192-token allowance while keeping the visible summary within 2,048 estimated tokens. Check a fresh end marker and the summary content instead of refusing a short reply because its reported output count can include thinking. Retry an invalid reply once from the original transcript, within a shared deadline and cancellation checks. The public API still cannot report the server stop reason or stop an in-flight call.

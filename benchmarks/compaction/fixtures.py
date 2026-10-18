@@ -432,9 +432,9 @@ def write_all(history_dir: Path, gold_dir: Path) -> list[dict]:
     for spec in SCENARIOS:
         history, gold = build(spec)
         (history_dir / f"{spec['id']}.history.json").write_text(
-            json.dumps(history, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            json.dumps(history, ensure_ascii=False, sort_keys=True), encoding="utf-8", newline="\n")
         (gold_dir / f"{spec['id']}.gold.json").write_text(json.dumps(gold, ensure_ascii=False, indent=1) + "\n",
-                                                           encoding="utf-8")
+                                                           encoding="utf-8", newline="\n")
         summary.append({"id": spec["id"], "rows": gold["rows"], "est_tokens": gold["est_tokens"],
                         "questions": len(gold["questions"])})
     return summary

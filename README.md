@@ -328,6 +328,27 @@ The plugin was faster than both other engines in 10 of 10 cases. hermes-lcm and 
 - The cache reuse depends on the server. The plugin cannot force it. On LM Studio, the cache reuse is unknown, and part of the gain comes from the smaller new history.
 - The results describe these versions and settings only.
 
+## Compaction benchmark
+
+The [compaction benchmark](benchmarks/compaction/) measures which facts each compaction method keeps. It compares the warm path, the fallback summary (quoted and relaxed formats), each with and without the work ledger, the Hermes built-in compressor, and a control with no compaction. It reports, for each method:
+
+- Accuracy by category: goal, user instructions, command outcomes, files changed, identifiers, decisions, task state, next step, and recent facts. Fixed rules score the answers; no model judges them.
+- Success rate of the model summary, with failure codes.
+- Estimated tokens before and after, and the time of each compaction.
+- Accuracy after three compactions of the same session (drift).
+
+The six sessions are synthetic: 23,000 to 100,000 estimated tokens, with Hermes tool rows (`terminal`, `read_file`, `write_file`, `patch`). Each has 46 questions. The gold answers are in [benchmarks/compaction/fixtures](benchmarks/compaction/fixtures/), apart from the session rows. The decision rule is in [PREREGISTRATION.md](benchmarks/compaction/PREREGISTRATION.md); it was committed before the first full run.
+
+Each job runs the real Hermes agent loop in a fresh process with a clean Hermes checkout and a temporary Hermes home. It sends one main request, compacts with the Hermes manual compress entry, and asks the questions on the compacted history. It does not patch or wrap Hermes code. To run it:
+
+1. Start an OpenAI-compatible server with the model, for example LM Studio at `http://localhost:1234/v1` with a context of 131,072 tokens and one parallel slot.
+2. Copy [config.example.json](benchmarks/compaction/config.example.json) to `.work/bench/config.json`. Set `hermes_python`, `hermes_source` (a clean Hermes checkout), and `plugin_source` (a folder with `warm_compaction/`). Set `api_key_env` to the name of an environment variable for a server that needs a key.
+3. Check the plan: `python -m benchmarks.compaction.run run --config .work/bench/config.json --out .work/bench/run --dry-run`
+4. Run it: `python -m benchmarks.compaction.run run --config .work/bench/config.json --out .work/bench/run`. A second call continues an interrupted run.
+5. Write the report: `python -m benchmarks.compaction.run report --out .work/bench/run --json evidence/<name>.json --md <report>.md`
+
+The full plan (8 methods, 6 sessions, 5 replicates, and 30 drift jobs) is 270 jobs. With a 4B model on one RTX 3090 it takes several hours. Use `"methods"`, `"fixtures"`, and `"replicates"` in the configuration for a smaller run. The results file has metadata and scores only. With `"keep_text": true`, the run folder also keeps the raw answers and compacted rows for local checks; do not publish that folder.
+
 ## Limits
 
 - The warm path needs a captured main-model request in the current Hermes process. After a restart or a resume, the first compaction uses the fallback summary if no main-model request completed before it (`no_capture`).

@@ -1,0 +1,223 @@
+"""Tests for the compaction benchmark harness (benchmarks/compaction). No model and no Hermes code run here."""
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from benchmarks.compaction import fixtures, run, scoring
+from benchmarks.compaction.scenarios import SCENARIOS
+
+GOLD_DIR = Path(run.__file__).resolve().parent / "fixtures"
+
+
+def question(kind, gold, text="Question?", **extra):
+    return {"kind": kind, "gold": gold, "question": text, "retention": fixtures.retention_for(kind, gold), **extra}
+
+
+class FixtureTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.built = {spec["id"]: fixtures.build(spec) for spec in SCENARIOS}
+
+    def test_build_matches_the_committed_gold_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fixtures.write_all(Path(folder), Path(folder) / "gold")
+            for spec in SCENARIOS:
+                name = f"{spec['id']}.gold.json"
+                committed = (GOLD_DIR / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+                self.assertEqual((Path(folder) / "gold" / name).read_text(encoding="utf-8"), committed)
+                fixtures.load(Path(folder) / f"{spec['id']}.history.json", GOLD_DIR / name)
+
+    def test_load_refuses_a_changed_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            history, gold = self.built[SCENARIOS[0]["id"]]
+            history = {**history, "rows": history["rows"][:-1]}
+            (Path(folder) / "h.json").write_text(json.dumps(history), encoding="utf-8")
+            (Path(folder) / "g.json").write_text(json.dumps(gold), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "history_mismatch"):
+                fixtures.load(Path(folder) / "h.json", Path(folder) / "g.json")
+
+    def test_each_scored_category_has_thirty_or_more_questions(self):
+        counts = {}
+        for _history, gold in self.built.values():
+            self.assertEqual(len(gold["questions"]), 46)
+            for item in gold["questions"]:
+                counts[item["category"]] = counts.get(item["category"], 0) + 1
+        for category in run.CATEGORIES:
+            self.assertGreaterEqual(counts[category], 12 if category == "recent" else 30, category)
+
+    def test_sizes_cover_the_planned_range(self):
+        sizes = sorted(gold["est_tokens"] for _history, gold in self.built.values())
+        self.assertLess(sizes[0], 25_000)
+        self.assertGreater(sizes[-1], 95_000)
+
+    def test_rows_are_labeled_and_well_formed(self):
+        for history, _gold in self.built.values():
+            rows = history["rows"] + [row for chunk in history["continuations"] for row in chunk]
+            self.assertTrue(history["rows"][0]["content"].startswith(fixtures.LABEL))
+            for index, row in enumerate(rows):
+                if row["role"] == "tool":
+                    calls = rows[index - 1].get("tool_calls") or []
+                    self.assertEqual(calls[0]["id"], row["tool_call_id"])
+                if index and row["role"] == "assistant" and rows[index - 1]["role"] == "assistant":
+                    self.assertIn("tool_calls", rows[index - 1])
+
+    def test_each_fact_is_in_its_evidence_rows(self):
+        for history, gold in self.built.values():
+            rows = history["rows"]
+            for item in gold["questions"]:
+                # A tool result is read with its call: the command or path is in the call row before it.
+                indexes = sorted({j for i in item["evidence_rows"] for j in ((i - 1, i) if rows[i]["role"] == "tool"
+                                                                              else (i,))})
+                text = scoring.history_text([rows[index] for index in indexes])
+                self.assertTrue(scoring.retained(item, text), item["id"])
+
+    def test_questioned_facts_are_before_the_tail_guard(self):
+        for history, gold in self.built.values():
+            for item in gold["questions"]:
+                if item["category"] == "recent":
+                    continue
+                after = fixtures.estimate_tokens(history["rows"][max(item["evidence_rows"]):])
+                self.assertGreaterEqual(after, fixtures.TAIL_GUARD_TOKENS - 2_000, item["id"])
+
+
+class ScoringTest(unittest.TestCase):
+    def test_number_skips_the_numbers_of_the_question(self):
+        item = question("number", "1", "What exit code did `pytest tests/test_part_3.py` return?")
+        self.assertTrue(scoring.score(item, "test_part_3 returned 1"))
+        self.assertTrue(scoring.score(item, "1"))
+        self.assertFalse(scoring.score(item, "0"))
+        self.assertFalse(scoring.score(item, "unknown"))
+
+    def test_text_needs_whole_words(self):
+        item = question("text", "37")
+        self.assertTrue(scoring.score(item, "37 invoices"))
+        self.assertFalse(scoring.score(item, "374"))
+        self.assertTrue(scoring.score(question("text", "AssertionError: Decimal('1.0')"),
+                                      'E   AssertionError: Decimal("1.0")'))
+
+    def test_path_ignores_quotes_and_backslashes(self):
+        item = question("path", "src/app/main.py")
+        self.assertTrue(scoring.score(item, "`src\\app\\main.py`"))
+        self.assertTrue(scoring.score(item, "/workspace/x/src/app/main.py"))
+        self.assertFalse(scoring.score(item, "src/app/main.pyc"))
+
+    def test_verbatim_ignores_case_and_punctuation(self):
+        item = question("verbatim", "Do not edit anything under vendor/.")
+        self.assertTrue(scoring.score(item, "\"do not edit anything under vendor\""))
+        self.assertFalse(scoring.score(item, "Do not edit vendor."))
+
+    def test_choice_needs_one_class(self):
+        item = question("choice", "blocked")
+        self.assertTrue(scoring.score(item, "Blocked (waiting for rates)"))
+        self.assertFalse(scoring.score(item, "open"))
+        self.assertFalse(scoring.score(question("choice", "done"), "done or blocked"))
+        self.assertTrue(scoring.score(question("choice", "open"), "not done"))
+        self.assertTrue(scoring.score(question("choice", "done"), "Completed"))
+
+    def test_keywords_match_word_starts_and_short_words(self):
+        self.assertTrue(scoring.score(question("keywords", [["round"], ["cent"]]), "Fix rounding by one-cent"))
+        self.assertFalse(scoring.score(question("keywords", [["round"], ["cent"]]), "Fix rounding"))
+        self.assertFalse(scoring.score(question("keywords", [["rc"]]), "the source"))
+        self.assertTrue(scoring.score(question("keywords", [["rc"]]), "tag the RC"))
+        self.assertFalse(scoring.score(question("keywords", [["50"]]), "1500 objects"))
+        self.assertTrue(scoring.score(question("keywords", [["50"]]), "a 50% failure rate"))
+
+    def test_retention_needs_all_groups_in_one_window(self):
+        item = {"kind": "number", "gold": "2", "retention": [["make test"], fixtures.exit_patterns(2)]}
+        self.assertTrue(scoring.retained(item, "- `make test`: exit 2; error"))
+        self.assertFalse(scoring.retained(item, "make test" + " x" * 400 + " exit 2"))
+        self.assertFalse(scoring.retained(item, "- `make test`: exit 0"))
+
+    def test_parse_answers_reads_json_and_numbered_lines(self):
+        answers, ok = scoring.parse_answers("```json\n{\"1\": \"a\", \"2\": 3}\n```", [1, 2])
+        self.assertTrue(ok)
+        self.assertEqual(answers, {"1": "a", "2": "3"})
+        answers, ok = scoring.parse_answers("<think>x</think>1. first\n2: second", [1, 2])
+        self.assertEqual(answers, {"1": "first", "2": "second"})
+        self.assertEqual(scoring.parse_answers("no answers", [1]), ({}, False))
+
+    def test_statistics(self):
+        low, high = scoring.wilson(0, 12)
+        self.assertEqual(low, 0.0)
+        self.assertAlmostEqual(high, 0.2425, places=3)
+        low, high = scoring.wilson(2, 8)
+        self.assertAlmostEqual(low, 0.0715, places=3)
+        self.assertAlmostEqual(high, 0.5907, places=3)
+        self.assertEqual(scoring.wilson(0, 0), (None, None))
+        self.assertAlmostEqual(scoring.mcnemar(0, 6), 0.03125)
+        self.assertIsNone(scoring.mcnemar(0, 0))
+        interval = scoring.mean_interval([1.0, 2.0, 3.0])
+        self.assertAlmostEqual(interval["mean"], 2.0)
+        self.assertAlmostEqual(interval["high"] - interval["mean"], 4.303 / 3 ** 0.5, places=3)
+
+
+class RunTest(unittest.TestCase):
+    def test_method_settings_follow_the_plugin_settings(self):
+        old = {"settings_known": ["warm"]}
+        self.assertIsNone(run.method_settings("warm_ledger", old, 0.95))
+        self.assertEqual(run.method_settings("warm_no_ledger", old, 0.95), {"threshold": 0.95, "warm": True})
+        self.assertIsNone(run.method_settings("fallback_relaxed_ledger", {"settings_known": ["warm", "ledger"]}, 0.9))
+        hybrid = {"settings_known": ["warm", "ledger", "fallback_format", "ledger_on_failure"]}
+        self.assertEqual(run.method_settings("fallback_quoted_ledger", hybrid, 0.95),
+                         {"threshold": 0.95, "warm": False, "ledger": True, "fallback_format": "quoted",
+                          "ledger_on_failure": False})
+        self.assertEqual(run.method_settings("stock_hermes", hybrid, 0.95), {})
+
+    def test_plan_rotates_methods_and_adds_drift_jobs(self):
+        config = {"threshold": 0.95, "replicates": 2, "fixtures": ["s1-ledgerline"],
+                  "methods": ["full_context", "stock_hermes", "warm_ledger"],
+                  "drift": {"fixtures": ["s1-ledgerline"], "methods": ["warm_ledger", "full_context"], "cycles": 3}}
+        jobs, skipped = run.plan(config, {"settings_known": ["warm", "ledger"]})
+        self.assertEqual(skipped, [])
+        self.assertEqual([job["method"] for job in jobs[:3]], ["full_context", "stock_hermes", "warm_ledger"])
+        self.assertEqual([job["method"] for job in jobs[3:6]], ["stock_hermes", "warm_ledger", "full_context"])
+        self.assertEqual([(job["method"], job["cycles"]) for job in jobs[6:]], [("warm_ledger", 3)] * 2)
+
+    def test_classify(self):
+        self.assertEqual(run.classify({}, "full_context"), "none")
+        self.assertEqual(run.classify({"compacted": True, "outcome": {"path": "warm"}}, "warm_ledger"), "warm")
+        self.assertEqual(run.classify({"compress_error": "CompactionAborted", "outcome": {}}, "warm_ledger"),
+                         "aborted")
+        self.assertEqual(run.classify({"compacted": False, "outcome": {}}, "stock_hermes"), "no_change")
+        static = {"compacted": True, "history": [{"role": "user", "content": run.STATIC_FALLBACK_TEXT}]}
+        self.assertEqual(run.classify(static, "stock_hermes"), "static_fallback")
+
+    def synthetic_runs(self):
+        """Fake worker output for one fixture: the control answers all, the ledger run all but one."""
+        history, gold = fixtures.build(SCENARIOS[0])
+        answers = {str(n): str(item["gold"]) if item["kind"] != "keywords" else " ".join(
+            group[0] for group in item["gold"]) for n, item in enumerate(gold["questions"], 1)}
+        numbers = list(range(1, len(gold["questions"]) + 1))
+        records = []
+        for method, wrong in (("warm_ledger", "1"), ("warm_no_ledger", None), ("stock_hermes", None)):
+            given = {key: ("unknown" if key == wrong else value) for key, value in answers.items()}
+            cycle = {"cycle": 1, "compacted": True, "outcome": {"path": "warm", "reason": "accepted"},
+                     "history": history["rows"][-4:], "est_tokens_before": 100, "est_tokens_after": 10,
+                     "rows_before": 10, "rows_after": 2, "removed": 8, "main_s": 1.0, "compress_s": 2.0,
+                     "qa": {"batches": [{"numbers": numbers, "text": json.dumps(given)}],
+                            "calls": [{"elapsed_s": 1.0, "prompt_tokens": 50}]}}
+            scored = run.score_cycle(cycle, gold, history, method)
+            records.append({"job": method, "fixture": SCENARIOS[0]["id"], "method": method, "rep": 1,
+                            "cycles_requested": 1, "status": "ok", "cycles": [scored]})
+        return records
+
+    def test_score_cycle_and_report(self):
+        runs = self.synthetic_runs()
+        self.assertEqual(sum(mark[0] == "1" for mark in runs[0]["cycles"][0]["marks"]), 45)
+        self.assertEqual(sum(mark[0] == "1" for mark in runs[1]["cycles"][0]["marks"]), 46)
+        meta = {"config": {"model": "fake", "context_length": 1, "threshold": 0.95, "replicates": 1},
+                "plugin": {"commit": None}, "hermes": {"commit": None, "clean": True}, "started_utc": "2026"}
+        result = run.aggregate(runs, meta)
+        self.assertEqual(result["methods"]["warm_ledger"]["categories"]["goal"]["k"], 4)
+        self.assertEqual(result["methods"]["warm_ledger"]["success"]["k"], 1)
+        self.assertIn("H1_ledger_helps", result["decision"]["checks"])
+        self.assertFalse(result["decision"]["checks"]["H1_ledger_helps"])
+        text = run.markdown(result, meta)
+        self.assertIn("## Pre-registered decision rule", text)
+        self.assertNotIn("1284.37", text)
+
+
+if __name__ == "__main__":
+    unittest.main()
