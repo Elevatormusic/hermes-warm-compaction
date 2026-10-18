@@ -79,10 +79,11 @@ def plugin_state(plugin_root: Path) -> dict[str, Any]:
 def hermes_state(source: Path) -> dict[str, Any]:
     def git(*args):
         try:
-            return subprocess.run(["git", "-C", str(source), *args], capture_output=True, text=True,
-                                  timeout=60).stdout.strip()
+            done = subprocess.run(["git", "-C", str(source), *args], capture_output=True, text=True, timeout=60)
         except Exception:
             return None
+        # A folder that is not a Git checkout gives an error: its state is unknown, not clean.
+        return done.stdout.strip() if done.returncode == 0 else None
     return {"commit": git("rev-parse", "HEAD"), "clean": git("status", "--porcelain") == ""}
 
 
@@ -290,6 +291,10 @@ def command_run(args) -> int:
     fixtures.write_all(history_dir, history_dir / "gold-check")
     for spec in fixtures.SCENARIOS:
         fixtures.load(history_dir / f"{spec['id']}.history.json", GOLD_DIR / f"{spec['id']}.gold.json")
+    hermes = hermes_state(Path(config["hermes_source"]))
+    if not hermes["clean"]:
+        # Results must come from a clean, known Hermes source.
+        raise SystemExit("hermes_source is not a clean Git checkout; stop before any job runs")
     plugin = plugin_state(Path(config["plugin_source"]))
     # A plugin folder made with git archive has no Git data: the config can name its commit.
     plugin["commit"] = plugin["commit"] or config.get("plugin_commit")
@@ -300,7 +305,7 @@ def command_run(args) -> int:
                 "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "config": {key: value for key, value in config.items()
                            if key not in ("hermes_python", "hermes_source", "plugin_source", "history_dir")},
-                "plugin": plugin, "hermes": hermes_state(Path(config["hermes_source"])),
+                "plugin": plugin, "hermes": hermes,
                 "harness_sha256": {path.name: sha256_file(path) for path in sorted(HERE.glob("*.py"))},
                 "gold_sha256": {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))},
                 "host": {"os": platform.system(), "machine": platform.machine(),
@@ -540,8 +545,11 @@ def decide(result: dict) -> dict[str, Any]:
         checks["H3b_no_loss_on_model_categories"] = all(
             warm[c]["rate"] is not None and stock[c]["rate"] is not None and warm[c]["high"] >= stock[c]["rate"]
             for c in ("goal", "decision", "next_step"))
-        checks["H4_smaller_than_stock"] = (methods["warm_ledger"]["tokens"]["est_after"]["mean"] or 0) <= (
-            methods["stock_hermes"]["tokens"]["est_after"]["mean"] or 0)
+        warm_after = methods["warm_ledger"]["tokens"]["est_after"]["mean"]
+        stock_after = methods["stock_hermes"]["tokens"]["est_after"]["mean"]
+        # None: no run of one method compacted, so the check has no data. It does not pass.
+        checks["H4_smaller_than_stock"] = (None if warm_after is None or stock_after is None
+                                           else warm_after <= stock_after)
     if "warm_ledger" in methods and methods["warm_ledger"]["success"]:
         checks["S1_warm_success_at_least_90"] = (methods["warm_ledger"]["success"]["rate"] or 0) >= 0.90
     if "warm_ledger" in result["drift"]:
@@ -607,6 +615,8 @@ def markdown(result: dict, meta: dict) -> str:
     for category in CATEGORIES:
         lines.append(f"| {category} | " + " | ".join(pct(methods[n]["categories"][category]) for n in names) + " |")
     lines.append("| overall (without recent) | " + " | ".join(pct(methods[n]["overall"]) for n in names) + " |")
+    lines.append("| est. tokens after (mean) | " + " | ".join(num(methods[n]["tokens"]["est_after"], 0)
+                                                             for n in names) + " |")
     lines += ["", "## Accuracy when the evidence rows were compacted", "",
               "Only questions whose evidence rows are not in the compacted history with the same text.", "",
               "| Category | " + " | ".join(methods[n]["label"] for n in names) + " |",
@@ -653,7 +663,8 @@ def markdown(result: dict, meta: dict) -> str:
                              f"{num(cycle['est_tokens_after'], 0)} |")
     lines += ["", "## Pre-registered decision rule", ""]
     for key, value in result["decision"]["checks"].items():
-        lines.append(f"- {key}: {'pass' if value else 'fail'}")
+        state = "unavailable (no data; counts as fail)" if value is None else "pass" if value else "fail"
+        lines.append(f"- {key}: {state}")
     for line in result["decision"]["verdict"]:
         lines.append(f"- Verdict: {line}")
     return "\n".join(lines) + "\n"

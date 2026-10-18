@@ -203,6 +203,27 @@ class RunTest(unittest.TestCase):
                             "cycles_requested": 1, "status": "ok", "cycles": [scored]})
         return records
 
+    def test_size_check_has_no_data_when_no_ledger_run_compacts(self):
+        runs = self.synthetic_runs()
+        runs[0]["cycles"][0]["compacted"] = False
+        meta = {"config": {}, "plugin": {}, "hermes": {}}
+        result = run.aggregate(runs, meta)
+        self.assertIsNone(result["methods"]["warm_ledger"]["tokens"]["est_after"]["mean"])
+        self.assertIsNone(result["decision"]["checks"]["H4_smaller_than_stock"])
+        self.assertIn("Warm path + ledger does not meet the rule", " ".join(result["decision"]["verdict"]))
+
+    def test_run_stops_before_jobs_when_hermes_is_not_clean(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "hermes"
+            source.mkdir()
+            self.assertEqual(run.hermes_state(source), {"commit": None, "clean": False})
+            config = {"hermes_source": str(source), "plugin_source": str(Path(run.__file__).parents[2]),
+                      "history_dir": str(Path(folder) / "fixtures"), "threshold": 0.95, "methods": []}
+            (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "not a clean Git checkout"):
+                run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(Path(folder) / "out")])
+            self.assertFalse((Path(folder) / "out" / "runs.jsonl").exists())
+
     def test_score_cycle_and_report(self):
         runs = self.synthetic_runs()
         self.assertEqual(sum(mark[0] == "1" for mark in runs[0]["cycles"][0]["marks"]), 45)

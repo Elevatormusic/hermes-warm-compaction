@@ -187,6 +187,14 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
             messages = list(reply.get("messages") or history)
             item["main_prompt_tokens"] = getattr(engine, "last_prompt_tokens", None)
             item["rows_after_main"] = len(messages)
+            if job["engine"] == "none":
+                # The control: the same main turn, no compaction. The answers use the complete history.
+                item.update(compress_error=None, compress_s=None, removed=0, outcome={"path": "none"},
+                            rows_after=len(messages), est_tokens_after=estimate_tokens(wire_rows(messages)),
+                            compacted=False, history=wire_rows(messages))
+                item["qa"] = ask(job, fixture["system"], messages)
+                history = messages
+                continue
             session = {"agent": agent, "history": list(messages), "history_lock": threading.Lock(),
                        "history_version": 1, "session_key": agent.session_id}
             started = time.monotonic()
@@ -228,16 +236,7 @@ def main() -> int:
     fixture = json.loads(Path(job["fixture_path"]).read_text(encoding="utf-8"))
     out = {"status": "failed", "error": None, "cycles": [], "python": sys.version.split()[0]}
     try:
-        if job["engine"] == "none":
-            # The control: no compaction. The answers come from the complete history.
-            item = {"cycle": 1, "rows_before": len(fixture["rows"]),
-                    "est_tokens_before": estimate_tokens(wire_rows(fixture["rows"])), "compacted": False,
-                    "outcome": {"path": "none"}, "history": wire_rows(fixture["rows"])}
-            item["rows_after"], item["est_tokens_after"] = item["rows_before"], item["est_tokens_before"]
-            out["cycles"].append(item)
-            item["qa"] = ask(job, fixture["system"], fixture["rows"])
-        else:
-            run_cycles(job, fixture, Path(os.environ["HERMES_HOME"]), out)
+        run_cycles(job, fixture, Path(os.environ["HERMES_HOME"]), out)
         out["status"] = "ok"
     except Exception as error:
         out["error"] = type(error).__name__
