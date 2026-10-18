@@ -7,8 +7,11 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Added
 
 - Add a work ledger after the summary: the commands that ran, with their exit codes and first error lines, and the files that tools changed. Code writes it from the tool calls and results; no model writes it. A later compaction keeps the earlier ledger lines. Setting `ledger` (default true).
+- Add a ledger-only summary when both model summaries fail and the rows before the tail have tool work (`path=ledger`). Setting `ledger_on_failure` (default true).
 
 ### Changed
+
+- The fallback summary uses the free handoff sections of the warm request by default (`fallback_format: relaxed`). The source-quote format stays available as `fallback_format: quoted`. A relaxed reply without its end marker passes when all headings are present and the reported output count is below the generation limit. Small local models could not write the quoted format: a local 4B model passed 0 of 16 quoted replies and 10 of 10 relaxed replies in one synthetic test.
 
 - Give fallback generation an 8,192-token allowance while keeping the visible summary within 2,048 estimated tokens. Check a fresh end marker and the summary content instead of refusing a short reply because its reported output count can include thinking. Retry an invalid reply once from the original transcript, within a shared deadline and cancellation checks. The public API still cannot report the server stop reason or stop an in-flight call.
 - Ask the fallback model to keep unreported progress unknown and keep rules separate from confirmed actions. Preserve approval conditions and do not add a goal from a prohibition. These prompt rules do not guarantee factual accuracy.
