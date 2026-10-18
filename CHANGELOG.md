@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+
+- Add a work ledger after the summary: the commands that ran, with their exit codes and first error lines, and the files that tools changed. Code writes it from the tool calls and results; no model writes it. A later compaction keeps the earlier ledger lines. Setting `ledger` (default true).
+
 ### Changed
 
 - Give fallback generation an 8,192-token allowance while keeping the visible summary within 2,048 estimated tokens. Check a fresh end marker and the summary content instead of refusing a short reply because its reported output count can include thinking. Retry an invalid reply once from the original transcript, within a shared deadline and cancellation checks. The public API still cannot report the server stop reason or stop an in-flight call.

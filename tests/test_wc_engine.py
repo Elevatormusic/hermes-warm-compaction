@@ -1862,6 +1862,51 @@ class EngineTest(unittest.TestCase):
         self.assertIn("Use at most 1200 words.", sent)
         self.assertNotIn("600 words", sent)
 
+    def ledger_rows(self):
+        # Synthetic work before the tail: one failed command and one file change.
+        return [user("Synthetic task: fix the timeout test."),
+                assistant("", [("c1", "terminal", json.dumps({"command": "pytest -q"}))]),
+                tool("c1", json.dumps({"output": "FAILED tests/test_api.py::test_timeout - AssertionError: 30 != 60",
+                                       "exit_code": 1, "error": None})),
+                assistant("", [("c2", "patch", json.dumps({"path": "src/api.py", "old_string": "30",
+                                                            "new_string": "60"}))]),
+                tool("c2", json.dumps({"success": True})),
+                *old_turns()]
+
+    def summary_text(self, new):
+        return "\n".join(str(row.get("content")) for row in new if row.get("_compressed_summary"))
+
+    def test_the_work_ledger_is_in_the_summary_on_both_paths(self):
+        from warm_compaction import ledger
+        for warm in (True, False):
+            with self.subTest(warm=warm):
+                engine = self.make(warm=warm)
+                rows, reply = self.ledger_rows(), assistant("final")
+                if warm:
+                    self.seed(rows, reply)
+                new = engine.compress([*rows, reply])
+                self.assertEqual(engine.warm_last["path"], "warm" if warm else "fallback")
+                text = self.summary_text(new)
+                self.assertIn(ledger.HEADING, text)
+                self.assertIn("- `pytest -q`: exit 1; FAILED tests/test_api.py::test_timeout", text)
+                self.assertIn("- src/api.py: changed", text)
+                self.assertLess(text.index(ledger.HEADING), text.index("## Copied user messages"))
+
+    def test_the_ledger_setting_false_keeps_the_summary_without_a_ledger(self):
+        from warm_compaction import ledger
+        engine = self.make(warm=False, ledger=False)
+        rows = self.ledger_rows()
+        new = engine.compress([*rows, assistant("final")])
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        self.assertNotIn(ledger.HEADING, self.summary_text(new))
+
+    def test_the_ledger_uses_only_the_summary_budget_that_is_left(self):
+        from warm_compaction import ledger
+        engine = self.make(warm=False)
+        engine._summary_budget = lambda *args, **kwargs: 0
+        new = engine.compress([*self.ledger_rows(), assistant("final")])
+        self.assertNotIn(ledger.HEADING, self.summary_text(new))
+
     def test_a_provider_outside_the_list_skips_the_warm_request(self):
         # The route is kept out of the warm path: no warm request is sent, and the fallback summary runs.
         engine = self.make(warm_providers="opencode-go,commandcode")
@@ -2239,16 +2284,16 @@ class SettingsTest(unittest.TestCase):
 
     def test_valid_values(self):
         values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
-                  "summary_words": 1200, "warm_providers": "opencode-go,commandcode"}
+                  "summary_words": 1200, "warm_providers": "opencode-go,commandcode", "ledger": False}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
         values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
-                  "summary_words": 0, "warm_providers": 7}
+                  "summary_words": 0, "warm_providers": 7, "ledger": "yes"}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 6)
+        self.assertEqual(len(logs.output), 7)
 
     def test_a_word_count_below_one_uses_the_default(self):
         def reader(values):

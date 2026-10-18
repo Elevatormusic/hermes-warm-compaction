@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from agent.context_engine import ContextEngine
 
-from . import fallback, handoff, layout, native, protocol, warm
+from . import fallback, handoff, layout, ledger, native, protocol, warm
 from .capture import CaptureStore, key_stamp
 from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 NAME = "warm_compaction"
 DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
                             "summary_words": handoff.DEFAULT_SUMMARY_WORDS,
-                            "warm_providers": ""}
+                            "warm_providers": "", "ledger": True}
 THRESHOLD_RANGE = (0.10, 0.95)
 TAIL_SHARE = 0.025
 TAIL_MIN = 10_000
@@ -73,7 +73,7 @@ class CompactionAborted(RuntimeError):
 
 
 def _valid(key: str, value: Any) -> bool:
-    if key == "warm":
+    if key in ("warm", "ledger"):
         return isinstance(value, bool)
     if key == "warm_providers":
         return isinstance(value, str)
@@ -401,6 +401,15 @@ class WarmCompactionEngine(ContextEngine):
             return messages
         if summary is None:
             return self._abort(messages, record, started, attempt)
+        if self._settings["ledger"]:
+            # The work ledger: commands, results, and file changes of the rows before the tail, written by code.
+            # It takes the summary budget that the summary left, with room for a fallback cut quote.
+            quote_room = fallback.CUT_QUOTE_CHARS // 4 if record["path"] == "fallback" and prepend else 0
+            ledger_tokens = min(ledger.MAX_TOKENS, self._summary_budget(overhead, reserve)
+                                - estimate_tokens(summary) - quote_room - 4)
+            block = ledger.build(messages[:start], prefixes, ledger_tokens) if ledger_tokens > 0 else ""
+            if block:
+                summary = summary.rstrip() + "\n\n" + block
         # The prepended user row must be in the tail: when it does not fit in the room, keep its start and end.
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum. The room is after the
         # tail as the cap cuts it: an uncut large tool result would leave no room.
