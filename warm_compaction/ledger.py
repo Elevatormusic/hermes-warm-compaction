@@ -32,6 +32,11 @@ IDENTIFIER_KINDS = (
     ("references", re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b|(?<![\w&])#\d{2,6}\b|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)"
                               r"[0-9a-f]{7,40}\b|\bv\d+\.\d+(?:\.\d+)?\b"), 30),
     ("errors", re.compile(r"\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b"), 15),
+    # Environment variables that code reads: a setting of the project, also when only a file read shows it. A tool
+    # result can be JSON text, so a quote can have a backslash before it.
+    ("environment", re.compile(r"(?:\benviron(?:\.get)?\(\s*|\benviron\[\s*|\bgetenv\(\s*)\\?[\"']"
+                               r"([A-Z][A-Z0-9_]{2,63})\\?[\"']|\bprocess\.env\.([A-Z][A-Z0-9_]{2,63})\b"
+                               r"|\$\{([A-Z][A-Z0-9_]{2,63})\}"), 20),
 )
 IDENTIFIER_CHARS = 2_400
 # A sentence of the assistant that gives a reason: the exact words keep a decision and why it was made.
@@ -204,7 +209,8 @@ def notes(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[dict[s
             if role != "tool":
                 source = text + "\n" + arguments
             for match in pattern.finditer(source):
-                value = match.group(0).rstrip(".,;:")
+                # A kind with a group (environment) keeps the name only.
+                value = next((group for group in match.groups() if group), match.group(0)).rstrip(".,;:")
                 order += 1
                 counts[kind][value] = counts[kind].get(value, 0) + 1
                 seen[kind][value] = order

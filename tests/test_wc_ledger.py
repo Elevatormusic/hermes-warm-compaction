@@ -152,6 +152,19 @@ class LedgerTest(unittest.TestCase):
         text = ledger.build(rows, PREFIXES)
         self.assertIn(ledger.IDENTIFIERS_HEADING + "\n- names: ", text)
 
+    def test_environment_variables_come_also_from_a_file_read(self):
+        # A setting that only a file read shows (synthetic file text).
+        source = ('MODE = os.environ.get("SYNTH_ROUNDING_MODE", "half_even")\nKEY = os.getenv(\'SYNTH_KEY\')\n'
+                  'const url = process.env.SYNTH_URL;\nrun --home ${SYNTH_HOME}\nnot_env = environ_text("lower")\n')
+        expected = {"SYNTH_ROUNDING_MODE", "SYNTH_KEY", "SYNTH_URL", "SYNTH_HOME"}
+        # As plain text, and as the JSON output of a terminal tool (the quotes have backslashes).
+        for output in (source, json.dumps({"output": source, "exit_code": 0})):
+            with self.subTest(json=output is not source):
+                rows = [assistant("", [("r1", "read_file", json.dumps({"path": "settings.py"}))]), tool("r1", output)]
+                identifiers, _reasons = ledger.notes(rows, PREFIXES)
+                self.assertEqual(set(identifiers["environment"]), expected)
+                self.assertIn("- environment: ", ledger.build(rows, PREFIXES))
+
     def test_reasons_are_exact_assistant_sentences(self):
         rows = [user("Do not change the global context because I said so."),
                 assistant("Read the file.\n\nI will not change the global context, because the reports service "
