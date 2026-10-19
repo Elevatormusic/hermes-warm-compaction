@@ -40,7 +40,8 @@ IDENTIFIER_KINDS = (
 )
 IDENTIFIER_CHARS = 2_400
 # A sentence of the assistant that gives a reason: the exact words keep a decision and why it was made.
-REASON_WORDS = re.compile(r"\b(?:because|since|so that|instead of|rather than|in order to|due to)\b", re.I)
+REASON_WORDS = re.compile(r"\b(?:because|since|so that|instead of|rather than|in order to|due to|to avoid|to prevent)\b"
+                          r"|,\s+so\b", re.I)
 REASON_CHARS = 240
 MAX_REASONS = 20
 COMMAND_CHARS = 160
@@ -57,7 +58,12 @@ FILE_ACTIONS = (("delete", "deleted"), ("remove", "deleted"), ("move", "moved"),
 PATCH_HEADER = re.compile(r"^\*\*\* (Update|Add|Delete|Move) File: (.+?)\s*$", re.MULTILINE)
 PATCH_ACTIONS = {"Update": "changed", "Add": "written", "Delete": "deleted", "Move": "moved"}
 # A line that reports a failure in tool output.
-ERROR_LINE = re.compile(r"\b(error|errors|failed|failure|exception|traceback|fatal|denied|not found)\b", re.I)
+ERROR_LINE = re.compile(r"\b(error|errors|fail|failed|failure|exception|traceback|fatal|panic|denied|not found)\b",
+                        re.I)
+# A compiler, linter, or test diagnostic: a file name and a line number ("store_test.go:57:", "a.py:3:1:").
+FILE_LINE = re.compile(r"[\w./\\-]+\.\w{1,8}:\d+(?::\d+)?:")
+# The error lines that a failed command keeps: a test failure can need its name and its message.
+MAX_ERROR_LINES = 3
 # The exit code in plain text output ("exit code 2", "Exit status: 1").
 EXIT_TEXT = re.compile(r"\bexit(?:ed)?(?: with)?(?: code| status)?[:= ]+(-?\d+)\b", re.I)
 
@@ -80,11 +86,18 @@ def _arguments(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _first_error(text: str) -> str:
+def _first_error(text: str, count: int = 1) -> str:
+    """The first count distinct lines that report an error or a diagnostic, joined with " | ". A line of four
+    characters or less ("FAIL") is a summary, not a diagnostic."""
+    found: list[str] = []
     for line in text.splitlines():
-        if line.strip() and ERROR_LINE.search(line):
-            return _one_line(line, DETAIL_CHARS)
-    return ""
+        if len(line.strip()) > 4 and (ERROR_LINE.search(line) or FILE_LINE.search(line)):
+            line = _one_line(line, DETAIL_CHARS)
+            if line not in found:
+                found.append(line)
+            if len(found) >= count:
+                break
+    return " | ".join(found)
 
 
 def _outcome(result: str | None) -> tuple[str, bool]:
@@ -102,7 +115,8 @@ def _outcome(result: str | None) -> tuple[str, bool]:
         output = data.get("output")
         output = output if isinstance(output, str) else ""
         if isinstance(code, int) and not isinstance(code, bool):
-            detail = _one_line(str(error), DETAIL_CHARS) if error else (_first_error(output) if code else "")
+            detail = (_one_line(str(error), DETAIL_CHARS) if error
+                      else _first_error(output, MAX_ERROR_LINES) if code else "")
             return f"exit {code}" + (f"; {detail}" if detail else ""), code != 0
         if error:
             return "error; " + _one_line(str(error), DETAIL_CHARS), True
@@ -114,7 +128,8 @@ def _outcome(result: str | None) -> tuple[str, bool]:
     detail = _first_error(result)
     if match:
         code = int(match.group(1))
-        return f"exit {code}" + (f"; {detail}" if code and detail else ""), code != 0
+        detail = _first_error(result, MAX_ERROR_LINES) if code else ""
+        return f"exit {code}" + (f"; {detail}" if detail else ""), code != 0
     if result.lstrip().lower().startswith("error"):
         return "error; " + _one_line(result.lstrip(), DETAIL_CHARS), True
     return ("exit unknown; " + detail if detail else "exit unknown"), False

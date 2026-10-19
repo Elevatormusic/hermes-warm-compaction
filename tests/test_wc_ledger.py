@@ -152,6 +152,26 @@ class LedgerTest(unittest.TestCase):
         text = ledger.build(rows, PREFIXES)
         self.assertIn(ledger.IDENTIFIERS_HEADING + "\n- names: ", text)
 
+    def test_a_failed_command_keeps_its_diagnostic_lines(self):
+        # Synthetic Go test and vet output: the diagnostics have a file and line, not the word "error".
+        cases = (("--- FAIL: TestQuerySince (0.01s)\n    store_test.go:57: got 14 records, want 9\nFAIL\n"
+                  "FAIL\tsynth/internal/store\t0.188s",
+                  "exit 1; --- FAIL: TestQuerySince (0.01s) | store_test.go:57: got 14 records, want 9 | "
+                  "FAIL synth/internal/store 0.188s"),
+                 ("# synth/cmd/tool\ncmd/tool/export.go:41:2: unreachable code",
+                  "exit 1; cmd/tool/export.go:41:2: unreachable code"),
+                 ("--- FAIL: TestExport (0.00s)\n    --- FAIL: TestExport/utc_boundary (0.00s)\n"
+                  "        export_test.go:88: record was exported\nFAIL",
+                  "exit 1; --- FAIL: TestExport (0.00s) | --- FAIL: TestExport/utc_boundary (0.00s) | "
+                  "export_test.go:88: record was exported"))
+        for output, expected in cases:
+            with self.subTest(expected=expected):
+                rows = [terminal("g1", "go test ./..."), result("g1", output, exit_code=1)]
+                self.assertIn(f"- `go test ./...`: {expected}\n", ledger.build(rows, PREFIXES) + "\n")
+        # A passing command keeps no detail line.
+        rows = [terminal("g2", "go test ./..."), result("g2", "ok  synth/a.go:3: note", exit_code=0)]
+        self.assertIn("- `go test ./...`: exit 0\n", ledger.build(rows, PREFIXES) + "\n")
+
     def test_environment_variables_come_also_from_a_file_read(self):
         # A setting that only a file read shows (synthetic file text).
         source = ('MODE = os.environ.get("SYNTH_ROUNDING_MODE", "half_even")\nKEY = os.getenv(\'SYNTH_KEY\')\n'
@@ -169,10 +189,12 @@ class LedgerTest(unittest.TestCase):
         rows = [user("Do not change the global context because I said so."),
                 assistant("Read the file.\n\nI will not change the global context, because the reports service "
                           "shares the process. Next, run the tests."),
-                assistant("I chose Decimal instead of float.")]
+                assistant("I chose Decimal instead of float."),
+                assistant("I put the parser in internal/timeparse, so the import command can reuse it. So be it.")]
         _identifiers, reasons = ledger.notes(rows, PREFIXES)
         self.assertEqual(reasons, ["I will not change the global context, because the reports service shares the "
-                                   "process.", "I chose Decimal instead of float."])
+                                   "process.", "I chose Decimal instead of float.",
+                                   "I put the parser in internal/timeparse, so the import command can reuse it."])
 
     def test_notes_without_tool_work_give_a_block_only_without_require_work(self):
         rows = [user("hi"), assistant("I use round_half_even because the audit needs it.")]
