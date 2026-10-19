@@ -652,6 +652,8 @@ CLI_LIMITS = [
     "in all methods.",
     "Their compaction time is the duration that each CLI records (Codex: from turn start to the compacted item; "
     "Claude Code: compactMetadata.durationMs), not the Hermes compress call time.",
+    "The Codex CLI compaction uses the app server request thread/compact/start, which is marked experimental in the "
+    "pinned version; the Claude Code compaction uses /compact in print mode.",
     "The CLI methods were added after the pre-registration; the pre-registered decision rule does not use them.",
 ]
 
