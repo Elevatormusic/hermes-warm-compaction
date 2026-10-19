@@ -183,6 +183,9 @@ class RunTest(unittest.TestCase):
         self.assertEqual(run.classify({"compacted": False, "outcome": {}}, "stock_hermes"), "no_change")
         static = {"compacted": True, "history": [{"role": "user", "content": run.STATIC_FALLBACK_TEXT}]}
         self.assertEqual(run.classify(static, "stock_hermes"), "static_fallback")
+        preflight = {"compacted": True, "preflight": True, "outcome": {"path": "warm", "trigger": "preflight"}}
+        self.assertEqual(run.classify(preflight, "warm_ledger"), "preflight")
+        self.assertIn("preflight", run.ACCEPTED_PATHS)
 
     def synthetic_runs(self):
         """Fake worker output for one fixture: the control answers all, the ledger run all but one."""

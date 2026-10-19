@@ -36,7 +36,7 @@ WORKER = HERE / "worker.py"
 CLI_WORKER = HERE / "cli_worker.py"
 CATEGORIES = ("goal", "user_instruction", "command_outcome", "file_changed", "identifier", "decision", "task_state",
               "next_step", "recent")
-ACCEPTED_PATHS = ("warm", "fallback", "model")
+ACCEPTED_PATHS = ("warm", "fallback", "model", "preflight")
 STATIC_FALLBACK_TEXT = "Summary generation was unavailable"
 # The compaction methods. "requires" names plugin settings that must exist in the plugin source.
 METHODS: dict[str, dict[str, Any]] = {
@@ -165,6 +165,9 @@ def classify(cycle: dict, method: str) -> str:
     engine = METHODS[method]["engine"]
     if engine == "none":
         return "none"
+    if cycle.get("preflight"):
+        # The engine compacted before the main request; outcome.path keeps the summary path of that compaction.
+        return "preflight"
     outcome = cycle.get("outcome") or {}
     if engine == "warm_compaction":
         path = outcome.get("path")
@@ -218,10 +221,11 @@ def score_cycle(cycle: dict, gold: dict, history: dict, method: str) -> dict:
             "1" if answer is not None and not scoring.is_unknown(answer) else "0")))
     outcome = cycle.get("outcome") or {}
     keep = ("path", "reason", "fallback_reason", "elapsed_s", "prompt_tokens", "cached_tokens", "fallback_attempts",
-            "fallback_end_marker", "fallback_output_tokens", "fallback_body_tokens", "compression_count")
+            "fallback_end_marker", "fallback_output_tokens", "fallback_body_tokens", "compression_count", "trigger")
     calls = qa.get("calls", [])
     return {
         "cycle": cycle.get("cycle"), "path": classify(cycle, method), "compacted": bool(cycle.get("compacted")),
+        "preflight": bool(cycle.get("preflight")),
         "compress_error": cycle.get("compress_error"), "outcome": {k: outcome.get(k) for k in keep if k in outcome},
         "removed": cycle.get("removed"), "rows_before": cycle.get("rows_before"), "rows_after": cycle.get("rows_after"),
         "est_tokens_before": cycle.get("est_tokens_before"), "est_tokens_after": cycle.get("est_tokens_after"),
@@ -675,6 +679,10 @@ def markdown(result: dict, meta: dict) -> str:
         lines.append(f"| {entry['label']} | {entry['runs']} | {pct(entry['success'])} | "
                      f"{', '.join(f'{k}: {v}' for k, v in sorted(entry['paths'].items()))} | "
                      f"{', '.join(f'{k}: {v}' for k, v in sorted(entry['failure_reasons'].items())) or '-'} |")
+    if any(entry["paths"].get("preflight") for entry in methods.values()):
+        lines += ["", "Path `preflight`: the engine compacted during the main turn, before the main request (for "
+                  "example, the plugin preflight check with no captured request). The questions use that history, "
+                  "and the main request ran on the compacted history, unlike the other runs."]
     lines += ["", "## Accuracy by category (all questions)", "",
               "| Category | " + " | ".join(methods[n]["label"] for n in names) + " |",
               "| --- | " + " | ".join("---" for _ in names) + " |"]

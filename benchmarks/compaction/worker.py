@@ -195,6 +195,17 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
                 item["qa"] = ask(job, fixture["system"], messages)
                 history = messages
                 continue
+            if len(messages) < len(history):
+                # The engine compacted during the main turn (its preflight check before the main request). That is
+                # the compaction of this cycle: the main request ran on the compacted history. No manual compress.
+                item.update(compress_error=None, compress_s=None, removed=len(history) + 1 - len(messages),
+                            outcome={**engine_outcome(engine), "trigger": "preflight"},
+                            rows_after=len(messages), est_tokens_after=estimate_tokens(wire_rows(messages)),
+                            compacted=True, preflight=True, history=wire_rows(messages))
+                item["compress_s"] = item["outcome"].get("elapsed_s")
+                item["qa"] = ask(job, fixture["system"], messages)
+                history = messages
+                continue
             session = {"agent": agent, "history": list(messages), "history_lock": threading.Lock(),
                        "history_version": 1, "session_key": agent.session_id}
             started = time.monotonic()
