@@ -9,9 +9,22 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import wc_hermes_stub
-from warm_compaction.capture import CaptureStore, UnsupportedRequest, final_body, key_stamp
+from warm_compaction.capture import (CaptureStore, FORK_TURN_ORIGINS, REVIEW_PROMPT_PREFIX,
+                                    SIDE_QUESTION_PROMPT_PREFIX, UnsupportedRequest, final_body, key_stamp)
 from warm_compaction.rows import row_digest
 from wc_fixtures import user
+
+# A copy of the current Hermes side-question fork prompt (agent/side_question.py:
+# _FORK_PROMPT), so the replacement test uses the real text. The pinned
+# prefix test (test_fork_prompt_prefixes_are_pinned_to_the_hermes_prompt_texts) keeps
+# this in step with the plugin's SIDE_QUESTION_PROMPT_PREFIX.
+_SIDE_QUESTION_PROMPT = (
+    "The user asked a quick SIDE question with /btw while the main work continues in the original "
+    "session.\nRules:\n- Answer ONLY the side question, using the conversation above as context. Do not continue, "
+    "redo, or critique the main task.\n- Do NOT call any tools — they are disabled for this side question. Answer "
+    "directly in text.\n- If the conversation does not contain enough information to answer, say so plainly instead "
+    "of guessing.\n- Be concise and direct."
+)
 
 
 def request(**extra):
@@ -78,10 +91,10 @@ class CaptureStoreTest(unittest.TestCase):
         self.history = [user("u")]
 
     def run_request(self, request_id="r1", session="s1", api_mode="chat_completions", finish="stop",
-                    body=None, message=None, usage=None, user_message=None):
+                    body=None, message=None, usage=None, user_message=None, turn_origin=None):
         self.store.on_pre_api_request(api_request_id=request_id, session_id=session, conversation_history=self.history,
                                       model="m", base_url="http://x/v1", api_mode=api_mode, request={"sanitized": 1},
-                                      user_message=user_message)
+                                      user_message=user_message, turn_origin=turn_origin)
         calls = []
         result = self.store.on_llm_execution(request=body if body is not None else request(),
                                              next_call=lambda: calls.append(1) or "response", api_request_id=request_id,
@@ -155,6 +168,46 @@ class CaptureStoreTest(unittest.TestCase):
             request_id="r2", user_message="Review the conversation above and consider saving to memory.")
         self.assertEqual((result, calls), ("response", [1]))
         self.assertEqual(self.store.latest("s1"), saved)
+
+    def test_side_question_fork_request_is_not_captured(self):
+        self.run_request(user_message=(_SIDE_QUESTION_PROMPT
+                                       + "\n\nSide question: what time is it?"))
+        self.assertIsNone(self.store.latest("s1"))
+
+    def test_side_question_fork_request_does_not_replace_a_live_capture(self):
+        # The /btw hole: the side-question fork (agent/side_question.py) also shares the
+        # parent's session_id and model, so its request must not replace the live
+        # capture either (the next warm compaction would hit history_changed:digest).
+        self.run_request()
+        saved = self.store.latest("s1")
+        self.assertIsNotNone(saved)
+        result, calls = self.run_request(
+            request_id="r2", user_message=(_SIDE_QUESTION_PROMPT
+                                          + "\n\nSide question: what time is it?"))
+        self.assertEqual((result, calls), ("response", [1]))
+        self.assertEqual(self.store.latest("s1"), saved)
+
+    def test_turn_origin_marks_a_fork_without_a_known_prefix(self):
+        # Where the host passes the turn's origin, it is the authoritative signal: a fork
+        # prompt Hermes reworded (no known prefix) is still recognised by its origin.
+        for origin in FORK_TURN_ORIGINS:
+            with self.subTest(origin=origin):
+                self.run_request(request_id=origin, turn_origin=origin,
+                                user_message="an unrecognised fork prompt")
+                self.assertIsNone(self.store.latest("s1"))
+
+    def test_unknown_turn_origin_falls_back_to_the_prompt_check(self):
+        self.run_request(request_id="r2", turn_origin="live",
+                        user_message="Review the conversation above and tell me what we decided.")
+        self.assertIsNone(self.store.latest("s1"))
+
+    def test_fork_prompt_prefixes_are_pinned_to_the_hermes_prompt_texts(self):
+        # Pin the prefixes to the current Hermes prompt texts (agent/background_review.py:
+        # _SKILL_REVIEW_PROMPT / _MEMORY_REVIEW_PROMPT / _COMBINED_REVIEW_PROMPT;
+        # agent/side_question.py: _FORK_PROMPT) so a reword is visible in review.
+        self.assertEqual(REVIEW_PROMPT_PREFIX, "Review the conversation above")
+        self.assertEqual(SIDE_QUESTION_PROMPT_PREFIX, "The user asked a quick SIDE question with /btw")
+        self.assertEqual(FORK_TURN_ORIGINS, ("background_review", "side_question"))
 
     def test_review_prompt_in_history_still_captures_the_live_turn(self):
         self.history = [user("Review the conversation above and consider saving to memory."),
