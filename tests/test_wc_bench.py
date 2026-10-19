@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmarks.compaction import fixtures, run, scoring
+from benchmarks.compaction import cli_worker, fixtures, run, scoring
 from benchmarks.compaction.scenarios import SCENARIOS
 
 GOLD_DIR = Path(run.__file__).resolve().parent / "fixtures"
@@ -238,6 +238,81 @@ class RunTest(unittest.TestCase):
         text = run.markdown(result, meta)
         self.assertIn("## Pre-registered decision rule", text)
         self.assertNotIn("1284.37", text)
+
+
+class CliWorkerTest(unittest.TestCase):
+    """Session file conversion and context read-back for the Codex CLI and Claude Code methods (synthetic data)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.history, _gold = fixtures.build(SCENARIOS[0])
+        cls.base = cli_worker.datetime(2026, 1, 2, 3, 4, 5, tzinfo=cli_worker.timezone.utc)
+
+    def test_codex_rollout_keeps_every_row(self):
+        lines = cli_worker.codex_rollout(self.history, "sid", Path("cwd"), "0.0.0", "local", self.base)
+        self.assertEqual(lines[0]["type"], "session_meta")
+        items = [line["payload"] for line in lines if line["type"] == "response_item"]
+        rows = self.history["rows"]
+        calls = [call for row in rows for call in row.get("tool_calls") or []]
+        self.assertEqual(sum(item["type"] == "function_call" for item in items), len(calls))
+        self.assertEqual(sum(item["type"] == "function_call_output" for item in items),
+                         sum(row["role"] == "tool" for row in rows))
+        self.assertEqual([item["arguments"] for item in items if item["type"] == "function_call"],
+                         [call["function"]["arguments"] for call in calls])
+
+    def test_codex_context_reads_the_last_replacement_history(self):
+        stamp = "2026-01-02T03:04:05.000Z"
+        lines = [{"timestamp": stamp, "type": "event_msg", "payload": {"type": "task_started"}},
+                 {"timestamp": "2026-01-02T03:04:07.500Z", "type": "compacted", "payload": {
+                     "message": "SUMMARY", "replacement_history": [
+                         {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "goal"}]},
+                         {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "x"}]},
+                         {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "SUMMARY"}]},
+                     ]}}]
+        rows, meta = cli_worker.codex_context(lines)
+        self.assertEqual(rows, [{"role": "user", "content": "goal"}, {"role": "user", "content": "SUMMARY"}])
+        self.assertEqual(meta["compress_model_s"], 2.5)
+        self.assertEqual(cli_worker.codex_context(lines[:1]), (None, {}))
+
+    def test_claude_transcript_links_entries_and_pairs_tool_results(self):
+        entries = cli_worker.claude_transcript(self.history, "sid", Path("cwd"), "0.0.0", "m", self.base)
+        self.assertEqual(len(entries), len(self.history["rows"]))
+        self.assertIsNone(entries[0]["parentUuid"])
+        for before, after in zip(entries, entries[1:]):
+            self.assertEqual(after["parentUuid"], before["uuid"])
+        uses = {block["id"] for entry in entries if entry["type"] == "assistant"
+                for block in entry["message"]["content"] if block["type"] == "tool_use"}
+        results = {block["tool_use_id"] for entry in entries if isinstance(entry["message"]["content"], list)
+                   for block in entry["message"]["content"] if block["type"] == "tool_result"}
+        self.assertEqual(uses, results)
+
+    def test_claude_context_keeps_the_summary_and_drops_command_rows(self):
+        entries = [
+            {"type": "user", "message": {"role": "user", "content": "old"}},
+            {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "manual",
+                                                                                   "durationMs": 1500}},
+            {"type": "user", "isCompactSummary": True, "message": {"role": "user", "content": "SUMMARY"}},
+            {"type": "user", "isMeta": True, "message": {"role": "user", "content": "caveat"}},
+            {"type": "user", "message": {"role": "user", "content": "<command-name>/compact</command-name>"}},
+            {"type": "user", "message": {"role": "user", "content": "<local-command-stdout>ok</local-command-stdout>"}},
+        ]
+        rows, meta = cli_worker.claude_context(entries)
+        self.assertEqual(rows, [{"role": "user", "content": "SUMMARY"}])
+        self.assertEqual(meta["compress_model_s"], 1.5)
+        self.assertEqual(meta["summary_chars"], len("SUMMARY"))
+        self.assertEqual(cli_worker.claude_context(entries[:1]), (None, {}))
+
+    def test_cli_environment_has_no_user_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = cli_worker.cli_environment(Path(folder), {"CODEX_HOME": folder})
+        self.assertTrue(all(env[key] == folder for key in ("HOME", "USERPROFILE", "APPDATA", "CODEX_HOME")))
+        self.assertFalse([key for key in env if key.upper().startswith(("ANTHROPIC", "OPENAI", "CLAUDE"))])
+
+    def test_cli_methods_need_a_pinned_version(self):
+        with self.assertRaisesRegex(SystemExit, "pinned"):
+            run.cli_state({"cli": {}}, ["codex_cli"])
+        self.assertEqual(run.cli_state({}, ["stock_hermes"]), {})
+        self.assertEqual(run.anthropic_base_url({"endpoint": "http://localhost:1234/v1/"}), "http://localhost:1234")
 
 
 if __name__ == "__main__":

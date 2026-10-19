@@ -349,6 +349,17 @@ Each job runs the real Hermes agent loop in a fresh process with a clean Hermes 
 
 The full plan (8 methods, 6 sessions, 5 replicates, and 30 drift jobs) is 270 jobs. With a 4B model on one RTX 3090 it takes several hours. Use `"methods"`, `"fixtures"`, and `"replicates"` in the configuration for a smaller run. The results file has metadata and scores only. With `"keep_text": true`, the run folder also keeps the raw answers and compacted rows for local checks; do not publish that folder.
 
+### Other agent CLIs
+
+Two more methods measure the compaction of other agent CLIs on the same model, sessions, questions, and scoring: `codex_cli` (Codex CLI) and `claude_code_cli` (Claude Code). For each job, [cli_worker.py](benchmarks/compaction/cli_worker.py) writes the synthetic session into the session file of the CLI, resumes it with the same main request, and forces one compaction in headless mode:
+
+- Codex CLI: `codex exec resume` with a low `model_auto_compact_token_limit`, so Codex compacts before the next turn. The context after compaction is the replacement history of the `compacted` item in the rollout file.
+- Claude Code: `claude -p --resume <id> /compact`, with no tools, no setting sources, and no `CLAUDE.md` files. The context after compaction is the summary after the compact boundary in the transcript.
+
+Each job has a new temporary `CODEX_HOME` or `CLAUDE_CONFIG_DIR` and an environment without user settings or credentials. The CLI configuration points only at the local endpoint, with a fake local token. The benchmark never signs in; if a CLI asks for a login, the run stops. Set `"cli"` in the configuration to the command and the pinned version of each CLI (see [config.example.json](benchmarks/compaction/config.example.json)); the run stops when the installed version is different. The server must answer the OpenAI Responses API (Codex) and the Anthropic Messages API (Claude Code). To join the CLI rows to an earlier run in one report, add `--also <cli run folder>` to the `report` command.
+
+The session file formats are internal to the pinned CLI versions. Both CLIs are tuned for their own models, so these rows measure their compaction method on the local model, not their behavior with GPT or Claude models. Their system prompts, tool schemas, and request formats are different from Hermes. These methods were added after the pre-registration; the decision rule does not use them.
+
 ## Limits
 
 - The warm path needs a captured main-model request in the current Hermes process. After a restart or a resume, the first compaction uses the fallback summary if no main-model request completed before it (`no_capture`).

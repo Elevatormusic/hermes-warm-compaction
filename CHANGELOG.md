@@ -6,7 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Added
 
-- Add a repeatable compaction benchmark in `benchmarks/compaction/`. It runs each method in the real Hermes agent loop on six synthetic coding sessions, scores 276 questions with fixed rules, and reports accuracy by category, summary success and failure codes, size, time, and drift over three compactions. The decision rule is pre-registered. The benchmark is a development tool; it does not change the plugin.
+- Add a repeatable compaction benchmark in `benchmarks/compaction/`. It runs each method in the real Hermes agent loop on six synthetic coding sessions, scores 276 questions with fixed rules, and reports accuracy by category, summary success and failure codes, size, time, and drift over three compactions. The decision rule is pre-registered. Two more methods measure the compaction of Codex CLI and Claude Code on the same model and sessions, in isolated temporary homes with pinned CLI versions. The benchmark is a development tool; it does not change the plugin.
 
 ### Changed
 

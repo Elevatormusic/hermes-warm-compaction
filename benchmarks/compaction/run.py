@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 GOLD_DIR = HERE / "fixtures"
 WORKER = HERE / "worker.py"
+CLI_WORKER = HERE / "cli_worker.py"
 CATEGORIES = ("goal", "user_instruction", "command_outcome", "file_changed", "identifier", "decision", "task_state",
               "next_step", "recent")
 ACCEPTED_PATHS = ("warm", "fallback", "model")
@@ -53,7 +54,12 @@ METHODS: dict[str, dict[str, Any]] = {
                                 "format": "relaxed", "label": "Fallback (relaxed) + ledger"},
     "fallback_relaxed_no_ledger": {"engine": "warm_compaction", "settings": {"warm": False, "ledger": False},
                                    "format": "relaxed", "label": "Fallback (relaxed), no ledger"},
+    # The compaction of other agent CLIs on the same model and fixtures (cli_worker.py). Added after the
+    # pre-registration; the decision rule does not use them.
+    "codex_cli": {"engine": "codex_cli", "label": "Codex CLI compaction"},
+    "claude_code_cli": {"engine": "claude_code_cli", "label": "Claude Code compaction"},
 }
+CLI_ENGINES = ("codex_cli", "claude_code_cli")
 
 
 def sha256_file(path: Path) -> str:
@@ -238,10 +244,12 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
               "cycles_requested": job["cycles"], "settings": job["settings"], "status": "failed", "error": None,
               "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="wc-bench-") as folder:
+    # A CLI child process can hold a file handle for a short time after it exits (Windows): cleanup is best effort.
+    with tempfile.TemporaryDirectory(prefix="wc-bench-", ignore_cleanup_errors=True) as folder:
         work = Path(folder)
         home = work / "home"
         home.mkdir()
+        cli = method["engine"] in CLI_ENGINES
         if method["engine"] == "warm_compaction":
             shutil.copytree(Path(config["plugin_source"]) / "warm_compaction", home / "plugins" / "warm_compaction",
                             ignore=shutil.ignore_patterns("__pycache__"))
@@ -256,11 +264,17 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
             "hermes_config": config.get("hermes_config") or {},
             "questions": [{"n": n, "text": q["question"]} for n, q in enumerate(gold["questions"], 1)],
         }
+        if cli:
+            spec.update(cli_command=list(config["cli"][method["engine"]]["command"]),
+                        cli_version=config["cli"][method["engine"]]["version"],
+                        anthropic_base_url=anthropic_base_url(config),
+                        cli_timeout_s=float(config.get("cli_timeout_s", 1800)))
         (work / "job.json").write_text(json.dumps(spec), encoding="utf-8")
         target = work / "out.json"
         try:
+            python, worker = (sys.executable, CLI_WORKER) if cli else (config["hermes_python"], WORKER)
             completed = subprocess.run(
-                [config["hermes_python"], "-I", "-B", str(WORKER), "--job", str(work / "job.json"), "--out",
+                [python, "-I", "-B", str(worker), "--job", str(work / "job.json"), "--out",
                  str(target)], cwd=work, env=worker_environment(home), capture_output=True,
                 timeout=float(config.get("job_timeout_s", 3600)))
             record["exit_code"] = completed.returncode
@@ -283,6 +297,35 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
     return record
 
 
+def anthropic_base_url(config: dict) -> str:
+    """The Anthropic Messages root of the endpoint (Claude Code adds /v1/messages)."""
+    url = str(config.get("anthropic_base_url") or config["endpoint"]).rstrip("/")
+    return url[:-3] if url.endswith("/v1") else url
+
+
+def cli_state(config: dict, methods: list[str]) -> dict[str, Any]:
+    """The version of each CLI that the run uses. Stop when it is not the pinned version."""
+    from .cli_worker import cli_environment
+    state = {}
+    for name in methods:
+        engine = METHODS[name]["engine"]
+        if engine not in CLI_ENGINES:
+            continue
+        spec = (config.get("cli") or {}).get(engine) or {}
+        if not spec.get("command") or not spec.get("version"):
+            raise SystemExit(f"config cli.{engine} needs 'command' and a pinned 'version'")
+        with tempfile.TemporaryDirectory(prefix="wc-cli-version-") as folder:
+            home = Path(folder)
+            env = cli_environment(home, {"CODEX_HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")})
+            done = subprocess.run([*spec["command"], "--version"], cwd=home, env=env, stdin=subprocess.DEVNULL,
+                                  capture_output=True, encoding="utf-8", errors="replace", timeout=120)
+        found = (done.stdout or "").strip()
+        if spec["version"] not in found.split():
+            raise SystemExit(f"{engine}: found version {found!r}, pinned {spec['version']!r}; stop before any job")
+        state[engine] = {"version": spec["version"], "version_output": found}
+    return state
+
+
 def command_run(args) -> int:
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     out_dir = Path(args.out)
@@ -299,18 +342,21 @@ def command_run(args) -> int:
     # A plugin folder made with git archive has no Git data: the config can name its commit.
     plugin["commit"] = plugin["commit"] or config.get("plugin_commit")
     jobs, skipped = plan(config, plugin)
+    cli = cli_state(config, list(config["methods"]))
     meta_path = out_dir / "meta.json"
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
                 "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "config": {key: value for key, value in config.items()
-                           if key not in ("hermes_python", "hermes_source", "plugin_source", "history_dir")},
+                           if key not in ("hermes_python", "hermes_source", "plugin_source", "history_dir", "cli")},
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": {path.name: sha256_file(path) for path in sorted(HERE.glob("*.py"))},
                 "gold_sha256": {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))},
                 "host": {"os": platform.system(), "machine": platform.machine(),
                          "python": sys.version.split()[0]},
                 "skipped_methods": skipped, "planned_jobs": len(jobs)}
+        if cli:
+            meta["cli"] = cli
         meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
     done = set()
@@ -337,6 +383,9 @@ def command_run(args) -> int:
                     for c in record.get("cycles", [])]
         print(f"[{number}/{len(todo)}] {job['id']} status={record['status']} error={record['error']} "
               f"paths={paths} accuracy={accuracy} elapsed={record['elapsed_s']}s", flush=True)
+        if record["error"] == "login_required":
+            # The benchmark never signs in: stop and report.
+            raise SystemExit(f"{job['method']} asked for a login; stop the run")
     return 0
 
 
@@ -588,6 +637,21 @@ def num(item: dict | None, digits: int = 1) -> str:
     return f"{item['mean']:.{digits}f} [{item['low']:.{digits}f}, {item['high']:.{digits}f}]"
 
 
+CLI_LIMITS = [
+    "The Codex CLI and Claude Code methods write the synthetic history into the session file format of the pinned "
+    "CLI version. These formats are internal to those versions and can change.",
+    "Both CLIs are tuned for their own models. These rows measure their compaction method on the same small local "
+    "model, not their behavior with GPT or Claude models.",
+    "Their system prompts, tool schemas, and request formats differ from Hermes (Codex uses the Responses API with "
+    "its own tools; Claude Code uses the Anthropic Messages API with no tools, as the Hermes jobs have no tools).",
+    "Tool calls keep their Hermes tool names and argument text in the CLI session files, so the facts are the same "
+    "in all methods.",
+    "Their compaction time is the duration that each CLI records (Codex: from turn start to the compacted item; "
+    "Claude Code: compactMetadata.durationMs), not the Hermes compress call time.",
+    "The CLI methods were added after the pre-registration; the pre-registered decision rule does not use them.",
+]
+
+
 def markdown(result: dict, meta: dict) -> str:
     methods = result["methods"]
     names = list(methods)
@@ -601,7 +665,9 @@ def markdown(result: dict, meta: dict) -> str:
         f"`{(meta['hermes'].get('commit') or 'unknown')[:12]}` (clean: {meta['hermes'].get('clean')}).",
         f"- Model: `{meta['config'].get('model')}`; context window setting {meta['config'].get('context_length')}; "
         f"threshold {meta['config'].get('threshold')}; {meta['config'].get('replicates')} replicates per cell.",
-        f"- Skipped methods: {', '.join(item['method'] for item in meta.get('skipped_methods', [])) or 'none'}.", "",
+        f"- Skipped methods: {', '.join(item['method'] for item in meta.get('skipped_methods', [])) or 'none'}.",
+        *(["- Other CLIs: " + ", ".join(f"{name} {item['version']}" for name, item in meta["cli"].items()) + "."]
+          if meta.get("cli") else []), "",
         "## Compaction success", "",
         "| Method | Runs | Accepted summary | Paths | Failure reasons |", "| --- | --- | --- | --- | --- |"]
     for name in names:
@@ -661,6 +727,8 @@ def markdown(result: dict, meta: dict) -> str:
                              f"{pct(cycle['accuracy'])} | "
                              f"{', '.join(f'{k}: {v}' for k, v in sorted(cycle['paths'].items()))} | "
                              f"{num(cycle['est_tokens_after'], 0)} |")
+    if any(name in methods for name in ("codex_cli", "claude_code_cli")):
+        lines += ["", "## Limits of the CLI rows", "", *[f"- {item}" for item in CLI_LIMITS]]
     lines += ["", "## Pre-registered decision rule", ""]
     for key, value in result["decision"]["checks"].items():
         state = "unavailable (no data; counts as fail)" if value is None else "pass" if value else "fail"
@@ -674,6 +742,15 @@ def command_report(args) -> int:
     out_dir = Path(args.out)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
     runs = load_runs(out_dir)
+    for extra in args.also or []:
+        # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
+        extra_dir = Path(extra)
+        extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
+        known = {run["job"] for run in runs}
+        runs += [run for run in load_runs(extra_dir) if run["job"] not in known]
+        meta.setdefault("merged_runs", []).append({key: extra_meta.get(key) for key in (
+            "started_utc", "plugin", "hermes", "harness_sha256", "cli", "planned_jobs")})
+        meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
     result = aggregate(runs, meta)
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
@@ -681,7 +758,9 @@ def command_report(args) -> int:
             "limits": ["Synthetic sessions from one generator; six task families.",
                        "One model per run; a small local model is used for compaction and for the answers.",
                        "Rule-based scoring can miss a correct paraphrase; the full-history control shows the ceiling.",
-                       "Cache reuse is unknown when the server does not report cached tokens."]}
+                       "Cache reuse is unknown when the server does not report cached tokens."]
+                      + (CLI_LIMITS if any(name in result["methods"] for name in ("codex_cli", "claude_code_cli"))
+                         else [])}
     Path(args.json).parent.mkdir(parents=True, exist_ok=True)
     Path(args.json).write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     if args.md:
@@ -712,6 +791,7 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--out", required=True)
     report.add_argument("--json", required=True)
     report.add_argument("--md")
+    report.add_argument("--also", action="append", help="another run folder to include (repeat for more)")
     report.set_defaults(func=command_report)
     args = parser.parse_args(argv)
     return args.func(args)

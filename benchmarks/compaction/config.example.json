@@ -18,5 +18,10 @@
   "qa_max_tokens": 2048,
   "main_max_tokens": 4096,
   "job_timeout_s": 3600,
-  "keep_text": false
+  "keep_text": false,
+  "cli": {
+    "codex_cli": {"command": ["node", "<npm root>/@openai/codex/bin/codex.js"], "version": "0.147.0"},
+    "claude_code_cli": {"command": ["<npm root>/@anthropic-ai/claude-code/bin/claude.exe"], "version": "2.1.162"}
+  },
+  "cli_timeout_s": 1800
 }
