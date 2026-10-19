@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import uuid
@@ -30,9 +31,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from worker import ask, estimate_tokens  # noqa: E402
 
-# A short prompt for the Codex turn that starts with the forced compaction. Its reply is not part of the context
-# that the questions use.
-CODEX_TRIGGER = "Continue."
 LOGIN_PATTERNS = re.compile(r"(?i)(please run /login|not logged in|invalid api key|login required|sign in to|"
                             r"codex login|authentication required)")
 RUNTIME_NAMES = ("PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "COMSPEC", "SYSTEMDRIVE", "NUMBER_OF_PROCESSORS",
@@ -181,14 +179,101 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"])
     if main["login_prompt"]:
         raise LoginRequired()
-    # The forced compaction: a limit below the size of the last request. Codex compacts before the next turn.
-    compact = run_cli(common + ["-c", "model_auto_compact_token_limit=1000", "resume", session_id,
-                                CODEX_TRIGGER], cwd, env, timeout_s)
+    # The manual compaction: the app server request thread/compact/start (what /compact sends). It starts a
+    # compaction turn only; no model turn follows.
+    compact = codex_app_server_compact([*job["cli_command"], "app-server", "-c",
+                                        f"developer_instructions={json.dumps(fixture['system'])}"],
+                                       session_id, cwd, env, timeout_s)
+    item["compact_status"] = compact["status"]
     if compact["login_prompt"]:
         raise LoginRequired()
     lines = [json.loads(line) for line in rollout.read_text(encoding="utf-8").splitlines() if line.strip()]
     rows, meta = codex_context(lines)
     finish(item, job, fixture, rows, compact, meta, path="codex")
+
+
+def codex_app_server_compact(command: list[str], thread_id: str, cwd: Path, env: dict[str, str],
+                             timeout_s: float) -> dict:
+    """Resume the thread in a Codex app server (JSON lines on stdio) and send thread/compact/start. Wait for the
+    turn/completed notification. Return the time, the turn status, and safe error fields; no message text."""
+    started = time.monotonic()
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, encoding="utf-8", errors="replace")
+    messages: list[dict] = []
+    stderr: list[str] = []
+    ready = threading.Condition()
+
+    def read_stdout():
+        for line in process.stdout:
+            try:
+                item = json.loads(line)
+            except ValueError:
+                continue
+            with ready:
+                messages.append(item)
+                ready.notify_all()
+
+    def read_stderr():
+        for line in process.stderr:
+            stderr.append(line)
+
+    for target in (read_stdout, read_stderr):
+        threading.Thread(target=target, daemon=True).start()
+
+    def send(item: dict) -> None:
+        process.stdin.write(json.dumps(item) + "\n")
+        process.stdin.flush()
+
+    def wait(predicate, seconds: float) -> dict | None:
+        end = time.monotonic() + seconds
+        with ready:
+            while True:
+                found = next((item for item in messages if predicate(item)), None)
+                left = end - time.monotonic()
+                if found is not None or left <= 0 or process.poll() is not None:
+                    return found
+                ready.wait(min(left, 1.0))
+
+    result = {"status": None, "timeout": False, "exit_code": None, "error": None}
+    try:
+        send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "wc-bench", "version": "1"}}})
+        if wait(lambda item: item.get("id") == 1, 120) is None:
+            result["error"] = "initialize_failed"
+        else:
+            send({"method": "initialized"})
+            send({"id": 2, "method": "thread/resume", "params": {"threadId": thread_id, "cwd": str(cwd)}})
+            resumed = wait(lambda item: item.get("id") == 2, 120)
+            if resumed is None or "error" in resumed:
+                result["error"] = "resume_failed"
+            else:
+                send({"id": 3, "method": "thread/compact/start", "params": {"threadId": thread_id}})
+                left = timeout_s - (time.monotonic() - started)
+                done = wait(lambda item: item.get("method") == "turn/completed", max(left, 1))
+                if done is None:
+                    result["timeout"] = process.poll() is None
+                    result["error"] = "no_turn_completed"
+                else:
+                    turn = (done.get("params") or {}).get("turn") or {}
+                    result["status"] = turn.get("status")
+                    error = turn.get("error")
+                    if error:
+                        result["error"] = str((error or {}).get("codexErrorInfo") or "turn_error")[:200]
+    finally:
+        try:
+            process.stdin.close()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=15)
+        result["exit_code"] = process.returncode
+    errors = " ".join(str((item.get("params") or {}).get("message") or "") for item in messages
+                      if item.get("method") in ("error", "warning"))
+    result["elapsed_s"] = round(time.monotonic() - started, 3)
+    result["login_prompt"] = bool(LOGIN_PATTERNS.search("".join(stderr) + " " + errors))
+    return result
 
 
 # Claude Code.
@@ -359,7 +444,8 @@ def finish(item: dict, job: dict, fixture: dict, rows: list[dict] | None, compac
     item.update(compress_wall_s=compact["elapsed_s"], compress_exit=compact["exit_code"],
                 compress_timeout=compact["timeout"], compress_s=meta.get("compress_model_s"))
     item["compacted"] = bool(rows)
-    item["compress_error"] = None if rows else ("cli_timeout" if compact["timeout"] else "no_compaction_record")
+    item["compress_error"] = None if rows else ("cli_timeout" if compact["timeout"] else
+                                                compact.get("error") or "no_compaction_record")
     item["outcome"] = {"path": path if rows else "aborted", "summary_chars": meta.get("summary_chars"),
                        **(meta.get("compact_metadata") or {})}
     rows = text_rows(rows or [])
