@@ -64,6 +64,10 @@ ERROR_LINE = re.compile(r"\b(error|errors|fail|failed|failure|exception|tracebac
 FILE_LINE = re.compile(r"[\w./\\-]+\.\w{1,8}:\d+(?::\d+)?:")
 # The error lines that a failed command keeps: a test failure can need its name and its message.
 MAX_ERROR_LINES = 3
+# A successful command keeps a short note of its output (the built-in compressor keeps short outputs as they are).
+# The ledger cuts the oldest notes first when it is too large.
+OUTPUT_MARK = "output: "
+NOTE_CHARS = 200
 # The exit code in plain text output ("exit code 2", "Exit status: 1").
 EXIT_TEXT = re.compile(r"\bexit(?:ed)?(?: with)?(?: code| status)?[:= ]+(-?\d+)\b", re.I)
 
@@ -100,8 +104,22 @@ def _first_error(text: str, count: int = 1) -> str:
     return " | ".join(found)
 
 
+def _output_note(text: str) -> str:
+    """A short note of a successful output: all of it when it has at most two lines in NOTE_CHARS, else its last
+    line (often the result count). Lines without a letter or a digit ("..", "---") are not counted."""
+    lines = [" ".join(line.split()) for line in text.splitlines() if any(char.isalnum() for char in line)]
+    if not lines:
+        return ""
+    if len(lines) <= 2 and len(" | ".join(lines)) <= NOTE_CHARS:
+        note = " | ".join(lines)
+    else:
+        note = _one_line(lines[-1], NOTE_CHARS)
+    return OUTPUT_MARK + note
+
+
 def _outcome(result: str | None) -> tuple[str, bool]:
-    """Return (outcome text, failed) for one tool result. The outcome is only what the result reports."""
+    """Return (outcome text, failed) for one tool result. The outcome is only what the result reports: the exit
+    code, up to MAX_ERROR_LINES error lines of a failure, or a short output note of a success."""
     if result is None:
         return "no result recorded", False
     data: Any = None
@@ -116,22 +134,24 @@ def _outcome(result: str | None) -> tuple[str, bool]:
         output = output if isinstance(output, str) else ""
         if isinstance(code, int) and not isinstance(code, bool):
             detail = (_one_line(str(error), DETAIL_CHARS) if error
-                      else _first_error(output, MAX_ERROR_LINES) if code else "")
+                      else _first_error(output, MAX_ERROR_LINES) if code else _output_note(output))
             return f"exit {code}" + (f"; {detail}" if detail else ""), code != 0
         if error:
             return "error; " + _one_line(str(error), DETAIL_CHARS), True
         if data.get("success") is False:
             return "failed", True
-        detail = _first_error(output)
+        detail = _first_error(output) or _output_note(output)
         return ("exit unknown; " + detail if detail else "exit unknown"), False
     match = EXIT_TEXT.search(result)
     detail = _first_error(result)
     if match:
         code = int(match.group(1))
-        detail = _first_error(result, MAX_ERROR_LINES) if code else ""
+        rest = "\n".join(line for line in result.splitlines() if not EXIT_TEXT.search(line))
+        detail = _first_error(result, MAX_ERROR_LINES) if code else _output_note(rest)
         return f"exit {code}" + (f"; {detail}" if detail else ""), code != 0
     if result.lstrip().lower().startswith("error"):
         return "error; " + _one_line(result.lstrip(), DETAIL_CHARS), True
+    detail = detail or _output_note(result)
     return ("exit unknown; " + detail if detail else "exit unknown"), False
 
 
@@ -294,8 +314,8 @@ def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int
           require_work: bool = False) -> str:
     """Return the ledger block, or "" when it is empty or does not fit in max_tokens. With require_work, a block
     without commands or file changes is "" too.
-    When the block is too large, the oldest command lines go first, then the oldest reasons, then the oldest
-    files, then the identifier kinds from the last."""
+    When the block is too large, the output notes of the oldest commands go first, then the oldest command lines,
+    then the oldest reasons, then the oldest files, then the identifier kinds from the last."""
     messages = list(messages)
     prefixes = tuple(prefixes)
     commands, files = entries(messages, prefixes)
@@ -330,7 +350,10 @@ def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int
         return ""
     text = render()
     while estimate_tokens(text) > max_tokens:
-        if commands:
+        noted = next((index for index, line in enumerate(commands) if "; " + OUTPUT_MARK in line), None)
+        if noted is not None:
+            commands[noted] = commands[noted].split("; " + OUTPUT_MARK, 1)[0]
+        elif commands:
             commands.pop(0)
         elif reasons:
             reasons.pop(0)

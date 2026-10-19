@@ -99,7 +99,8 @@ class LedgerTest(unittest.TestCase):
         rows = [terminal("call_0", "pytest -q"), result("call_0", "FAILED tests/test_a.py::test_x", exit_code=1),
                 terminal("call_0", "pytest -q"), result("call_0", "3 passed", exit_code=0)]
         lines = [line for line in ledger.build(rows, PREFIXES).splitlines() if line.startswith("- `")]
-        self.assertEqual(lines, ["- `pytest -q`: exit 1; FAILED tests/test_a.py::test_x", "- `pytest -q`: exit 0"])
+        self.assertEqual(lines, ["- `pytest -q`: exit 1; FAILED tests/test_a.py::test_x",
+                                 "- `pytest -q`: exit 0; output: 3 passed"])
 
     def test_a_result_before_its_call_is_not_used(self):
         rows = [result("r1", exit_code=1), terminal("r1", "make")]
@@ -168,9 +169,30 @@ class LedgerTest(unittest.TestCase):
             with self.subTest(expected=expected):
                 rows = [terminal("g1", "go test ./..."), result("g1", output, exit_code=1)]
                 self.assertIn(f"- `go test ./...`: {expected}\n", ledger.build(rows, PREFIXES) + "\n")
-        # A passing command keeps no detail line.
+        # A passing command keeps an output note, not error lines.
         rows = [terminal("g2", "go test ./..."), result("g2", "ok  synth/a.go:3: note", exit_code=0)]
-        self.assertIn("- `go test ./...`: exit 0\n", ledger.build(rows, PREFIXES) + "\n")
+        self.assertIn("- `go test ./...`: exit 0; output: ok synth/a.go:3: note\n", ledger.build(rows, PREFIXES) + "\n")
+
+    def test_a_successful_command_keeps_a_short_output_note(self):
+        # Synthetic outputs: a short output stays whole; a long one keeps its last line.
+        short = "read docs/synth.yaml (41 keys)\nwrote docs/synth.toml"
+        long = "\n".join(f"case {index} ok" for index in range(30)) + "\nTest Suites: 48 passed, 48 total"
+        for output, expected in ((short, "exit 0; output: read docs/synth.yaml (41 keys) | wrote docs/synth.toml"),
+                                 (long, "exit 0; output: Test Suites: 48 passed, 48 total"),
+                                 ("..\n", "exit 0")):
+            with self.subTest(expected=expected):
+                rows = [terminal("o1", "node convert.mjs"), result("o1", output)]
+                self.assertIn(f"- `node convert.mjs`: {expected}\n", ledger.build(rows, PREFIXES) + "\n")
+
+    def test_output_notes_go_before_commands_when_the_block_is_too_large(self):
+        rows = []
+        for index in range(12):
+            rows += [terminal(f"n{index}", f"step {index}"), result(f"n{index}", f"step {index} wrote {'w' * 150}")]
+        text = ledger.build(rows, PREFIXES, max_tokens=300)
+        lines = [line for line in text.splitlines() if line.startswith("- `")]
+        self.assertEqual(len(lines), 12)
+        self.assertNotIn("output:", lines[0])
+        self.assertIn("output: step 11 wrote", lines[-1])
 
     def test_environment_variables_come_also_from_a_file_read(self):
         # A setting that only a file read shows (synthetic file text).
