@@ -43,6 +43,14 @@ SUMMARY_RESERVE = 2 * fallback.MAX_TOKENS
 SUMMARY_RATIO = 0.30
 SUMMARY_WINDOW_SHARE = 0.05
 SUMMARY_CEILING = 6_000
+# Without a usable capture, the check before a request keeps this share of the window for the system rows and the
+# tool schemas that it cannot see. The built-in compressor waits for its threshold.
+UNKNOWN_OVERHEAD_SHARE = 0.10
+# The fallback transcript grows with the compacted region (its estimated tokens and a margin), at most
+# TRANSCRIPT_WINDOW_SHARE of the window and TRANSCRIPT_MAX_TOKENS, and at least fallback.TRANSCRIPT_CHARS.
+TRANSCRIPT_WINDOW_SHARE = 0.40
+TRANSCRIPT_MAX_TOKENS = 48_000
+TRANSCRIPT_MARGIN = 2_048
 # The word count asked for a summary of a given token size: an estimate token is about three quarters of a word,
 # with a margin for the headings.
 WORDS_PER_TOKEN = 0.6
@@ -300,8 +308,9 @@ class WarmCompactionEngine(ContextEngine):
     def should_compress_preflight(self, messages: list) -> bool:
         """The history estimate, with the system rows and tool schemas of a usable capture, reaches the threshold;
         or with the reply reserve it does not fit in the window. Without a usable capture (after a restart, for
-        example) the overhead is unknown: as in compress, half of the room (the window less the reply reserve) is
-        for the system rows and the tool schemas."""
+        example) the overhead is unknown: the history reaches the threshold, or the history, the reply reserve,
+        and UNKNOWN_OVERHEAD_SHARE of the window for the system rows and the tool schemas do not fit in the
+        window."""
         if self.threshold_tokens <= 0:
             return False
         # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
@@ -312,7 +321,7 @@ class WarmCompactionEngine(ContextEngine):
             tokens += request_overhead(budget, messages) or 0
             if window > 0 and tokens + request_reserve(budget, window) > window:
                 return True
-        elif window > 0 and tokens >= (window - request_reserve(None, window)) // 2:
+        elif window > 0 and tokens + request_reserve(None, window) + int(window * UNKNOWN_OVERHEAD_SHARE) > window:
             return True
         return tokens >= self.threshold_tokens
 
@@ -394,12 +403,14 @@ class WarmCompactionEngine(ContextEngine):
             # task follows the main route. The last check runs just before the request starts: after a switch,
             # the old transcript does not go to the new route.
             failure: dict[str, Any] = {}
+            region = [*messages[:start], *removed]
             summary, _tokens = fallback.llm_summary(
-                self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
+                self._llm, region, prefixes, focus_topic=focus_topic, memory_context=memory,
                 task=self._task, summary_words=words, max_tokens=target,
                 timeout_s=float(self._settings["timeout_s"]),
                 ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure,
-                quoted=self._settings["fallback_format"] == "quoted")
+                quoted=self._settings["fallback_format"] == "quoted",
+                transcript_chars=self._transcript_chars(region, policy))
             if summary is None:
                 record["fallback_reason"] = failure.get("reason", "unavailable")
                 for key in ("output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"):
@@ -749,6 +760,14 @@ class WarmCompactionEngine(ContextEngine):
         window = int(self.context_length or 0)
         ceiling = min(SUMMARY_CEILING, int(window * SUMMARY_WINDOW_SHARE)) if window > 0 else fallback.MAX_TOKENS
         return max(fallback.MAX_TOKENS, min(int(region * SUMMARY_RATIO), ceiling))
+
+    def _transcript_chars(self, region: list, policy: SendPolicy = SendPolicy()) -> int:
+        """The size of the fallback transcript: the region with a margin, so that the fallback model can see all of
+        it, at most TRANSCRIPT_WINDOW_SHARE of the window and TRANSCRIPT_MAX_TOKENS (4 characters for a token)."""
+        window = int(self.context_length or 0)
+        cap = min(TRANSCRIPT_MAX_TOKENS, int(window * TRANSCRIPT_WINDOW_SHARE)) if window > 0 else 0
+        tokens = min(estimate_tokens(sent_rows(region, policy)) + TRANSCRIPT_MARGIN, cap)
+        return max(fallback.TRANSCRIPT_CHARS, 4 * tokens)
 
     def _summary_words(self, target: int) -> int:
         """The word count to ask for: the setting, and more words for the part of the target above

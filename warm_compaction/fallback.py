@@ -274,13 +274,15 @@ def _row_content(row: Any, full: str, shown: str) -> list[str]:
 
 
 def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, reserve_tokens: int = 0,
-               *, _content: list[str] | None = None) -> str:
+               *, limit_chars: int = TRANSCRIPT_CHARS, _content: list[str] | None = None) -> str:
     """Return a bounded transcript: the earlier summary, the first user message, then the newest rows.
 
     Each row entry keeps at most ROW_CHARS characters (its start and its end), so that one long row cannot
     push all earlier turns out. The oldest row that does not fit in the remaining budget is cut to fit.
+    limit_chars is the size of the transcript (at least TRANSCRIPT_CHARS; the token limit is a quarter of it).
     reserve_chars and reserve_tokens are taken from the budget for other text in the same request.
     """
+    limit_chars = max(TRANSCRIPT_CHARS, int(limit_chars))
     prefixes = tuple(prefixes)
     head = []
     earlier = _earlier_summary(messages, prefixes)
@@ -295,8 +297,8 @@ def transcript(messages: list, prefixes: Iterable[str], reserve_chars: int = 0, 
         if _content is not None:
             full = "[first user message]\n" + visible_text(api_content(first)).strip()
             _content.extend(_row_content(first, full, head[-1]))
-    budget = TRANSCRIPT_CHARS - reserve_chars - sum(len(part) + 2 for part in head)
-    tokens = TRANSCRIPT_TOKENS - reserve_tokens - sum(estimate_tokens(part) + 1 for part in head)
+    budget = limit_chars - reserve_chars - sum(len(part) + 2 for part in head)
+    tokens = limit_chars // 4 - reserve_tokens - sum(estimate_tokens(part) + 1 for part in head)
     # A tool row takes the names of the nearest earlier tool calls. Providers can use the same call id again
     # in a later turn.
     turn_names: list[dict[str, str]] = []
@@ -611,7 +613,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
                 ready: Callable[[], bool] | None = None,
                 failure: dict[str, Any] | None = None, quoted: bool = True,
-                max_tokens: int = MAX_TOKENS) -> tuple[str | None, int | None]:
+                max_tokens: int = MAX_TOKENS,
+                transcript_chars: int = TRANSCRIPT_CHARS) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
     An invalid reply gets one retry; after an end-marker failure it gets two. All calls share one time limit, and
@@ -620,7 +623,7 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     of the warm request, and a reply without its end marker passes when it has all headings and stopped below the
     generation limit.
     max_tokens is the limit of a relaxed summary (estimated tokens, at least MAX_TOKENS); a quoted summary keeps
-    MAX_TOKENS.
+    MAX_TOKENS. transcript_chars is the size of the transcript (at least TRANSCRIPT_CHARS).
     failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
@@ -634,7 +637,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     # The start (the focus line) and the end of a large memory context.
     extra = _bound(extras(focus_topic, memory_context), EXTRAS_CHARS, EXTRAS_TOKENS, middle=True)
     content: list[str] = []
-    original = transcript(messages, prefixes, len(extra), estimate_tokens(extra), _content=content)
+    original = transcript(messages, prefixes, len(extra), estimate_tokens(extra), limit_chars=transcript_chars,
+                          _content=content)
     source = _SourceTable(original, _earlier_summary(messages, prefixes), extra, content)
     reason: str | None = None  # The failure code of the previous attempt; the loop only continues after one.
     marker_failed = False  # True after any reply failed the end-marker check.

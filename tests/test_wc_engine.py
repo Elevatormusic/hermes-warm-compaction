@@ -522,20 +522,31 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(engine.should_compress_preflight(messages))
         self.assertFalse(self.make(threshold=0.95).should_compress_preflight([user("hi")]))
 
-    def test_preflight_without_a_usable_capture_keeps_half_of_the_room_for_the_overhead(self):
-        # After a restart the system prompt and tool schemas are unknown: as in compress, half of the room
-        # (the window less the unknown reply reserve) is for them.
-        from warm_compaction.engine import request_reserve
+    def test_preflight_without_a_usable_capture_keeps_a_share_of_the_window_for_the_overhead(self):
+        # After a restart the system prompt and tool schemas are unknown: the history, the unknown reply reserve,
+        # and UNKNOWN_OVERHEAD_SHARE of the window must fit. Below that and below the threshold, no compaction:
+        # the earlier rule (half of the room) compacted a resumed history much earlier than the threshold.
+        from warm_compaction.engine import UNKNOWN_OVERHEAD_SHARE, request_reserve
         from warm_compaction.rows import estimate_tokens
         engine = self.make(threshold=0.95)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
+        limit = 64_000 - request_reserve(None, 64_000) - int(64_000 * UNKNOWN_OVERHEAD_SHARE)
         half = (64_000 - request_reserve(None, 64_000)) // 2
         rows = old_turns(26)
         self.assertGreaterEqual(estimate_tokens(rows), half)
-        self.assertLess(estimate_tokens(rows), engine.threshold_tokens)
-        self.assertTrue(engine.should_compress_preflight(rows))
+        self.assertLess(estimate_tokens(rows), limit)
+        self.assertFalse(engine.should_compress_preflight(rows))
+        large = old_turns(42)
+        self.assertGreater(estimate_tokens(large), limit)
+        self.assertLess(estimate_tokens(large), engine.threshold_tokens)
+        self.assertTrue(engine.should_compress_preflight(large))
         self.assertFalse(engine.should_compress_preflight(old_turns(4)))
+        # The threshold still applies without a capture.
+        low = self.make(threshold=0.30)
+        low.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                         provider="custom", api_mode=ROUTE[2])
+        self.assertTrue(low.should_compress_preflight(rows))
         # A usable capture with a small overhead: the threshold applies.
         self.seed(rows[:-1], rows[-1])
         self.assertFalse(engine.should_compress_preflight([*rows, user("next")]))
@@ -2013,6 +2024,25 @@ class EngineTest(unittest.TestCase):
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         self.assertEqual(engine._summary_target(history), 3_200)
+
+    def test_the_fallback_transcript_grows_with_the_region(self):
+        # 30 synthetic turns: the region before the tail (about 20,000 estimated tokens) is larger than the old
+        # fixed transcript (32,000 characters); the fallback model now sees all of it, also the oldest answer.
+        from warm_compaction import fallback
+        from warm_compaction.engine import TRANSCRIPT_MAX_TOKENS
+        engine = self.make(warm=False)
+        engine.compress([*old_turns(), assistant("final")])
+        sent = self.llm.calls[0][0][1]["content"]
+        self.assertGreater(len(sent), fallback.TRANSCRIPT_CHARS)
+        self.assertIn("answer 0 ", sent)
+        # A small window caps it at 40% of the window; the floor is the old size.
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        self.assertEqual(engine._transcript_chars(old_turns()), 4 * 25_600)
+        self.assertEqual(engine._transcript_chars(old_turns(2)), fallback.TRANSCRIPT_CHARS)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        self.assertEqual(engine._transcript_chars(old_turns(80)), 4 * TRANSCRIPT_MAX_TOKENS)
 
     def test_three_provider_exclusions_without_capture_do_not_report_a_warm_failure(self):
         engine = self.make(warm_providers="opencode-go,commandcode", summary_words=777)
