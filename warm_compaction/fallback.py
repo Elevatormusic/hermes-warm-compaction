@@ -11,7 +11,8 @@ from typing import Any
 from collections.abc import Callable, Iterable
 
 from .handoff import (
-    DEFAULT_SUMMARY_WORDS, END_MARKER, HEADINGS, LEGACY_PREFIX, MAX_REPLY_BYTES, SUMMARY_WORDS_TOKEN,
+    DEFAULT_SUMMARY_WORDS, END_MARKER, HEADINGS, INSTRUCTION_TEMPLATE, LEGACY_PREFIX, MAX_REPLY_BYTES,
+    OPTIONAL_HEADINGS, SUMMARY_WORDS_TOKEN,
     extras, gate_content,
 )
 from .layout import COPY_HEADING, CUT_NOTE, is_real_user, is_summary, quote
@@ -33,7 +34,7 @@ REQUEST_MAX_TOKENS = 8192
 MAX_ATTEMPTS = 3
 MAX_ATTEMPTS_OTHER = 2
 MARKER_FAILURES = ("missing_end_marker", "duplicate_end_marker")
-TIMEOUT_S = 120.0
+TIMEOUT_S = 300.0
 # A retry starts only when this share of the time limit remains. The host cannot stop an in-flight call, so a
 # retry with too little time keeps a slow model busy and then fails on the deadline.
 RETRY_MIN_SHARE = 0.25
@@ -114,6 +115,13 @@ End the summary with this line:
 # FALLBACK_INSTRUCTION is the instruction at the default settings. FALLBACK_INSTRUCTION_TEMPLATE keeps the word
 # count as a token, so a caller can set it.
 FALLBACK_INSTRUCTION = FALLBACK_INSTRUCTION_TEMPLATE.replace(SUMMARY_WORDS_TOKEN, str(DEFAULT_SUMMARY_WORDS))
+
+# The relaxed format: the rules of the quoted format with the handoff sections of the warm request, without source
+# quotes. A small model can write it. The work ledger keeps the exact command results and file changes.
+RELAXED_INSTRUCTION_TEMPLATE = (
+    FALLBACK_INSTRUCTION_TEMPLATE[:FALLBACK_INSTRUCTION_TEMPLATE.index("Use these five headings")]
+    + INSTRUCTION_TEMPLATE[INSTRUCTION_TEMPLATE.index("Use these six headings"):]
+    + "\nEnd the summary with this line:\n" + END_LINE + "\n")
 
 
 def _cut(text: str, limit: int) -> str:
@@ -334,6 +342,17 @@ def _complete_reply(raw: str, end_line: str) -> tuple[str | None, str]:
     return None, "\n".join(lines[:-1])
 
 
+def _complete_without_marker(result: Any, raw: str, body: str, end_line: str, prefixes: Iterable[str]) -> bool:
+    """True when a relaxed reply without its end marker is still complete: no part of the marker, all headings in
+    order with the required sections, and a known output count below the generation limit (not cut by it)."""
+    output = getattr(getattr(result, "usage", None), "output_tokens", None)
+    if not isinstance(output, int) or isinstance(output, bool) or not 0 < output < REQUEST_MAX_TOKENS:
+        return False
+    if end_line in raw or "[END OF SUMMARY" in raw:
+        return False
+    return gate_content(body, prefixes)[0] is not None
+
+
 def _refuse(failure: dict[str, Any] | None, reason: str | None, result: Any, raw: str, end_line: str, body: str,
             attempts: int) -> tuple[None, None]:
     """Record a gate refusal with safe reply metadata only, and return (None, None)."""
@@ -376,6 +395,9 @@ def error_class(error: Exception) -> str:
     return name if name.isascii() and name.isidentifier() and len(name) <= 80 else "Exception"
 
 
+# The quoted format has the five required-order sections only, not the optional ones of the handoff. In an earlier
+# summary, an optional heading is section text.
+QUOTED_HEADINGS = tuple(heading for heading in HEADINGS if heading not in OPTIONAL_HEADINGS)
 SOURCE_SECTIONS = (("## Goal", "## User instructions", "- goal unknown"),
                    ("## User instructions", "## Current state", "- instructions unknown"),
                    ("## Current state", "## Key facts", "- progress unknown"),
@@ -410,7 +432,7 @@ def _source_spans(lines: list[str], prior: bool = False) -> list[tuple[int, int,
             continue
         start = headings.index(heading) + 1
         end = headings.index(next_heading) if next_heading is not None else len(lines)
-        if start <= end and not any(line in HEADINGS for line in headings[start:end]):
+        if start <= end and not any(line in QUOTED_HEADINGS for line in headings[start:end]):
             spans.append((start, end, unknown))
     return spans
 
@@ -445,7 +467,7 @@ class _SourceTable:
             structural: set[int] = set()
             for start, end, unknown in spans:
                 structural.add(start - 1)
-                if end < len(earlier_lines) and earlier_lines[end].strip() in HEADINGS:
+                if end < len(earlier_lines) and earlier_lines[end].strip() in QUOTED_HEADINGS:
                     structural.add(end)
                 structural.update(index for index in range(start, end) if earlier_lines[index].strip() == unknown)
                 for index in range(start, end):
@@ -588,11 +610,14 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
                 ready: Callable[[], bool] | None = None,
-                failure: dict[str, Any] | None = None) -> tuple[str | None, int | None]:
+                failure: dict[str, Any] | None = None, quoted: bool = True) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
     An invalid reply gets one retry; after an end-marker failure it gets two. All calls share one time limit, and
     a retry starts only when RETRY_MIN_SHARE of it remains.
+    quoted builds every section from verified source quotes. Otherwise the reply uses the free handoff sections
+    of the warm request, and a reply without its end marker passes when it has all headings and stopped below the
+    generation limit.
     failure gets safe codes and bounded reply metadata only. It never gets provider text."""
     if failure is not None:
         failure.clear()
@@ -613,7 +638,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     for attempt in range(1, MAX_ATTEMPTS + 1):
         end_line = END_LINE.replace("{nonce}", secrets.token_hex(16))
         words = int(summary_words) if attempt == 1 else min(int(summary_words), 300)
-        instruction = FALLBACK_INSTRUCTION_TEMPLATE.replace(SUMMARY_WORDS_TOKEN, str(words))
+        template = FALLBACK_INSTRUCTION_TEMPLATE if quoted else RELAXED_INSTRUCTION_TEMPLATE
+        instruction = template.replace(SUMMARY_WORDS_TOKEN, str(words))
         instruction = instruction.replace(END_LINE, end_line)
         if attempt > 1:
             # The most frequent failure of a local model is the marker line; state that requirement instead of the
@@ -668,18 +694,23 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
             return None, None
         raw = str(getattr(result, "text", "") or "")
         reason, body = _complete_reply(raw, end_line)
+        if reason == "missing_end_marker" and not quoted and _complete_without_marker(result, raw, body, end_line,
+                                                                                prefixes):
+            reason = None
         text = None
         if reason is None:
             if len(body.encode("utf-8", "surrogatepass")) > MAX_REPLY_BYTES:
                 reason = "byte_bound"
             elif estimate_tokens(body) > MAX_TOKENS:
                 reason = "body_token_limit"
+            elif not quoted:
+                text, reason = gate_content(body, prefixes)
             else:
                 body = _canonical_source_json(body)
                 text, reason = gate_content(body, prefixes)
                 if text is not None and estimate_tokens(body) > MAX_TOKENS:
                     text, reason = None, "body_token_limit"
-            if text is not None:
+            if text is not None and quoted:
                 text = _construct_current_state(text, source, prefixes)
                 text, reason = gate_content(text, prefixes)
                 if text is not None and estimate_tokens(text) > MAX_TOKENS:

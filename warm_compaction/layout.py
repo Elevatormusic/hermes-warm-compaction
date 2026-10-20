@@ -163,24 +163,38 @@ def units(messages: list) -> list[tuple[int, int]]:
 
 def tail_start(messages: list, tail_tokens: int, prefixes: Iterable[str],
                policy: SendPolicy = SendPolicy()) -> tuple[int, dict[str, Any] | None]:
-    """Return the first tail index and, in the middle of a task, a copy of the latest real user row."""
+    """Return the first tail index and, when the tail does not start at a real user row, a copy of the latest
+    real user row before it."""
     prefixes = tuple(prefixes)
     spans = units(messages)
     if not spans:
         return 0, None
+    # The latest real user row before each index: when the tail starts in the middle of a turn, a copy of that
+    # request goes first.
+    before: list[dict[str, Any] | None] = []
+    latest = None
+    for row in messages:
+        before.append(latest)
+        if is_real_user(row, prefixes):
+            latest = row
+
+    def needs_copy(index: int) -> bool:
+        return not is_real_user(messages[index], prefixes) and before[index] is not None
+
     start = spans[-1][0]
     # As Hermes sends the rows: the stored display text of a row with api_content is not in the request.
     size = sum(sent_tokens(row, policy) for row in messages[start:])
+    # The tail keeps all rows that fit, also when a newer user row is in it: a new request just before a compaction
+    # must not remove the recent work. A start in the middle of a turn counts the copy of its request too.
     for span_start, span_end in reversed(spans[:-1]):
-        cost = sum(sent_tokens(row, policy) for row in messages[span_start:span_end])
-        if size + cost > tail_tokens:
+        size += sum(sent_tokens(row, policy) for row in messages[span_start:span_end])
+        if size > tail_tokens:
             break
-        size += cost
-        start = span_start
-    for index in range(start, len(messages)):
-        if is_real_user(messages[index], prefixes):
-            return index, None
-    latest = next((row for row in reversed(messages[:start]) if is_real_user(row, prefixes)), None)
+        if not needs_copy(span_start) or size + sent_tokens(before[span_start], policy) <= tail_tokens:
+            start = span_start
+    if not needs_copy(start):
+        return start, None
+    latest = before[start]
     if latest is None:
         return start, None
     prepend = {"role": "user", "content": copy.deepcopy(latest["content"])}

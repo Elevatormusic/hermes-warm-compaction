@@ -28,6 +28,22 @@ config_schema:
     type: bool
     default: true
     description: Use the warm request. Set false for comparison runs.
+  ledger:
+    type: bool
+    default: true
+    description: Add the work ledger (commands with exit codes and first error lines, changed files) after the summary. Set false for comparison runs.
+  fallback_format:
+    type: str
+    default: relaxed
+    description: Format of the fallback summary. relaxed uses the free handoff sections; quoted builds every section from verified source quotes.
+  ledger_on_failure:
+    type: bool
+    default: true
+    description: When both model summaries fail and the rows before the tail have tool work, compact with a ledger-only summary instead of stopping. Applies only when ledger is true.
+  timeout_s:
+    type: float
+    default: 300.0
+    description: Time limit in seconds (10 to 3600) for the warm request, and the shared deadline of the fallback summary calls.
   summary_words:
     type: int
     default: 600

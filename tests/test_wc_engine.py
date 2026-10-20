@@ -54,7 +54,7 @@ class FakeLlm:
 
 def fake_post(content=HEADINGS_TEXT, cached=900):
     def post(url, data, headers, timeout_s):
-        post.calls.append({"url": url, "body": json.loads(data), "headers": headers})
+        post.calls.append({"url": url, "body": json.loads(data), "headers": headers, "timeout_s": timeout_s})
         payload = {"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
                    "usage": {"prompt_tokens": 1000, "completion_tokens": 50,
                              "prompt_tokens_details": {"cached_tokens": cached}}}
@@ -1740,7 +1740,7 @@ class EngineTest(unittest.TestCase):
         self.llm = FakeLlm(text=HEADINGS_TEXT.replace("- [OPEN] Write the report.", "- " + state)
                           .replace('- "Use short names."', '- "Check PKG-17 progress."')
                           + "\n" + END_LINE)
-        engine = self.make(warm=False)
+        engine = self.make(warm=False, fallback_format="quoted")
         history = [user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")]
         original = copy.deepcopy(history)
         new = engine.compress(history)
@@ -1772,7 +1772,7 @@ class EngineTest(unittest.TestCase):
                     return SimpleNamespace(text=text.replace(END_LINE, end_line),
                                            usage=SimpleNamespace(input_tokens=50, output_tokens=output))
                 self.llm = SimpleNamespace(complete=complete)
-                engine = self.make(warm=False)
+                engine = self.make(warm=False, fallback_format="quoted")
                 with self.assertLogs("warm_compaction", level="INFO") as logs:
                     self.assert_aborted(engine, [*old_turns(), assistant("synthetic final reply")], "gate:" + reason)
                 status = engine.get_status()["warm_last"]
@@ -1861,6 +1861,129 @@ class EngineTest(unittest.TestCase):
         sent = " ".join(str(row.get("content")) for row in self.post.calls[0]["body"]["messages"])
         self.assertIn("Use at most 1200 words.", sent)
         self.assertNotIn("600 words", sent)
+
+    def ledger_rows(self):
+        # Synthetic work before the tail: one failed command and one file change.
+        return [user("Synthetic task: fix the timeout test."),
+                assistant("", [("c1", "terminal", json.dumps({"command": "pytest -q"}))]),
+                tool("c1", json.dumps({"output": "FAILED tests/test_api.py::test_timeout - AssertionError: 30 != 60",
+                                       "exit_code": 1, "error": None})),
+                assistant("", [("c2", "patch", json.dumps({"path": "src/api.py", "old_string": "30",
+                                                            "new_string": "60"}))]),
+                tool("c2", json.dumps({"success": True})),
+                *old_turns()]
+
+    def summary_text(self, new):
+        return "\n".join(str(row.get("content")) for row in new if row.get("_compressed_summary"))
+
+    def test_the_work_ledger_is_in_the_summary_on_both_paths(self):
+        from warm_compaction import ledger
+        for warm in (True, False):
+            with self.subTest(warm=warm):
+                engine = self.make(warm=warm)
+                rows, reply = self.ledger_rows(), assistant("final")
+                if warm:
+                    self.seed(rows, reply)
+                new = engine.compress([*rows, reply])
+                self.assertEqual(engine.warm_last["path"], "warm" if warm else "fallback")
+                text = self.summary_text(new)
+                self.assertIn(ledger.HEADING, text)
+                self.assertIn("- `pytest -q`: exit 1; FAILED tests/test_api.py::test_timeout", text)
+                self.assertIn("- src/api.py: changed", text)
+                self.assertLess(text.index(ledger.HEADING), text.index("## Copied user messages"))
+
+    def test_the_ledger_setting_false_keeps_the_summary_without_a_ledger(self):
+        from warm_compaction import ledger
+        engine = self.make(warm=False, ledger=False)
+        rows = self.ledger_rows()
+        new = engine.compress([*rows, assistant("final")])
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        self.assertNotIn(ledger.HEADING, self.summary_text(new))
+
+    def test_failed_summaries_compact_with_the_ledger_only(self):
+        from warm_compaction import ledger
+        from warm_compaction.engine import LEDGER_ONLY_LINE
+        self.llm.error = RuntimeError("synthetic failure")
+        engine = self.make(warm=False)
+        rows = self.ledger_rows()
+        new = engine.compress([*rows, assistant("final")])
+        self.assertEqual((engine.warm_last["path"], engine.warm_last["fallback_reason"]),
+                         ("ledger", "error:RuntimeError"))
+        self.assertEqual(engine.compression_count, 1)
+        text = self.summary_text(new)
+        for heading in ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step"):
+            self.assertIn(f"{heading}\n{LEDGER_ONLY_LINE}", text)
+        self.assertEqual(text.count(ledger.HEADING), 1)
+        self.assertIn("- `pytest -q`: exit 1; FAILED tests/test_api.py::test_timeout", text)
+        self.assertIn("## Copied user messages", text)
+        self.assertLess(len(new), len(rows) + 1)
+
+    def test_a_ledger_only_summary_fits_a_large_prepended_request(self):
+        # No model saw the request: the middle that the cut removes goes after the ledger as a quote, and the
+        # prepended row fits in the room.
+        from warm_compaction.rows import estimate_tokens
+        self.llm.error = RuntimeError("synthetic failure")
+        rows = [*self.ledger_rows(), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
+                assistant("", [("c3", "read", "{}")]), tool("c3", "r1"), assistant("done")]
+        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
+                            provider="custom", api_mode=ROUTE[2])
+        new = engine.compress(rows)
+        self.assertEqual(engine.warm_last["path"], "ledger")
+        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
+        self.assertNotIn("MID-REQ", prepended["content"])
+        self.assertIn("MID-REQ", self.summary_text(new))
+        self.assertLess(sum(estimate_tokens(str(row.get("content"))) for row in new), 64_000 * 0.95)
+
+    def test_without_a_ledger_or_with_the_setting_off_failed_summaries_keep_history(self):
+        self.llm.error = RuntimeError("synthetic failure")
+        for settings, history in (({}, [*old_turns(), assistant("final")]),
+                                  ({"ledger_on_failure": False}, [*self.ledger_rows(), assistant("final")]),
+                                  ({"ledger": False}, [*self.ledger_rows(), assistant("final")])):
+            with self.subTest(settings=settings):
+                engine = self.make(warm=False, **settings)
+                self.assert_aborted(engine, history, "error:RuntimeError")
+
+    def test_the_default_relaxed_fallback_accepts_a_paraphrased_summary(self):
+        plain = ("## Goal\nFix the synthetic timeout test.\n\n## User instructions\n- none\n\n"
+                 "## Current state\n- [OPEN] test_timeout fails.\n\n## Key facts\n- src/api.py changed.\n\n"
+                 "## Next step\nRun pytest -q.")
+        self.llm = FakeLlm(text=plain + "\n" + END_LINE)
+        engine = self.make(warm=False)
+        new = engine.compress([*self.ledger_rows(), assistant("final")])
+        self.assertEqual(engine.warm_last["path"], "fallback")
+        self.assertIn("- [OPEN] test_timeout fails.", self.summary_text(new))
+        self.assertEqual(len(self.llm.calls), 1)
+
+    def test_the_ledger_uses_only_the_summary_budget_that_is_left(self):
+        from warm_compaction import ledger
+        engine = self.make(warm=False)
+        engine._summary_budget = lambda *args, **kwargs: 0
+        new = engine.compress([*self.ledger_rows(), assistant("final")])
+        self.assertNotIn(ledger.HEADING, self.summary_text(new))
+
+    def test_the_time_limit_setting_reaches_the_warm_request(self):
+        for settings, expected in (({}, 300.0), ({"timeout_s": 900.0}, 900.0)):
+            with self.subTest(settings=settings):
+                self.post.calls.clear()
+                engine = self.make(**settings)
+                rows = old_turns()
+                reply = assistant("final")
+                self.seed(rows, reply)
+                engine.compress([*rows, reply])
+                self.assertEqual(engine.warm_last["path"], "warm")
+                self.assertEqual(self.post.calls[0]["timeout_s"], expected)
+
+    def test_the_time_limit_setting_reaches_the_fallback_summary(self):
+        # A slow local model (synthetic): the fallback call gets the configured limit, not the old fixed 120 s.
+        for settings, expected in (({}, 300.0), ({"timeout_s": 900.0}, 900.0)):
+            with self.subTest(settings=settings):
+                self.llm.calls.clear()
+                engine = self.make(warm=False, **settings)
+                engine.compress([user("Check PKG-17 progress."), *old_turns(), assistant("synthetic final reply")])
+                timeout = self.llm.calls[0][1]["timeout"]
+                self.assertGreater(timeout, expected - 5)
+                self.assertLessEqual(timeout, expected)
 
     def test_a_provider_outside_the_list_skips_the_warm_request(self):
         # The route is kept out of the warm path: no warm request is sent, and the fallback summary runs.
@@ -2198,7 +2321,7 @@ class EngineTest(unittest.TestCase):
 
     def test_all_unknown_replies_preserve_history(self):
         self.llm = FakeLlm(FALLBACK_TEXT + "\n" + END_LINE)
-        engine = self.engine = self.make(warm=False, tail_tokens=10)
+        engine = self.engine = self.make(warm=False, tail_tokens=10, fallback_format="quoted")
         rows = [*old_turns(4), user("Check JOB-X3."), assistant("done")]
         self.assert_aborted(engine, rows, "gate:no_useful_evidence")
         self.assertEqual(len(self.llm.calls), 2)
@@ -2207,7 +2330,7 @@ class EngineTest(unittest.TestCase):
         self.llm.error = RuntimeError("synthetic failure")
         rows = [*old_turns(4), user("go"), assistant("", [("c1", "read", "{}")]),
                 tool("c1", "head " + "u" * 20_000 + " MIDDLE-FACT " + "u" * 20_000 + " end")]
-        engine = self.make(tail_tokens=2_000, warm=False)
+        engine = self.make(tail_tokens=2_000, warm=False, fallback_format="quoted")
         self.assert_aborted(engine, rows, "error:RuntimeError")
 
     def test_a_capture_with_a_changed_source_is_not_used_for_the_budget(self):
@@ -2239,16 +2362,34 @@ class SettingsTest(unittest.TestCase):
 
     def test_valid_values(self):
         values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
-                  "summary_words": 1200, "warm_providers": "opencode-go,commandcode"}
+                  "summary_words": 1200, "warm_providers": "opencode-go,commandcode", "ledger": False,
+                  "fallback_format": "quoted", "ledger_on_failure": False, "timeout_s": 900.0}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
         values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
-                  "summary_words": 0, "warm_providers": 7}
+                  "summary_words": 0, "warm_providers": 7, "ledger": "yes", "fallback_format": "strict",
+                  "ledger_on_failure": 1, "timeout_s": 0}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 6)
+        self.assertEqual(len(logs.output), 10)
+
+    def test_the_time_limit_setting(self):
+        def reader(values):
+            return lambda key, default: values.get(key, default)
+
+        self.assertEqual(self.module.DEFAULTS["timeout_s"], 300.0)
+        for good, expected in ((10, 10.0), (600, 600.0), (3600.0, 3600.0), (450.5, 450.5)):
+            with self.subTest(good=good):
+                settings = self.module.read_settings(reader({"timeout_s": good}))
+                self.assertEqual(settings["timeout_s"], expected)
+                self.assertIs(type(settings["timeout_s"]), float)
+        for bad in (0, 9.9, -1, 3601, "600", True, float("nan"), float("inf")):
+            with self.subTest(bad=bad):
+                with self.assertLogs("warm_compaction.engine", level="WARNING"):
+                    settings = self.module.read_settings(reader({"timeout_s": bad}))
+                self.assertEqual(settings["timeout_s"], 300.0)
 
     def test_a_word_count_below_one_uses_the_default(self):
         def reader(values):
