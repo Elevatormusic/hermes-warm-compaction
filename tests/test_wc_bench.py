@@ -340,7 +340,11 @@ class RunTest(unittest.TestCase):
                                          raw_dir=None)
             with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
                 run.command_report(args)
-            self.assertNotIn(secret, (out / "r.json").read_text(encoding="utf-8"))
+            report = json.loads((out / "r.json").read_text(encoding="utf-8"))
+            self.assertNotIn(secret, json.dumps(report))
+            # The hash of a redacted value stays in the local meta.json only: a short credential can be guessed.
+            self.assertEqual(report["meta"]["config"]["hermes_config"],
+                             {"redacted": True, "types": public["hermes_config"]["types"]})
 
     def test_report_refuses_an_incompatible_run_folder(self):
         gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}

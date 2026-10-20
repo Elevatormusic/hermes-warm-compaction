@@ -409,6 +409,14 @@ def public_config(config: dict) -> dict:
     return kept
 
 
+def report_config(config: dict) -> dict:
+    """public_config without the hashes of redacted values. The hashes stay in the local meta.json for the resume
+    and merge checks; a published report does not get them (a hash of a short credential can be guessed)."""
+    return {key: ({k: v for k, v in value.items() if k != "sha256"}
+                  if isinstance(value, dict) and value.get("redacted") is True else value)
+            for key, value in public_config(config).items()}
+
+
 def config_hash(config: dict) -> str:
     """A hash of the settings that can change a job result: no private paths and no job selection keys. Raw and
     redacted values (public_config) give the same hash."""
@@ -1075,7 +1083,7 @@ def command_report(args) -> int:
         planned.update({job_id: job for job_id, job in planned_jobs(extra_meta).items() if job_id not in planned})
         meta.setdefault("merged_runs", []).append({**{key: extra_meta.get(key) for key in (
             "started_utc", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs")},
-            "config": public_config(extra_meta.get("config") or {})})
+            "config": report_config(extra_meta.get("config") or {})})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
     if rescores:
         # The marks come from the current gold files, not from the gold files of the run.
@@ -1087,7 +1095,7 @@ def command_report(args) -> int:
               file=sys.stderr)
     result = aggregate(runs, meta, attempts, planned)
     # A run folder made before the redaction rule can have raw values in meta.json: redact them here too.
-    meta["config"] = public_config(meta.get("config") or {})
+    meta["config"] = report_config(meta.get("config") or {})
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
                        "text.", "meta": meta, "results": result,
