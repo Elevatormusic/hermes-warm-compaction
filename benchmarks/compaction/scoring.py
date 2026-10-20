@@ -162,7 +162,10 @@ def fact_positions(needle: str, normal: str) -> list[int]:
     if not needle:
         return []
     pattern = re.escape(needle)
-    if re.fullmatch(r"[0-9.,:/ x%+-]+", needle):
+    if re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", needle):
+        # A dotted version can have a "v" before it ("v7.3.0"), but not another letter or digit.
+        pattern = r"(?<![a-uw-z0-9])(?<![a-z0-9]v)(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
+    elif re.fullmatch(r"[0-9.,:/ x%+-]+", needle):
         pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
     elif short_text(needle):
         pattern = r"(?<![a-z0-9])" + pattern

@@ -507,9 +507,18 @@ def fail_incomplete(record: dict) -> bool:
 
 
 def anthropic_base_url(config: dict) -> str:
-    """The Anthropic Messages root of the endpoint (Claude Code adds /v1/messages)."""
-    url = str(config.get("anthropic_base_url") or config["endpoint"]).rstrip("/")
-    return url[:-3] if url.endswith("/v1") else url
+    """The Anthropic Messages root of the endpoint (Claude Code adds /v1/messages to ANTHROPIC_BASE_URL). Claude
+    Code cannot keep a query or a fragment after that path, so an endpoint with one needs anthropic_base_url: the
+    run stops before any job."""
+    if config.get("anthropic_base_url"):
+        return str(config["anthropic_base_url"]).rstrip("/")
+    parts = urllib.parse.urlsplit(str(config["endpoint"]))
+    if parts.query or parts.fragment:
+        raise SystemExit("claude_code_cli: the endpoint has a query or a fragment (for example an api-version), "
+                         "which Claude Code cannot add after /v1/messages; set anthropic_base_url; stop before any "
+                         "job")
+    path = parts.path.rstrip("/")
+    return urllib.parse.urlunsplit(parts._replace(path=path[:-3] if path.endswith("/v1") else path))
 
 
 def write_meta(path: Path, meta: dict) -> None:
@@ -531,6 +540,8 @@ def cli_state(config: dict, methods: list[str]) -> dict[str, Any]:
         spec = (config.get("cli") or {}).get(engine) or {}
         if not spec.get("command") or not spec.get("version"):
             raise SystemExit(f"config cli.{engine} needs 'command' and a pinned 'version'")
+        if engine == "claude_code_cli":
+            anthropic_base_url(config)  # stops before any job when the endpoint cannot give the Claude Code root
         with tempfile.TemporaryDirectory(prefix="wc-cli-version-") as folder:
             home = Path(folder)
             env = cli_environment(home, {"CODEX_HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")})

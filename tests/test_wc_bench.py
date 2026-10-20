@@ -263,6 +263,14 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assertFalse(scoring.retained(item, f"The first axe scan found {changed} violations."))
         self.assertTrue(scoring.retained(item, "Axe scan: 5, violations listed."))
+        # A dotted version keeps a "v" before it, but not another letter or digit (synthetic summary text).
+        gold = json.loads((GOLD_DIR / "s6-lumen.gold.json").read_text(encoding="utf-8"))
+        release = next(q for q in gold["questions"] if q["id"] == "s6-lumen:04")
+        self.assertEqual(release["retention"], [["7.3.0"], ["release"]])
+        for text, kept in (("release v7.3.0", True), ("release 7.3.0", True), ("release 17.3.0", False),
+                           ("release xv7.3.0", False), ("release 7.3.0.1", False)):
+            with self.subTest(text=text):
+                self.assertEqual(scoring.retained(release, text), kept)
         # Every short single-group fact in the gold files has a second group: a context word.
         for spec in SCENARIOS:
             gold = json.loads((GOLD_DIR / f"{spec['id']}.gold.json").read_text(encoding="utf-8"))
@@ -2131,6 +2139,16 @@ class CliWorkerTest(unittest.TestCase):
                 else:
                     self.assertEqual(run.cli_state(config, ["codex_cli"])["codex_cli"]["version"], "9.9.9")
         self.assertEqual(run.anthropic_base_url({"endpoint": "http://localhost:1234/v1/"}), "http://localhost:1234")
+        # Claude Code cannot keep an endpoint query after /v1/messages: stop before any job (fake gateway URL).
+        query = {"endpoint": "https://gateway.invalid/v1?api-version=2026-01-01",
+                 "cli": {"claude_code_cli": {"command": ["fake-claude"], "version": "9.9.9"}}}
+        with self.assertRaisesRegex(SystemExit, "query or a fragment"):
+            run.anthropic_base_url(query)
+        with mock.patch("subprocess.run") as probe, self.assertRaisesRegex(SystemExit, "query or a fragment"):
+            run.cli_state(query, ["claude_code_cli"])
+        probe.assert_not_called()
+        self.assertEqual(run.anthropic_base_url({**query, "anthropic_base_url": "https://gateway.invalid/a/"}),
+                         "https://gateway.invalid/a")
 
 
 # Synthetic main-turn replies of the fake CLIs.
