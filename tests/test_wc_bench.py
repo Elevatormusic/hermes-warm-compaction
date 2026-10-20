@@ -784,6 +784,15 @@ class RunTest(unittest.TestCase):
             raw = out_dir / "raw" / f"{spec['id']}__stock_hermes__r1__c1.json"
             self.assertEqual(record["raw_sha256"], run.sha256_file(raw))
 
+            # The worker wrote an ok report, then hung: the outer timeout stopped it. The job stays failed.
+            def hung_worker(argv, timeout, **_kwargs):
+                fake_worker(argv, timeout)
+                raise subprocess.TimeoutExpired(argv, timeout, stderr=b"")
+
+            with mock.patch.object(run, "run_tree", side_effect=hung_worker):
+                record = run.run_job(job, config, out_dir, history_dir)
+            self.assertEqual((record["status"], record["error"]), ("failed", "job_timeout"))
+
     def test_failed_job_with_a_partial_cycle_is_not_scored(self):
         runs = self.synthetic_runs()
         # A failed main turn: the worker sends the partial cycle (no compaction step, no rows_after).
@@ -1842,6 +1851,22 @@ class RunTest(unittest.TestCase):
             self.assertTrue(written)
             # The old meta.json is complete, so a later resume or report can read the run.
             self.assertEqual((out / "meta.json").read_text(encoding="utf-8"), original)
+
+    def test_server_probe_keeps_the_endpoint_query(self):
+        # A fake gateway URL with an api-version query: the model path goes before the query.
+        config = {"endpoint": "https://gateway.invalid/v1?api-version=2026-01-01", "model": "m", "server_check": True,
+                  "context_length": 8}
+        reply = mock.MagicMock()
+        reply.__enter__.return_value.read.return_value = json.dumps(
+            {"state": "loaded", "loaded_context_length": 8}).encode("utf-8")
+        for probe in (run.server_model, run.server_state):
+            with self.subTest(probe=probe.__name__), \
+                    mock.patch("urllib.request.urlopen", return_value=reply) as opened:
+                probe(config)
+                self.assertEqual(opened.call_args[0][0],
+                                 "https://gateway.invalid/api/v0/models/m?api-version=2026-01-01")
+        self.assertEqual(run.server_model_url({"endpoint": "http://localhost:1234/v1/", "model": "m"}),
+                         "http://localhost:1234/api/v0/models/m")
 
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}

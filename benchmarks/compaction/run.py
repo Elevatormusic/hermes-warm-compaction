@@ -498,6 +498,10 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
             record["engine_name"] = out.get("engine_name")
             record["cycles"] = [score_cycle(cycle, gold, history, job["method"]) for cycle in out.get("cycles", [])]
             fail_incomplete(record)
+            if isinstance(completed, subprocess.TimeoutExpired):
+                # The outer timeout stopped the process tree after the report: the job ran over job_timeout_s and
+                # child work could still run, so the job fails also when the report says ok.
+                record["status"], record["error"] = "failed", "job_timeout"
             if config.get("keep_text"):
                 raw = out_dir / "raw"
                 raw.mkdir(exist_ok=True)
@@ -1083,14 +1087,21 @@ def plan_ids(config: dict, plugin: dict) -> list[str] | None:
 SERVER_MODEL_KEYS = ("id", "type", "publisher", "arch", "compatibility_type", "quantization", "max_context_length")
 
 
+def server_model_url(config: dict) -> str:
+    """The LM Studio REST URL of the configured model: the endpoint path without /v1, then /api/v0/models/<model>.
+    The query and the fragment of the endpoint stay after the path."""
+    parts = urllib.parse.urlsplit(str(config["endpoint"]))
+    path = parts.path.rstrip("/")
+    path = path[:-3] if path.endswith("/v1") else path
+    return urllib.parse.urlunsplit(parts._replace(path=f"{path}/api/v0/models/{config['model']}"))
+
+
 def server_model(config: dict) -> dict | None:
     """With "server_check": true, the model file fields that the LM Studio REST API reports (no paths)."""
     if not config.get("server_check"):
         return None
-    root = str(config["endpoint"]).rstrip("/")
-    root = root[:-3] if root.endswith("/v1") else root
     try:
-        with urllib.request.urlopen(f"{root}/api/v0/models/{config['model']}", timeout=30) as response:
+        with urllib.request.urlopen(server_model_url(config), timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None
@@ -1120,10 +1131,8 @@ def server_state(config: dict, expected: dict | None = None) -> str | None:
     quantization under the same ID) makes the results of a job invalid."""
     if not config.get("server_check"):
         return None
-    root = str(config["endpoint"]).rstrip("/")
-    root = root[:-3] if root.endswith("/v1") else root
     try:
-        with urllib.request.urlopen(f"{root}/api/v0/models/{config['model']}", timeout=30) as response:
+        with urllib.request.urlopen(server_model_url(config), timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception as error:
         return f"server_unreachable:{type(error).__name__}"
