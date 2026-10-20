@@ -177,8 +177,7 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     main = run_cli(common + ["-c", "model_auto_compact_token_limit=100000000", "resume", session_id,
                              fixture["resume"]], cwd, env, timeout_s)
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"])
-    if main["login_prompt"]:
-        raise LoginRequired()
+    check_main(item, main)
     # The manual compaction: the app server request thread/compact/start (what /compact sends). It starts a
     # compaction turn only; no model turn follows.
     compact = codex_app_server_compact([*job["cli_command"], "app-server", "-c",
@@ -403,8 +402,7 @@ def run_claude(job: dict, fixture: dict, work: Path, out: dict) -> None:
     main = run_cli(common + [fixture["resume"]], cwd, env, timeout_s)
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"],
                 main_result=cli_result(main["text"]))
-    if main["login_prompt"]:
-        raise LoginRequired()
+    check_main(item, main, item["main_result"])
     compact = run_cli(common + ["/compact"], cwd, env, timeout_s)
     if compact["login_prompt"]:
         raise LoginRequired()
@@ -432,6 +430,21 @@ def cli_result(text: str) -> dict:
 
 class LoginRequired(Exception):
     """The CLI asked for a login. The benchmark never signs in."""
+
+
+class MainTurnFailed(Exception):
+    """The main turn of the CLI timed out, exited with an error, or reported an error result. The job stops before
+    the compaction: a compaction of an incomplete session is not comparable."""
+
+
+def check_main(item: dict, main: dict, result: dict | None = None) -> None:
+    if main["login_prompt"]:
+        raise LoginRequired()
+    reason = ("timeout" if main["timeout"] else f"exit_{main['exit_code']}" if main["exit_code"] != 0
+              else "error_result" if (result or {}).get("is_error") else None)
+    if reason:
+        item["main_failed"] = True
+        raise MainTurnFailed(reason)
 
 
 def text_rows_all(rows: list[dict]) -> list[dict]:
@@ -474,6 +487,8 @@ def main() -> int:
         out["status"] = "ok"
     except LoginRequired:
         out["error"] = "login_required"
+    except MainTurnFailed as error:
+        out["error"] = f"main_turn_failed:{error}"
     except Exception as error:
         out["error"] = type(error).__name__
         out["trace"] = "".join(traceback.format_exception(type(error), None, error.__traceback__))[-4000:]

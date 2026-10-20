@@ -184,6 +184,9 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
                                            conversation_history=history)
             item["main_s"] = round(time.monotonic() - started, 3)
             item["main_failed"] = bool(reply.get("failed"))
+            if item["main_failed"]:
+                # A failed main turn gives a different history from the other methods: the job fails here.
+                raise MainTurnFailed()
             messages = list(reply.get("messages") or history)
             item["main_prompt_tokens"] = getattr(engine, "last_prompt_tokens", None)
             item["rows_after_main"] = len(messages)
@@ -238,6 +241,10 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
         db.close()
 
 
+class MainTurnFailed(Exception):
+    """The main turn (run_conversation) reported a failure. The job stops before the compaction."""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--job", required=True)
@@ -249,6 +256,8 @@ def main() -> int:
     try:
         run_cycles(job, fixture, Path(os.environ["HERMES_HOME"]), out)
         out["status"] = "ok"
+    except MainTurnFailed:
+        out["error"] = "main_turn_failed"
     except Exception as error:
         out["error"] = type(error).__name__
         # The trace has code locations only when the message is left out; it stays in the local work folder.

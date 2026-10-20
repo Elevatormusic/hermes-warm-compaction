@@ -37,7 +37,7 @@ WORKER = HERE / "worker.py"
 CLI_WORKER = HERE / "cli_worker.py"
 CATEGORIES = ("goal", "user_instruction", "command_outcome", "file_changed", "identifier", "decision", "task_state",
               "next_step", "recent")
-ACCEPTED_PATHS = ("warm", "fallback", "model", "preflight")
+ACCEPTED_PATHS = ("warm", "fallback", "model")
 STATIC_FALLBACK_TEXT = "Summary generation was unavailable"
 # The compaction methods. "requires" names plugin settings that must exist in the plugin source.
 METHODS: dict[str, dict[str, Any]] = {
@@ -161,14 +161,14 @@ def worker_environment(home: Path) -> dict[str, str]:
 
 
 def classify(cycle: dict, method: str) -> str:
-    """The summary path of one compaction: warm, fallback, ledger, model, static_fallback, no_change, aborted, or
-    none (the control)."""
+    """The summary path of one compaction: warm, fallback, ledger, model, static_fallback, no_change, aborted,
+    main_failed, or none (the control). A preflight compaction (during the main turn) gets the path of its summary,
+    with the same checks as a manual compaction; the cycle keeps "preflight": true."""
     engine = METHODS[method]["engine"]
+    if cycle.get("main_failed"):
+        return "main_failed"
     if engine == "none":
         return "none"
-    if cycle.get("preflight"):
-        # The engine compacted before the main request; outcome.path keeps the summary path of that compaction.
-        return "preflight"
     outcome = cycle.get("outcome") or {}
     if engine == "warm_compaction":
         path = outcome.get("path")
@@ -183,6 +183,17 @@ def classify(cycle: dict, method: str) -> str:
         return "no_change"
     text = scoring.history_text(cycle.get("history") or [])
     return "static_fallback" if STATIC_FALLBACK_TEXT in text else "model"
+
+
+def stored_path(cycle: dict, method: str) -> str:
+    """The summary path of a stored cycle. Records made before this rule have the path "preflight" for a preflight
+    compaction: the plugin keeps its summary path in outcome.path; other engines need --rescore with the raw
+    output for the static fallback check."""
+    if cycle.get("path") != "preflight":
+        return cycle["path"]
+    if METHODS[method]["engine"] == "warm_compaction":
+        return str((cycle.get("outcome") or {}).get("path") or "unknown")
+    return "preflight_unchecked"
 
 
 def evidence_kept(history_rows: list, compacted: list, rows: list[int]) -> bool:
@@ -226,7 +237,7 @@ def score_cycle(cycle: dict, gold: dict, history: dict, method: str) -> dict:
     calls = qa.get("calls", [])
     return {
         "cycle": cycle.get("cycle"), "path": classify(cycle, method), "compacted": bool(cycle.get("compacted")),
-        "preflight": bool(cycle.get("preflight")),
+        "preflight": bool(cycle.get("preflight")), "main_failed": bool(cycle.get("main_failed")),
         "compress_error": cycle.get("compress_error"), "outcome": {k: outcome.get(k) for k in keep if k in outcome},
         "removed": cycle.get("removed"), "rows_before": cycle.get("rows_before"), "rows_after": cycle.get("rows_after"),
         "est_tokens_before": cycle.get("est_tokens_before"), "est_tokens_after": cycle.get("est_tokens_after"),
@@ -444,7 +455,8 @@ def command_run(args) -> int:
         if not args.dry_run:
             meta.setdefault("resumes", []).append({
                 "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "harness_sha256": harness_hashes(),
-                "harness_changed": harness, "methods": list(config["methods"])})
+                "harness_changed": harness, "methods": list(config["methods"]),
+                "plan": {key: config[key] for key in PLAN_KEYS if key in config}})
             meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
     # A job is done when its latest record is ok: a later "invalid" or failed record makes it run again.
@@ -501,12 +513,18 @@ def load_runs(out_dir: Path) -> list[dict]:
 
 
 def planned_jobs(meta: dict) -> dict[str, dict]:
-    """The jobs that the configuration of a run folder plans, by job id (empty when the plan cannot be made)."""
-    try:
-        jobs, _skipped = plan(meta["config"], meta["plugin"])
-    except (KeyError, TypeError, ValueError):
-        return {}
-    return {job["id"]: job for job in jobs}
+    """The jobs that the run folder plans, by job id (empty when the plan cannot be made): the jobs of the first
+    configuration and of each resume. A resume can add jobs; a job that an earlier plan had stays planned."""
+    found: dict[str, dict] = {}
+    configs = [meta.get("config") or {}] + [
+        {**(meta.get("config") or {}), **item["plan"]} for item in meta.get("resumes") or [] if item.get("plan")]
+    for config in configs:
+        try:
+            jobs, _skipped = plan(config, meta["plugin"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        found.update({job["id"]: job for job in jobs if job["id"] not in found})
+    return found
 
 
 def rate(successes: int, total: int) -> dict[str, Any]:
@@ -533,11 +551,15 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                or any(job["method"] == name for job in planned.values())]
     result: dict[str, Any] = {"methods": {}, "paired": [], "drift": {}}
     pairs: dict[tuple, dict[str, str]] = defaultdict(dict)
+    for run in runs:
+        for cycle in run.get("cycles") or []:
+            cycle["path"] = stored_path(cycle, run["method"])
     for name in methods:
         items = [run for run in main if run["method"] == name]
         not_run = [job for job_id, job in planned.items()
                    if job["method"] == name and job["cycles"] == 1 and job_id not in recorded]
-        every = [(run, run["cycles"][0]) for run in items if run.get("cycles")]
+        # A failed job (status not ok) has no scored compaction, also when the worker sent a partial cycle.
+        every = [(run, run["cycles"][0]) for run in items if run.get("status") == "ok" and run.get("cycles")]
         # Accuracy uses the runs that compacted: an aborted run keeps the full history and asks no questions.
         cycles = [(run, cycle) for run, cycle in every if cycle["compacted"] or METHODS[name]["engine"] == "none"]
         paths = defaultdict(int)
@@ -555,7 +577,7 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                 reasons[cycle["path"]] += 1
         # A job without cycles (a timeout, a worker error) and a planned job without a record are failures too.
         for run in items:
-            if not run.get("cycles"):
+            if run.get("status") != "ok" or not run.get("cycles"):
                 reasons[f"job:{run.get('error') or run.get('status')}"] += 1
         if not_run:
             reasons["not_run"] += len(not_run)
@@ -568,7 +590,8 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "job_failures": len(failed_jobs), "attempts": len(method_attempts),
             "failed_attempts": [{"job": item["job"], "error": item.get("error"), "status": item.get("status")}
                                 for item in method_attempts if item.get("status") != "ok" or not item.get("cycles")],
-            "compacted_runs": len(cycles), "paths": dict(paths), "failure_reasons": dict(reasons),
+            "compacted_runs": len(cycles), "preflight_runs": sum(bool(cycle.get("preflight")) for _r, cycle in every),
+            "paths": dict(paths), "failure_reasons": dict(reasons),
             "success": rate(accepted, total) if METHODS[name]["engine"] != "none" else None,
             "categories": {}, "categories_compacted_evidence": {}, "retention": {},
             "per_rep_accuracy": {}, "tokens": {}, "latency_s": {}, "per_run": []}
@@ -662,7 +685,7 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                     "p_mcnemar": scoring.mcnemar(a_only, b_only)})
     for name in sorted({run["method"] for run in drift}, key=list(METHODS).index):
         recorded_drift = [run for run in drift if run["method"] == name]
-        items = [run for run in recorded_drift if run.get("cycles")]
+        items = [run for run in recorded_drift if run.get("status") == "ok" and run.get("cycles")]
         per_cycle = []
         for index in range(max(len(run["cycles"]) for run in items) if items else 0):
             hits = total = 0
@@ -830,9 +853,12 @@ def markdown(result: dict, meta: dict) -> str:
                      f"{entry['attempts']} ({len(entry['failed_attempts'])}) | {pct(entry['success'])} | "
                      f"{', '.join(f'{k}: {v}' for k, v in sorted(entry['paths'].items()))} | "
                      f"{', '.join(f'{k}: {v}' for k, v in sorted(entry['failure_reasons'].items())) or '-'} |")
-    if any(entry["paths"].get("preflight") for entry in methods.values()):
-        lines += ["", "Path `preflight`: the engine compacted during the main turn, before the main request (for "
-                  "example, the plugin preflight check with no captured request). The questions use that history, "
+    if any(entry.get("preflight_runs") for entry in methods.values()):
+        lines += ["", "Preflight runs: " + ", ".join(f"{entry['label']} {entry['preflight_runs']}" for entry in
+                                                    methods.values() if entry.get("preflight_runs")) + ".",
+                  "", "A preflight run: the engine compacted during the main turn, before the main request (for "
+                  "example, the plugin preflight check with no captured request). Its path is the path of that "
+                  "summary, with the same checks as a manual compaction. The questions use that history, "
                   "and the main request ran on the compacted history, unlike the other runs."]
     lines += ["", "## Accuracy by category (all questions)", "",
               "Runs with a scored compaction only (the control: all runs). The first row gives the scored runs and "
@@ -933,9 +959,9 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = ()) 
         out = json.loads(raw.read_text(encoding="utf-8"))
         gold = json.loads((GOLD_DIR / f"{run['fixture']}.gold.json").read_text(encoding="utf-8"))
         for cycle, raw_cycle in zip(run["cycles"], out.get("cycles", [])):
-            marks = score_cycle(raw_cycle, gold, built[run["fixture"]], run["method"])["marks"]
-            counts["marks_changed"] += sum(a != b for a, b in zip(cycle["marks"], marks))
-            cycle["marks"] = marks
+            scored = score_cycle(raw_cycle, gold, built[run["fixture"]], run["method"])
+            counts["marks_changed"] += sum(a != b for a, b in zip(cycle["marks"], scored["marks"]))
+            cycle["marks"], cycle["path"] = scored["marks"], scored["path"]
         counts["jobs_rescored"] += 1
     return counts
 

@@ -1,11 +1,14 @@
 """Tests for the compaction benchmark harness (benchmarks/compaction). No model and no Hermes code run here."""
 
 import json
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from benchmarks.compaction import cli_worker, fixtures, run, scoring
+from benchmarks.compaction import cli_worker, fixtures, run, scoring, worker
 from benchmarks.compaction.scenarios import SCENARIOS
 
 GOLD_DIR = Path(run.__file__).resolve().parent / "fixtures"
@@ -190,8 +193,23 @@ class RunTest(unittest.TestCase):
         static = {"compacted": True, "history": [{"role": "user", "content": run.STATIC_FALLBACK_TEXT}]}
         self.assertEqual(run.classify(static, "stock_hermes"), "static_fallback")
         preflight = {"compacted": True, "preflight": True, "outcome": {"path": "warm", "trigger": "preflight"}}
-        self.assertEqual(run.classify(preflight, "warm_ledger"), "preflight")
-        self.assertIn("preflight", run.ACCEPTED_PATHS)
+        self.assertEqual(run.classify(preflight, "warm_ledger"), "warm")
+        self.assertEqual(run.classify({**static, "preflight": True}, "stock_hermes"), "static_fallback")
+        self.assertEqual(run.classify({"main_failed": True}, "full_context"), "main_failed")
+
+    def test_preflight_compaction_keeps_the_path_of_its_summary(self):
+        # A ledger-only summary or the static fallback during the main turn is not a model summary.
+        ledger = {"compacted": True, "preflight": True, "outcome": {"path": "ledger", "trigger": "preflight"}}
+        self.assertEqual(run.classify(ledger, "warm_ledger"), "ledger")
+        self.assertNotIn("preflight", run.ACCEPTED_PATHS)
+        self.assertNotIn("ledger", run.ACCEPTED_PATHS)
+        # Records made before this rule: the plugin path comes from the outcome; others need --rescore.
+        self.assertEqual(run.stored_path({"path": "preflight", "outcome": {"path": "ledger"}}, "warm_ledger"), "ledger")
+        self.assertEqual(run.stored_path({"path": "preflight", "outcome": {}}, "stock_hermes"), "preflight_unchecked")
+        runs = self.synthetic_runs()
+        runs[0]["cycles"][0].update(path="preflight", preflight=True, outcome={"path": "ledger"})
+        entry = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})["methods"]["warm_ledger"]
+        self.assertEqual((entry["success"]["k"], entry["paths"], entry["preflight_runs"]), (0, {"ledger": 1}, 1))
 
     def synthetic_runs(self):
         """Fake worker output for one fixture: the control answers all, the ledger run all but one."""
@@ -278,6 +296,23 @@ class RunTest(unittest.TestCase):
         self.assertLess(entry["overall_failures_wrong"]["rate"], entry["overall"]["rate"])
         text = run.markdown(result, {"config": {}, "plugin": {}, "hermes": {}})
         self.assertIn("| Warm path + ledger | 2 / 4 | 4 (2) |", text)
+
+    def test_failed_job_with_a_partial_cycle_is_not_scored(self):
+        runs = self.synthetic_runs()
+        runs[0].update(status="failed", error="main_turn_failed")
+        entry = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})["methods"]["warm_ledger"]
+        self.assertEqual((entry["success"]["k"], entry["compacted_runs"]), (0, 0))
+        self.assertEqual(entry["failure_reasons"], {"job:main_turn_failed": 1})
+
+    def test_planned_jobs_include_the_plan_of_each_resume(self):
+        config = {"threshold": 0.95, "replicates": 1, "fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"]}
+        meta = {"config": config, "plugin": {"settings_known": []}}
+        self.assertEqual(len(run.planned_jobs(meta)), 1)
+        # A resume with five replicates plans four more jobs, also before they run.
+        meta["resumes"] = [{"plan": {**config, "replicates": 5}}, {"plan": {**config, "methods": ["full_context"]}}]
+        planned = run.planned_jobs(meta)
+        self.assertEqual(sorted({job["method"] for job in planned.values()}), ["full_context", "stock_hermes"])
+        self.assertEqual(len(planned), 6)
 
     def test_resume_refuses_a_changed_source(self):
         plugin = run.plugin_state(Path(run.__file__).parents[2])
@@ -419,6 +454,93 @@ class CliWorkerTest(unittest.TestCase):
             run.cli_state({"cli": {}}, ["codex_cli"])
         self.assertEqual(run.cli_state({}, ["stock_hermes"]), {})
         self.assertEqual(run.anthropic_base_url({"endpoint": "http://localhost:1234/v1/"}), "http://localhost:1234")
+
+
+class MainTurnFailureTest(unittest.TestCase):
+    """A failed main turn stops the job before the compaction. Fake Hermes and CLI parts; no model runs."""
+
+    def fake_hermes(self, calls):
+        class Agent:
+            def __init__(self, **_kwargs):
+                self.context_compressor = types.SimpleNamespace(name="compressor")
+                self.session_id = "synthetic"
+
+            def run_conversation(self, *_args, **_kwargs):
+                return {"failed": True, "messages": []}
+
+            def close(self):
+                pass
+
+        class SessionDB:
+            def __init__(self, _path):
+                pass
+
+            def create_session(self, *_args):
+                pass
+
+            def close(self):
+                pass
+
+        def module(name, **items):
+            item = types.ModuleType(name)
+            item.__dict__.update(items)
+            return item
+
+        manager = types.SimpleNamespace(discover_and_load=lambda: None, _plugins={})
+        plugins = module("hermes_cli.plugins", get_plugin_manager=lambda: manager)
+        server = module("tui_gateway.server", _compress_session_history=lambda *_a: calls.append("compress"))
+        notify = module("agent.conversation_compression",
+                        finalize_context_engine_compression_notification=lambda *_a, **_k: None)
+        return {"hermes_cli": module("hermes_cli", plugins=plugins), "hermes_cli.plugins": plugins,
+                "hermes_state": module("hermes_state", SessionDB=SessionDB),
+                "run_agent": module("run_agent", AIAgent=Agent), "tui_gateway": module("tui_gateway", server=server),
+                "tui_gateway.server": server, "agent": module("agent", conversation_compression=notify),
+                "agent.conversation_compression": notify}
+
+    def test_hermes_worker_stops_after_a_failed_main_turn(self):
+        calls = []
+        history, _gold = fixtures.build(SCENARIOS[0])
+        job = {"hermes_source": "synthetic", "engine": "compressor", "endpoint": "http://127.0.0.1:9/v1",
+               "api_key": "fake", "model": "fake", "cycles": 1, "questions": []}
+        out = {"cycles": []}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(sys.modules, self.fake_hermes(calls)), \
+                mock.patch.object(worker, "write_config"), mock.patch.object(sys, "path", list(sys.path)):
+            with self.assertRaises(worker.MainTurnFailed):
+                worker.run_cycles(job, history, Path(folder), out)
+        self.assertEqual(calls, [])
+        self.assertTrue(out["cycles"][0]["main_failed"])
+        self.assertNotIn("compacted", out["cycles"][0])
+
+    def run_cli_job(self, engine, main):
+        history, _gold = fixtures.build(SCENARIOS[0])
+        job = {"engine": engine, "cli_command": ["fake-cli"], "cli_version": "0.0.0", "model": "fake",
+               "endpoint": "http://127.0.0.1:9/v1", "anthropic_base_url": "http://127.0.0.1:9",
+               "context_length": 131072, "cli_timeout_s": 5}
+        out = {"cycles": []}
+        commands = []
+
+        def fake_run(command, *_args):
+            commands.append(command)
+            return {"elapsed_s": 1.0, "login_prompt": False, **main}
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(cli_worker, "run_cli", fake_run), \
+                mock.patch.object(cli_worker, "codex_app_server_compact",
+                                  side_effect=AssertionError("compaction after a failed main turn")):
+            function = cli_worker.run_codex if engine == "codex_cli" else cli_worker.run_claude
+            with self.assertRaises(cli_worker.MainTurnFailed) as caught:
+                function(job, history, Path(folder), out)
+        self.assertEqual(len(commands), 1)
+        self.assertTrue(out["cycles"][0]["main_failed"])
+        return str(caught.exception)
+
+    def test_cli_worker_stops_after_a_failed_main_command(self):
+        timeout = {"exit_code": None, "timeout": True, "text": ""}
+        failed = {"exit_code": 1, "timeout": False, "text": ""}
+        error_result = {"exit_code": 0, "timeout": False, "text": json.dumps({"type": "result", "is_error": True})}
+        self.assertEqual(self.run_cli_job("codex_cli", timeout), "timeout")
+        self.assertEqual(self.run_cli_job("codex_cli", failed), "exit_1")
+        self.assertEqual(self.run_cli_job("claude_code_cli", failed), "exit_1")
+        self.assertEqual(self.run_cli_job("claude_code_cli", error_result), "error_result")
 
 
 if __name__ == "__main__":
