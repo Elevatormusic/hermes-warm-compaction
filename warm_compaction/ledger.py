@@ -34,7 +34,7 @@ IDENTIFIER_KINDS = (
     ("names", re.compile(r"\b(?:[a-z][a-z0-9]*_[a-z0-9_]*[a-z0-9]|[A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9]"
                          r"|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*)\b"), 40),
     # A host and port, not a file and line: no path before it ("src/mod.rs:198") and no column after it.
-    ("addresses", re.compile(r"https?://[^\s<>\"'`)\]]{4,120}|(?<![\w./\\-])(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
+    ("addresses", re.compile(r"https?://[^\s<>\"'`)\]\\]{4,120}|(?<![\w./\\-])(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
                              r"|[\w-]+(?:\.[\w-]+)+):\d{2,5}\b(?!:\d)"), 20),
     ("references", re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b|(?<![\w&])#\d{2,6}\b|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)"
                               r"[0-9a-f]{7,40}\b|\bv\d+\.\d+(?:\.\d+)?\b"), 30),
@@ -64,9 +64,10 @@ FILE_ACTIONS = (("delete", "deleted"), ("remove", "deleted"), ("move", "moved"),
 # File headers of a V4A patch (the Hermes patch tool in patch mode).
 PATCH_HEADER = re.compile(r"^\*\*\* (Update|Add|Delete|Move) File: (.+?)\s*$", re.MULTILINE)
 PATCH_ACTIONS = {"Update": "changed", "Add": "written", "Delete": "deleted", "Move": "moved"}
-# A line that reports a failure in tool output.
-ERROR_LINE = re.compile(r"\b(error|errors|fail|failed|failure|exception|traceback|fatal|panic|denied|not found)\b",
-                        re.I)
+# A line that reports a failure in tool output, also with an exception name ("AssertionError:",
+# "botocore.exceptions.EndpointConnectionError:").
+ERROR_LINE = re.compile(r"\b(error|errors|fail|failed|failure|exceptions?|traceback|fatal|panic|denied|not found)\b"
+                        r"|(?-i:[a-z0-9](?:Error|Exception))\b", re.I)
 # A compiler, linter, or test diagnostic: a file name and a line number ("store_test.go:57:", "a.py:3:1:").
 FILE_LINE = re.compile(r"[\w./\\-]+\.\w{1,8}:\d+(?::\d+)?:")
 # The error lines that a failed command keeps: a test failure can need its name and its message.

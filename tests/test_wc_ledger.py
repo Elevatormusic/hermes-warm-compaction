@@ -262,6 +262,22 @@ class LedgerTest(unittest.TestCase):
                                     "  - error: this `MutexGuard` is held across an `await` point",
                                     "  - --> src/synth.rs:198:13", "  - error: could not compile `synth`"])
 
+    def test_exception_names_are_error_lines(self):
+        # Synthetic pytest output: the exception name is the only sign of the error on its line.
+        cases = (("F\nE   AssertionError: uploaded 974 of 1000 objects\n1 failed in 41.33s",
+                  ["E AssertionError: uploaded 974 of 1000 objects", "1 failed in 41.33s"]),
+                 ('E   synth.exceptions.EndpointConnectionError: Could not connect to "http://127.0.0.1:9/synth"',
+                  ['E synth.exceptions.EndpointConnectionError: Could not connect to "http://127.0.0.1:9/synth"']),
+                 ("mirror ready\nterror level 3\nKeyError: 'synth'", ["KeyError: 'synth'"]))
+        for output, expected in cases:
+            with self.subTest(expected=expected):
+                rows = [terminal("p1", "pytest -q"), result("p1", output, exit_code=1)]
+                commands = ledger.build(rows, PREFIXES).split(ledger.COMMANDS_HEADING + "\n", 1)[1]
+                self.assertEqual(commands.split("\n###")[0].splitlines()[1:], [f"  - {line}" for line in expected])
+                identifiers, _reasons = ledger.notes(rows, PREFIXES)
+                for address in identifiers.get("addresses", []):
+                    self.assertFalse(address.endswith("\\"), address)
+
     def test_changed_files_keep_their_first_added_lines(self):
         # A V4A patch for two files and a replacement (synthetic files).
         patch = ("*** Begin Patch\n*** Update File: synth/Cargo.toml\n@@\n-tokio = { version = \"1.4.0\" }\n"
