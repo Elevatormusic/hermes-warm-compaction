@@ -439,12 +439,8 @@ def command_run(args) -> int:
                 "harness_changed": harness, "methods": list(config["methods"])})
             meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
-    done = set()
-    if runs_path.exists():
-        for line in runs_path.read_text(encoding="utf-8").splitlines():
-            item = json.loads(line)
-            if item.get("status") == "ok":
-                done.add(item["job"])
+    # A job is done when its latest record is ok: a later "invalid" or failed record makes it run again.
+    done = {run["job"] for run in load_runs(out_dir) if run.get("status") == "ok"} if runs_path.exists() else set()
     todo = [job for job in jobs if job["id"] not in done]
     if args.limit:
         todo = todo[:args.limit]
