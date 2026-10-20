@@ -316,19 +316,19 @@ class RunTest(unittest.TestCase):
 
     def test_meta_and_report_keep_no_override_values(self):
         # FAKE values only: a route override with a key and a header, and a URL with a password and a query.
-        secret = "fake-secret-value-123"
-        config = {"model": "m", "threshold": 0.95, "endpoint": f"http://user:{secret}@127.0.0.1:9/v1?key={secret}",
-                  "hermes_config": {"model": {"api_key": secret, "headers": {"X-Token": secret}}},
-                  "qa_extra_body": {"token": secret}, "unknown_key": secret, "hermes_source": "/private"}
+        marker = "fake-value-123"
+        config = {"model": "m", "threshold": 0.95, "endpoint": f"http://user:{marker}@127.0.0.1:9/v1?key={marker}",
+                  "hermes_config": {"model": {"api_key": marker, "headers": {"X-Token": marker}}},
+                  "qa_extra_body": {"token": marker}, "unknown_key": marker, "hermes_source": "/private"}
         public = run.public_config(config)
-        self.assertNotIn(secret, json.dumps(public))
+        self.assertNotIn(marker, json.dumps(public))
         self.assertNotIn("hermes_source", public)
         self.assertEqual(public["endpoint"], "http://127.0.0.1:9/v1")
         self.assertEqual(public["hermes_config"]["types"], {"model.api_key": "str", "model.headers.X-Token": "str"})
         self.assertEqual(run.public_config(public), public)
         # A resume compares raw and redacted values; a changed value still changes the hash.
         self.assertEqual(run.config_hash(config), run.config_hash(public))
-        changed = {**config, "hermes_config": {"model": {"api_key": "other", "headers": {"X-Token": secret}}}}
+        changed = {**config, "hermes_config": {"model": {"api_key": "other", "headers": {"X-Token": marker}}}}
         self.assertNotEqual(run.config_hash(changed), run.config_hash(public))
         # A run folder made before the rule keeps raw values in meta.json: the report redacts them.
         with tempfile.TemporaryDirectory() as folder:
@@ -341,7 +341,7 @@ class RunTest(unittest.TestCase):
             with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
                 run.command_report(args)
             report = json.loads((out / "r.json").read_text(encoding="utf-8"))
-            self.assertNotIn(secret, json.dumps(report))
+            self.assertNotIn(marker, json.dumps(report))
             # The hash of a redacted value stays in the local meta.json only: a short credential can be guessed.
             self.assertEqual(report["meta"]["config"]["hermes_config"],
                              {"redacted": True, "types": public["hermes_config"]["types"]})
