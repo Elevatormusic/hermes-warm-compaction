@@ -292,6 +292,36 @@ class LedgerTest(unittest.TestCase):
                                  "- synth/a.rs: changed", "  - let a = 2;", "  - let b = 3;",
                                  "- synth/old.rs: deleted", "- synth/b.py: changed", "  - y = 3"])
 
+    def test_changed_files_keep_the_step_and_only_new_lines(self):
+        # A line that a patch removes and adds again is not new; a line that moves is (synthetic files).
+        same = ("*** Begin Patch\n*** Update File: synth/en.json\n@@\n-  \"title\": \"Choose\",\n"
+                "+  \"title\": \"Choose\",\n+  \"previous\": \"Previous month\",\n*** End Patch")
+        swap = ("*** Begin Patch\n*** Update File: synth/lock.rs\n@@\n-let cart = cart_lock();\n"
+                "-let inv = inv_lock();\n+let inv = inv_lock();\n+let cart = cart_lock();\n*** End Patch")
+        rows = [assistant("Now add the label strings. Then run the tests.",
+                          [("s1", "patch", json.dumps({"mode": "patch", "patch": same}))]),
+                tool("s1", json.dumps({"success": True})),
+                assistant("Now take the locks in a fixed order.",
+                          [("s2", "patch", json.dumps({"mode": "patch", "patch": swap}))]),
+                tool("s2", json.dumps({"success": True})),
+                assistant("Now fix the second label.", [("s3", "patch", json.dumps(
+                    {"path": "synth/en.json", "old_string": "a", "new_string": "\"next\": \"Next month\""}))]),
+                tool("s3", json.dumps({"success": True}))]
+        files = ledger.build(rows, PREFIXES).split(ledger.FILES_HEADING + "\n", 1)[1].split("\n###")[0].splitlines()
+        self.assertEqual(files, ["- synth/lock.rs: changed; step: Now take the locks in a fixed order.",
+                                 "  - let inv = inv_lock();",
+                                 "- synth/en.json: changed; step: Now add the label strings. | "
+                                 "Now fix the second label.",
+                                 '  - "next": "Next month"'])
+        # A later compaction keeps the steps.
+        content = f"[CONTEXT SUMMARY]:\n## Goal\n- x\n\n{ledger.build(rows, PREFIXES)}\n\n{COPY_HEADING}\n\n(none)"
+        later = [{"role": "user", "content": content, "_compressed_summary": True},
+                 assistant("Now name the third label.", [("s4", "patch", json.dumps(
+                     {"path": "synth/en.json", "old_string": "b", "new_string": "\"third\": \"3\""}))]),
+                 tool("s4", json.dumps({"success": True}))]
+        self.assertIn("- synth/en.json: changed; step: Now fix the second label. | Now name the third label.\n"
+                      '  - "third": "3"', ledger.build(later, PREFIXES))
+
     def test_changed_lines_go_before_commands_when_the_block_is_too_large(self):
         rows = []
         for index in range(8):

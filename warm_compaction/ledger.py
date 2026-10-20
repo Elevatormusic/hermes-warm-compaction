@@ -7,6 +7,7 @@ data for the next model, not a list of tasks.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 from typing import Any
@@ -77,9 +78,13 @@ ERROR_MARK = "error lines:"
 # The ledger cuts the oldest notes first when it is too large.
 OUTPUT_MARK = "output:"
 NOTE_CHARS = 200
-# A changed file keeps its first added lines: a version, a setting, or a fix can be only in the edit.
+# A changed file keeps its first added lines: a version, a setting, or a fix can be only in the edit. It also keeps
+# the step of its latest edits: the first sentence of the assistant text with the edit call.
 MAX_CHANGE_LINES = 2
 CHANGE_CHARS = 200
+STEP_MARK = "; step: "
+STEP_CHARS = 120
+MAX_STEPS = 2
 # A task and its status in a progress list of the assistant ("- add the lock-order test: open (not started)", or
 # "- [x] update the docs"), or in a call of the Hermes todo tool. The latest status of each task is kept.
 STATUS_WORDS = (r"done|complete|completed|finished|fixed|open|pending|todo|to do|not started|in progress|in-progress"
@@ -186,35 +191,44 @@ def _outcome(result: str | None) -> tuple[str, bool]:
 
 
 def _added(text: str, old: str = "") -> list[str]:
-    """The first MAX_CHANGE_LINES lines of text that are not lines of old and have a letter or a digit."""
-    before = {" ".join(line.split()) for line in old.splitlines()}
+    """The first MAX_CHANGE_LINES lines of text that an ordered diff against old shows as new (an unchanged line
+    is not; a line that moves is), and that have a letter or a digit."""
+    before = [" ".join(line.split()) for line in old.splitlines()]
+    after = [" ".join(line.split()) for line in text.splitlines()]
     found: list[str] = []
-    for line in text.splitlines():
-        line = " ".join(line.split())
-        if line and line not in before and any(char.isalnum() for char in line) and line not in found:
-            found.append(_one_line(line, CHANGE_CHARS))
-            if len(found) >= MAX_CHANGE_LINES:
-                break
+    for tag, _start, _end, first, last in difflib.SequenceMatcher(None, before, after, autojunk=False).get_opcodes():
+        if tag not in ("insert", "replace"):
+            continue
+        for line in after[first:last]:
+            if line and any(char.isalnum() for char in line) and line not in found:
+                found.append(_one_line(line, CHANGE_CHARS))
+                if len(found) >= MAX_CHANGE_LINES:
+                    return found
     return found
 
 
 def _changes(arguments: dict[str, Any], paths: list[str]) -> dict[str, list[str]]:
-    """{path: first added lines} of an edit: the "+" lines of each file in a V4A patch, or the new lines of a
-    replacement (new_string against old_string)."""
+    """{path: first added lines} of an edit: the new "+" lines of each file in a V4A patch against its "-" lines,
+    or the new lines of a replacement (new_string against old_string)."""
     changes: dict[str, list[str]] = {}
     for value in arguments.values():
         if not isinstance(value, str) or not PATCH_HEADER.search(value):
             continue
+        added: dict[str, list[str]] = {}
+        removed: dict[str, list[str]] = {}
         current = None
         for line in value.splitlines():
             header = PATCH_HEADER.match(line)
             if header:
                 current = header.group(2)
-                changes.setdefault(current, [])
+                added.setdefault(current, [])
+                removed.setdefault(current, [])
             elif current is not None and line.startswith("+") and not line.startswith("+++"):
-                lines = changes[current]
-                if len(lines) < MAX_CHANGE_LINES:
-                    lines.extend(_added(line[1:])[:1])
+                added[current].append(line[1:])
+            elif current is not None and line.startswith("-") and not line.startswith("---"):
+                removed[current].append(line[1:])
+        for path, lines in added.items():
+            changes[path] = _added("\n".join(lines), "\n".join(removed[path]))
     new = next((arguments[key] for key in ("new_string", "new_str") if isinstance(arguments.get(key), str)), None)
     if new is not None and paths:
         old = next((arguments[key] for key in ("old_string", "old_str") if isinstance(arguments.get(key), str)), "")
@@ -253,7 +267,7 @@ def _prior_lines(messages: list, prefixes: tuple[str, ...]) -> dict[str, list[st
     return found
 
 
-FILE_ENTRY = re.compile(r"^- (.+): (changed|written|deleted|moved)$")
+FILE_ENTRY = re.compile(r"^- (.+?): ((?:changed|written|deleted|moved)(?:; step: .*)?)$")
 
 
 def _prior(messages: list, prefixes: tuple[str, ...]) -> tuple[list[str], dict[str, str]]:
@@ -347,20 +361,23 @@ def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list
     commands, files = _prior(messages, tuple(prefixes))
     # Each result goes to the oldest earlier call with its id that has no result yet: a provider can use the same
     # call id again in a later turn, and each turn keeps its own result.
-    calls: list[tuple[str, Any, list[str | None]]] = []
+    calls: list[tuple[str, Any, list[str | None], str]] = []
     waiting: dict[str, list[list[str | None]]] = {}
     for row in messages:
-        if attr(row, "role") == "assistant":
+        if attr(row, "role") == "assistant" and not is_summary(row, tuple(prefixes)):
+            # The first sentence of the assistant text names the step of its calls ("Now add the label strings.").
+            sentence = next(iter(_sentences(plain_text(attr(row, "content")))), "")
+            step = _one_line(sentence, STEP_CHARS).replace(" | ", " / ")
             for call_id, name, raw_arguments in tool_calls_of(row):
                 slot: list[str | None] = [None]
-                calls.append((name, raw_arguments, slot))
+                calls.append((name, raw_arguments, slot, step))
                 if call_id:
                     waiting.setdefault(call_id, []).append(slot)
         elif attr(row, "role") == "tool":
             pending = waiting.get(str(attr(row, "tool_call_id") or ""))
             if pending:
                 pending.pop(0)[0] = plain_text(attr(row, "content"))
-    for name, raw_arguments, slot in calls:
+    for name, raw_arguments, slot, step in calls:
         arguments = _arguments(raw_arguments)
         outcome, failed = _outcome(slot[0])
         command = next((arguments[key] for key in COMMAND_KEYS if isinstance(arguments.get(key), str)), None)
@@ -385,8 +402,13 @@ def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list
             lines = changes.get(path, []) if kind in ("changed", "written") else []
             path = _one_line(path, PATH_CHARS)
             if path:
-                files.pop(path, None)
-                files[path] = kind + "".join(f"\n{SUB_LINE}{line}" for line in lines)
+                head = files.pop(path, "").split("\n", 1)[0]
+                steps = [item for item in head.partition(STEP_MARK)[2].split(" | ") if item]
+                if step and step not in steps:
+                    steps.append(step)
+                steps = steps[-MAX_STEPS:]
+                files[path] = (kind + (STEP_MARK + " | ".join(steps) if steps else "")
+                               + "".join(f"\n{SUB_LINE}{line}" for line in lines))
     return commands, files
 
 
