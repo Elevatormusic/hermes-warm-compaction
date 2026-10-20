@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -285,6 +286,14 @@ def worker_environment(home: Path) -> dict[str, str]:
                 "HERMES_DISABLE_LAZY_INSTALLS": "1", "HERMES_ENABLE_PROJECT_PLUGINS": "0",
                 "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"})
     return env
+
+
+def error_code(text: Any) -> str | None:
+    """A compaction error as a short code for the results file: letters, digits, and "_.:-" only (other characters
+    become "_"), at most 80 characters. The workers give codes or exception class names, never message text."""
+    if not text:
+        return None
+    return re.sub(r"[^A-Za-z0-9_.:-]+", "_", str(text))[:80]
 
 
 def classify(cycle: dict, method: str) -> str:
@@ -1276,7 +1285,10 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                 warm_code = outcome.get("reason") if warm_refusal else "-"
                 reasons[f"{warm_code}/{outcome.get('fallback_reason') or '-'}"] += 1
             elif cycle["path"] not in ACCEPTED_PATHS + ("none",):
-                reasons[cycle["path"]] += 1
+                # The compaction error of a stock or CLI failure (a timeout, an error exit, a failed turn, no
+                # compaction record) is kept as "<path>:<code>".
+                code = error_code(cycle.get("compress_error"))
+                reasons[f"{cycle['path']}:{code}" if code else cycle["path"]] += 1
         # A job without a completed compaction (a timeout, a worker error, a failed main turn) and a planned job
         # without a record are failures of the method too. A job that failed after its compaction (in the
         # questions) is a job failure, not a compaction failure.
@@ -1393,7 +1405,7 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "scope": "cli" if METHODS[name]["engine"] in CLI_ENGINES else "hermes"}
         scored_jobs_now = {run["job"] for run, _cycle in cycles}
         entry["per_run_failed"] = [{**item_identity(run), "fixture": run["fixture"], "rep": run["rep"],
-                                    "path": cycle["path"],
+                                    "path": cycle["path"], "compress_error": error_code(cycle.get("compress_error")),
                                     "compress_s": cycle["compress_s"], "main_s": cycle["main_s"],
                                     "status": run.get("status"), "error": run.get("error")}
                                    for run, cycle in every if run["job"] not in scored_jobs_now]

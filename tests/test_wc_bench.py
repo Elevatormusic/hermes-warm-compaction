@@ -382,6 +382,23 @@ class RunTest(unittest.TestCase):
         for unused in ("a" * 12, "c" * 12, "2" * 12):
             self.assertNotIn(unused, text)
 
+    def test_failure_reasons_keep_the_compaction_error_code(self):
+        runs = self.synthetic_runs()
+        # A synthetic stock failure (a timeout) and a synthetic Codex failure (a failed turn with an error text).
+        stock = runs[2]
+        stock["cycles"][0].update(path="aborted", compacted=False, compress_error="TimeoutError")
+        codex = json.loads(json.dumps(stock))
+        codex.update(job="codex_cli", method="codex_cli")
+        codex["cycles"][0].update(compress_error="turn error/x")
+        result = run.aggregate(runs + [codex], {"config": {}, "plugin": {}, "hermes": {}})
+        stock_entry, codex_entry = result["methods"]["stock_hermes"], result["methods"]["codex_cli"]
+        self.assertEqual(stock_entry["failure_reasons"], {"aborted:TimeoutError": 1})
+        self.assertEqual(codex_entry["failure_reasons"], {"aborted:turn_error_x": 1})
+        self.assertEqual([item["compress_error"] for item in stock_entry["per_run_failed"]], ["TimeoutError"])
+        self.assertEqual([item["compress_error"] for item in codex_entry["per_run_failed"]], ["turn_error_x"])
+        self.assertIsNone(run.error_code(None))
+        self.assertEqual(len(run.error_code("x" * 200)), 80)
+
     def test_hermes_and_cli_times_are_in_separate_columns(self):
         runs = self.synthetic_runs()
         # A synthetic CLI record: its main time is the wall time of the CLI command, its compaction time comes from
@@ -1047,14 +1064,17 @@ class RunTest(unittest.TestCase):
         refused = ({"Authorization": "Bearer other"}, {"authorization": "x"}, {"CONTENT-TYPE": "text/plain"},
                    {" Content-Type ": "x"}, {"X-Api-Key": "x"}, {"anthropic-version": "x"}, {"Host": "x"},
                    {"Content-Length": "1"}, {"X-Gateway": "a", "x-gateway": "b"}, {"X-Gateway": 1},
-                   {"X-Gateway": "a\r\nAuthorization: b"}, {"": "x"}, {1: "x"}, ["X-Gateway"])
+                   {"X-Gateway": "a\r\nAuthorization: b"}, {"": "x"}, {1: "x"}, ["X-Gateway"],
+                   # Names that are not HTTP tokens, and a value with a control character.
+                   {"Bad Header": "x"}, {"X:Y": "x"}, {"X-Gatéway": "x"}, {"X-Gateway ": "x"},
+                   {"X-Gateway": "a\x01b"}, {"X-Gateway": "a\x7fb"})
         for headers in refused:
             with self.subTest(headers=headers):
                 self.assertTrue(worker.override_conflicts({"model": {"headers": headers}}))
                 self.assertTrue(run.override_conflicts({"hermes_config": {"model": {"headers": headers}}}))
                 with self.assertRaisesRegex(worker.JobFailed, "^route_headers_refused:"):
                     worker.route_headers({"hermes_config": {"model": {"headers": headers}}})
-        accepted = {"X-Gateway": "synthetic", "X-Trace": "1"}
+        accepted = {"X-Gateway": "synthetic", "X-Trace": "1", "x-gw_1.v2~!#$%&'*+^`|": "a\tb"}
         self.assertEqual(worker.override_conflicts({"model": {"headers": accepted}}), [])
         self.assertEqual(worker.route_headers({"hermes_config": {"model": {"headers": accepted}}}), accepted)
         # The QA request fails before it is sent, so the harness key is the only Authorization value.

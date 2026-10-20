@@ -15,6 +15,7 @@ import argparse
 import copy
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -60,16 +61,22 @@ def wire_rows(rows: list) -> list:
     return out
 
 
+# An HTTP field name is a token (RFC 9110): ASCII letters, digits, and these signs only. Other names (a space, a
+# colon, a non-ASCII letter) are refused or read differently by HTTP clients.
+HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+
+
 def header_conflicts(headers) -> list[str]:
-    """The problems of model.headers: not a mapping, a name or value that is not a one-line string, a reserved
-    name (RESERVED_HEADERS), or two names that differ only in case. Names are compared without case."""
+    """The problems of model.headers: not a mapping, a name that is not an HTTP token (HEADER_NAME), a value that
+    is not a string or has a control character (a tab is allowed), a reserved name (RESERVED_HEADERS), or two
+    names that differ only in case. Names are compared without case."""
     if not isinstance(headers, dict):
         return ["model.headers"]
     found, seen = [], set()
     for key, value in headers.items():
         name = str(key)
-        if not isinstance(key, str) or not key.strip() or not isinstance(value, str) or any(
-                char in name + value for char in "\r\n\0"):
+        if not isinstance(key, str) or not HEADER_NAME.fullmatch(key) or not isinstance(value, str) or any(
+                (ord(char) < 32 and char != "\t") or ord(char) == 127 for char in value):
             found.append(f"model.headers.{name}")
         elif name.strip().lower() in RESERVED_HEADERS or name.strip().lower() in seen:
             found.append(f"model.headers.{name}")
