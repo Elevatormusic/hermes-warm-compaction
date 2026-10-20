@@ -1274,9 +1274,23 @@ class RunTest(unittest.TestCase):
                 args = types.SimpleNamespace(config=str(config_path), out=str(out), limit=None, dry_run=True,
                                              allow_harness_change=False, **flags)
                 with mock.patch.object(run, "hermes_state", return_value={"commit": "abc", "clean": True}), \
+                        mock.patch.dict(os.environ, {"WC_FAKE_KEY_ENV": "fake-key-value"}), \
                         contextlib.redirect_stdout(io.StringIO()):
                     run.command_run(args)
 
+            # A configured key variable that is not set stops the run before any job (no placeholder key).
+            with mock.patch.dict(os.environ, {"WC_FAKE_KEY_ENV": ""}), \
+                    self.assertRaisesRegex(SystemExit, "WC_FAKE_KEY_ENV, which is not set"):
+                run.command_run(types.SimpleNamespace(config=str(config_path), out=str(out), limit=None,
+                                                      dry_run=True, allow_harness_change=False))
+            # A dry run writes no meta.json, so the next run of the folder is not a resume.
+            fresh = Path(folder) / "fresh"
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "abc", "clean": True}), \
+                    mock.patch.dict(os.environ, {"WC_FAKE_KEY_ENV": "fake-key-value"}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                run.command_run(types.SimpleNamespace(config=str(config_path), out=str(fresh), limit=None,
+                                                      dry_run=True, allow_harness_change=False))
+            self.assertFalse((fresh / "meta.json").exists())
             # The folder keeps only the variable name: without the confirmation the resume stops.
             with self.assertRaisesRegex(SystemExit, "--same-credential"):
                 resume()
@@ -1428,7 +1442,7 @@ class RunTest(unittest.TestCase):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}
         state = run.runtime_state(config)
         self.assertEqual(set(state["sha256"]), {"runner_python", "hermes_python", "hermes_prefix", "hermes_packages",
-                                                "cli.codex_cli"})
+                                                "hermes_files", "cli.codex_cli"})
         self.assertEqual(state["public"]["hermes_python"]["version"], sys.version.split()[0])
         # The public part has no path and no argv.
         public = json.dumps(state["public"])
@@ -1549,6 +1563,40 @@ class RunTest(unittest.TestCase):
             # A link loop ends: each real folder is read once.
             link(cli, generated / "loop")
             run.cli_files_sha256(command)
+
+    def test_runtime_probe_covers_the_files_of_each_distribution(self):
+        # A synthetic site folder: one installed distribution with a module, and one editable install whose source
+        # folder is elsewhere (fake packages, no real code).
+        with tempfile.TemporaryDirectory() as folder:
+            site, source = Path(folder) / "site", Path(folder) / "source"
+            info = site / "fake_pkg-1.0.dist-info"
+            info.mkdir(parents=True)
+            (site / "fake_pkg.py").write_text("x = 1\n", encoding="utf-8")
+            (info / "METADATA").write_text("Metadata-Version: 2.1\nName: fake-pkg\nVersion: 1.0\n", encoding="utf-8")
+            (info / "RECORD").write_text("fake_pkg.py,,\nfake_pkg-1.0.dist-info/METADATA,,\n", encoding="utf-8")
+            editable = site / "fake_edit-1.0.dist-info"
+            editable.mkdir()
+            source.mkdir()
+            (source / "fake_edit.py").write_text("y = 1\n", encoding="utf-8")
+            (editable / "METADATA").write_text("Metadata-Version: 2.1\nName: fake-edit\nVersion: 1.0\n",
+                                               encoding="utf-8")
+            (editable / "direct_url.json").write_text(json.dumps(
+                {"url": source.as_uri(), "dir_info": {"editable": True}}), encoding="utf-8")
+
+            def probe() -> dict:
+                code = f"import sys; sys.path.insert(0, {str(site)!r})\n" + run.RUNTIME_PROBE
+                done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True)
+                return json.loads(done.stdout)
+
+            self.assertIn("fake-pkg==1.0", probe()["packages"])
+            # The same name and version with patched code: the package list stays, the file identity changes.
+            for path in (site / "fake_pkg.py", source / "fake_edit.py"):
+                with self.subTest(path=path.name):
+                    before = probe()
+                    path.write_text(path.read_text(encoding="utf-8") + "patched = True\n", encoding="utf-8")
+                    after = probe()
+                    self.assertEqual(after["packages"], before["packages"])
+                    self.assertNotEqual(after.get("files_sha256"), before.get("files_sha256"))
 
     def test_server_check_reads_the_loaded_context_length(self):
         import threading

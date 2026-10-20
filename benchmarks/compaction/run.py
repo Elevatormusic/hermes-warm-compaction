@@ -593,15 +593,41 @@ def config_hash(config: dict) -> str:
 
 # Runs in the Python of the Hermes virtual environment. It prints the version, the resolved paths, and the
 # installed packages; run.py keeps only the version and hashes.
+# The probe of the Hermes Python. "files_sha256" covers every file of each installed distribution and, for an
+# editable install, every Python file of its source folder: the relative path, the size, and the modification time
+# (a content hash of all files takes too long for each job). A patched, replaced, or editable package with the same
+# name and version then changes the runtime identity.
 RUNTIME_PROBE = """
-import json, os, platform, sys
+import hashlib, json, os, platform, sys, urllib.parse, urllib.request
 from importlib import metadata
+
+def stat_row(group, name, path):
+    try:
+        info = os.stat(path)
+    except OSError:
+        return [group, name, None, None]
+    return [group, name, info.st_size, info.st_mtime_ns]
+
+rows = []
+for dist in metadata.distributions():
+    group = dist.metadata["Name"]
+    rows += [stat_row(group, str(item), item.locate()) for item in dist.files or []]
+    direct = json.loads(dist.read_text("direct_url.json") or "{}")
+    if (direct.get("dir_info") or {}).get("editable") and str(direct.get("url", "")).startswith("file:"):
+        source = urllib.request.url2pathname(urllib.parse.urlparse(direct["url"]).path)
+        for folder, dirs, names in os.walk(source):
+            dirs[:] = sorted(item for item in dirs if item not in (".git", "__pycache__", ".venv", "node_modules"))
+            rows += [stat_row(group + " (editable)", os.path.relpath(os.path.join(folder, item), source),
+                              os.path.join(folder, item))
+                     for item in sorted(names) if item.endswith((".py", ".pth", ".pyd", ".so", ".dll"))]
 packages = sorted(f"{item.metadata['Name']}=={item.version}" for item in metadata.distributions())
+rows.sort(key=lambda row: (row[0], row[1]))
 print(json.dumps({"version": platform.python_version(), "implementation": sys.implementation.name,
                   "executable": os.path.realpath(sys.executable), "prefix": os.path.realpath(sys.prefix),
-                  "packages": packages}))
+                  "packages": packages,
+                  "files_sha256": hashlib.sha256(json.dumps(rows).encode("utf-8")).hexdigest()}))
 """
-HERMES_RUNTIME_KEYS = ("hermes_python", "hermes_prefix", "hermes_packages")
+HERMES_RUNTIME_KEYS = ("hermes_python", "hermes_prefix", "hermes_packages", "hermes_files")
 
 
 def sha256_value(value: Any) -> str:
@@ -717,7 +743,7 @@ def runtime_state(config: dict) -> dict[str, Any]:
             raise SystemExit("hermes_python did not run the runtime probe; stop before any job") from None
         public["hermes_python"] = {"version": probe["version"], "implementation": probe["implementation"]}
         digests.update(hermes_python=sha256_value(probe["executable"]), hermes_prefix=sha256_value(probe["prefix"]),
-                       hermes_packages=sha256_value(probe["packages"]))
+                       hermes_packages=sha256_value(probe["packages"]), hermes_files=probe["files_sha256"])
     used = {METHODS[name]["engine"] for name in config.get("methods") or [] if name in METHODS}
     for engine, spec in sorted((config.get("cli") or {}).items()):
         # The files of a CLI that the plan uses (hashing a large CLI package takes a few seconds).
@@ -983,6 +1009,11 @@ def command_run(args) -> int:
     if config.get("qa_batch", scoring.QA_BATCH_MAX) != scoring.QA_BATCH_MAX:
         # The gold files plan the QA batches (at most 12 questions, no gold rule passes on its batch prompt).
         raise SystemExit(f"qa_batch is fixed at {scoring.QA_BATCH_MAX}: the gold files plan the QA batches")
+    if config.get("api_key_env") and not os.environ.get(str(config["api_key_env"])):
+        # A missing key would send the placeholder: a server with keys refuses every job, and a gateway can route it
+        # to another backend while meta.json names the configured key variable.
+        raise SystemExit(f"api_key_env names {config['api_key_env']}, which is not set or is empty; stop before any "
+                         "job")
     conflicts = override_conflicts(config)
     if conflicts:
         raise SystemExit(f"config overrides change the benchmark method: {', '.join(conflicts)}; stop before any job")
@@ -1026,7 +1057,9 @@ def command_run(args) -> int:
                 "skipped_methods": skipped, "planned_jobs": len(jobs)}
         if cli:
             meta["cli"] = cli
-        meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
+        if not args.dry_run:
+            # A dry run writes nothing: a later run of the same folder is a new run, not a resume.
+            meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     else:
         # A resume: the jobs of one run folder must come from the same plugin, Hermes, gold files, and settings.
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
