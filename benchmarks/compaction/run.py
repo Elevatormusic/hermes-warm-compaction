@@ -747,12 +747,27 @@ def digest_id(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
+def history_folder(config: dict) -> Path:
+    """The folder of the generated session files (history_dir), which each worker reads."""
+    return Path(config.get("history_dir") or ROOT / ".work" / "bench-fixtures")
+
+
+def history_hashes(config: dict) -> dict[str, str | None]:
+    """The SHA-256 hash of each generated session file (None when it is missing). A worker reads its fixture from
+    this file, so a change during a run would change the workload of the next jobs."""
+    folder = history_folder(config)
+    return {spec["id"]: (sha256_file(path) if (path := folder / f"{spec['id']}.history.json").is_file() else None)
+            for spec in fixtures.SCENARIOS}
+
+
 def source_snapshot(config: dict) -> dict[str, Any]:
     """The identity of every source that a job reads: the harness files, the plugin files, the Hermes commit and
-    state, the gold files, the CLI versions, and the runtime hashes. The run compares it before and after each job
-    with the snapshot of its start, so every record of one run comes from the same files."""
+    state, the gold files, the generated session files, the CLI versions, and the runtime hashes. The run compares
+    it before and after each job with the snapshot of its start, so every record of one run comes from the same
+    files."""
     return {"harness": harness_hashes(), "plugin": plugin_state(Path(config["plugin_source"]))["files_sha256"],
             "hermes": hermes_state(Path(config["hermes_source"])), "gold": current_gold_sha256(),
+            "history": history_hashes(config),
             "cli": cli_state(config, list(config["methods"])), "runtime": runtime_state(config)["sha256"]}
 
 
@@ -971,7 +986,7 @@ def command_run(args) -> int:
     conflicts = override_conflicts(config)
     if conflicts:
         raise SystemExit(f"config overrides change the benchmark method: {', '.join(conflicts)}; stop before any job")
-    history_dir = Path(config.get("history_dir") or ROOT / ".work" / "bench-fixtures")
+    history_dir = history_folder(config)
     fixtures.write_all(history_dir, history_dir / "gold-check")
     for spec in fixtures.SCENARIOS:
         fixtures.load(history_dir / f"{spec['id']}.history.json", GOLD_DIR / f"{spec['id']}.gold.json")
@@ -1048,9 +1063,10 @@ def command_run(args) -> int:
         return 0
     worker_failures = 0
     # Every job of this run uses the sources of its start: a change of the harness, the plugin, Hermes, the gold
-    # files, a CLI, or the runtime stops the run before the next job.
+    # files, the generated session files, a CLI, or the runtime stops the run before the next job.
     start = {"harness": harness_hashes(), "plugin": plugin["files_sha256"], "hermes": hermes,
-             "gold": current_gold_sha256(), "cli": cli, "runtime": runtime["sha256"]}
+             "gold": current_gold_sha256(), "history": history_hashes(config), "cli": cli,
+             "runtime": runtime["sha256"]}
 
     def changed_sources() -> list[str]:
         now = source_snapshot(config)

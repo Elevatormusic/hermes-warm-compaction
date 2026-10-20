@@ -768,9 +768,14 @@ class RunTest(unittest.TestCase):
 
     def test_every_job_uses_the_sources_of_the_run_start(self):
         plugin = {"commit": "p", "files_sha256": {"x": "1"}, "settings_known": []}
+        with tempfile.TemporaryDirectory() as folder:
+            # The generated session files are the same for every folder (fixed seeds).
+            fixtures.write_all(Path(folder), Path(folder) / "gold-check")
+            history = run.history_hashes({"history_dir": folder})
+        self.assertNotIn(None, history.values())
         start = {"harness": run.harness_hashes(), "plugin": plugin["files_sha256"],
-                 "hermes": {"commit": "a", "clean": True}, "gold": run.current_gold_sha256(), "cli": {},
-                 "runtime": FAKE_RUNTIME["sha256"]}
+                 "hermes": {"commit": "a", "clean": True}, "gold": run.current_gold_sha256(), "history": history,
+                 "cli": {}, "runtime": FAKE_RUNTIME["sha256"]}
 
         def fake_job(job, *_args):
             return {"job": job["id"], "fixture": job["fixture"], "method": job["method"], "rep": job["rep"],
@@ -778,7 +783,9 @@ class RunTest(unittest.TestCase):
                     "harness": run.harness_id(run.harness_hashes())}
 
         # Snapshots: (before job 1, after job 1, before job 2). A change stops the run or marks the job invalid.
+        edited = {**history, "s1-ledgerline": "0" * 64}
         cases = (([start, start, {**start, "plugin": {"x": "2"}}], "sources changed before .*r2.*: plugin", "ok"),
+                 ([start, start, {**start, "history": edited}], "sources changed before .*r2.*: history", "ok"),
                  ([start, {**start, "hermes": {"commit": "b", "clean": True}}], "check failed after .*r1", "invalid"))
         for snapshots, stop, status in cases:
             with self.subTest(stop=stop), tempfile.TemporaryDirectory() as folder:
@@ -805,6 +812,19 @@ class RunTest(unittest.TestCase):
                 # The report accepts the records that meta.json accounts for.
                 meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
                 self.assertEqual(run.record_mismatches(meta, records), [])
+
+    def test_snapshot_hashes_the_generated_session_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fixtures.write_all(Path(folder), Path(folder) / "gold-check")
+            config = {"history_dir": folder, "plugin_source": str(Path(run.__file__).parents[2]),
+                      "hermes_source": folder, "methods": ["stock_hermes"]}
+            with mock.patch.object(run, "runtime_state", return_value=FAKE_RUNTIME):
+                before = run.source_snapshot(config)
+                # A synthetic edit of one session file during a run changes the snapshot (the next job stops).
+                path = Path(folder) / "s1-ledgerline.history.json"
+                path.write_text(path.read_text(encoding="utf-8").replace("Continue", "Proceed", 1), encoding="utf-8")
+                after = run.source_snapshot(config)
+            self.assertEqual([key for key in before if before[key] != after[key]], ["history"])
 
     def test_report_refuses_records_that_meta_does_not_account_for(self):
         meta = {"schema": "s", "config": {}, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
