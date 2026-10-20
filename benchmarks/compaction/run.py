@@ -682,17 +682,32 @@ def config_hash(config: dict) -> str:
 # The probe of the Hermes Python. "files_sha256" covers every file of each installed distribution and, for an
 # editable install, every Python file of its source folder: the relative path, the size, and the modification time
 # (a content hash of all files takes too long for each job). A patched, replaced, or editable package with the same
-# name and version then changes the runtime identity.
+# name and version then changes the runtime identity. With the argument --content, "content_sha256" also covers a
+# SHA-256 hash of the content of each of these files: an edit that keeps the size and the modification time changes
+# it. The run takes it at its start and after its last job (a few seconds for a Hermes environment of about 10,000
+# files and 240 MB). An edit that keeps the sizes and times and is undone before the last job ends is not found.
 RUNTIME_PROBE = """
 import hashlib, json, os, platform, sys, urllib.parse, urllib.request
 from importlib import metadata
+
+CONTENT = "--content" in sys.argv[1:]
 
 def stat_row(group, name, path):
     try:
         info = os.stat(path)
     except OSError:
-        return [group, name, None, None]
-    return [group, name, info.st_size, info.st_mtime_ns]
+        return [group, name, None, None, None]
+    digest = None
+    if CONTENT:
+        sha = hashlib.sha256()
+        try:
+            with open(path, "rb") as handle:
+                for block in iter(lambda: handle.read(1 << 20), b""):
+                    sha.update(block)
+            digest = sha.hexdigest()
+        except OSError:
+            pass
+    return [group, name, info.st_size, info.st_mtime_ns, digest]
 
 rows = []
 for dist in metadata.distributions():
@@ -708,12 +723,15 @@ for dist in metadata.distributions():
                      for item in sorted(names) if item.endswith((".py", ".pth", ".pyd", ".so", ".dll"))]
 packages = sorted(f"{item.metadata['Name']}=={item.version}" for item in metadata.distributions())
 rows.sort(key=lambda row: (row[0], row[1]))
+stats = [row[:4] for row in rows]
 print(json.dumps({"version": platform.python_version(), "implementation": sys.implementation.name,
                   "executable": os.path.realpath(sys.executable), "prefix": os.path.realpath(sys.prefix),
                   "packages": packages,
-                  "files_sha256": hashlib.sha256(json.dumps(rows).encode("utf-8")).hexdigest()}))
+                  "files_sha256": hashlib.sha256(json.dumps(stats).encode("utf-8")).hexdigest(),
+                  "content_sha256": (hashlib.sha256(json.dumps([row[:2] + row[4:] for row in rows]).encode("utf-8"))
+                                     .hexdigest() if CONTENT else None)}))
 """
-HERMES_RUNTIME_KEYS = ("hermes_python", "hermes_prefix", "hermes_packages", "hermes_files")
+HERMES_RUNTIME_KEYS = ("hermes_python", "hermes_prefix", "hermes_packages", "hermes_files", "hermes_content")
 
 
 def sha256_value(value: Any) -> str:
@@ -843,25 +861,29 @@ def runner_files_sha256() -> str:
     return sha256_value(rows)
 
 
-def runtime_state(config: dict) -> dict[str, Any]:
+def runtime_state(config: dict, content: bool = True) -> dict[str, Any]:
     """The runtime that runs the jobs: the host, the Python of the runner and of Hermes, and the argv and files of
     each CLI. "public" goes into meta.json and the report. "sha256" has hashes of private paths, the package list,
     and each CLI (its argv and the files that it runs): meta.json keeps them for the resume and merge checks, and
-    the report does not get them."""
+    the report does not get them. content=True also hashes the content of the Hermes runtime files
+    ("hermes_content"); the check before and after each job uses content=False (sizes and times only)."""
     public: dict[str, Any] = {"host": {"os": platform.system(), "machine": platform.machine(),
                                        "python": sys.version.split()[0]}}
     digests = {"runner_python": sha256_value({"path": os.path.realpath(sys.executable),
                                               "files": runner_files_sha256()})}
     if config.get("hermes_python"):
         try:
-            done = subprocess.run([str(config["hermes_python"]), "-I", "-c", RUNTIME_PROBE], capture_output=True,
-                                  encoding="utf-8", errors="replace", timeout=120)
+            done = subprocess.run([str(config["hermes_python"]), "-I", "-c", RUNTIME_PROBE,
+                                   *(["--content"] if content else [])], capture_output=True, encoding="utf-8",
+                                  errors="replace", timeout=600)
             probe = json.loads(done.stdout)
         except (OSError, ValueError, subprocess.SubprocessError):
             raise SystemExit("hermes_python did not run the runtime probe; stop before any job") from None
         public["hermes_python"] = {"version": probe["version"], "implementation": probe["implementation"]}
         digests.update(hermes_python=sha256_value(probe["executable"]), hermes_prefix=sha256_value(probe["prefix"]),
                        hermes_packages=sha256_value(probe["packages"]), hermes_files=probe["files_sha256"])
+        if content:
+            digests["hermes_content"] = probe["content_sha256"]
     used = {METHODS[name]["engine"] for name in config.get("methods") or [] if name in METHODS}
     for engine, spec in sorted((config.get("cli") or {}).items()):
         # The files of a CLI that the plan uses (hashing a large CLI package takes a few seconds).
@@ -912,7 +934,8 @@ def source_snapshot(config: dict) -> dict[str, Any]:
     return {"harness": harness_hashes(), "plugin": plugin_state(Path(config["plugin_source"]))["files_sha256"],
             "hermes": hermes_state(Path(config["hermes_source"])), "gold": current_gold_sha256(),
             "history": history_hashes(config),
-            "cli": cli_state(config, list(config["methods"])), "runtime": runtime_state(config)["sha256"]}
+            "cli": cli_state(config, list(config["methods"])),
+            "runtime": runtime_state(config, content=False)["sha256"]}
 
 
 def record_sources(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -1265,7 +1288,7 @@ def command_run(args) -> int:
     # files, the generated session files, a CLI, or the runtime stops the run before the next job.
     start = {"harness": harness_hashes(), "plugin": plugin["files_sha256"], "hermes": hermes,
              "gold": current_gold_sha256(), "history": history_hashes(config), "cli": cli,
-             "runtime": runtime["sha256"]}
+             "runtime": {key: value for key, value in runtime["sha256"].items() if key != "hermes_content"}}
 
     def changed_sources() -> list[str]:
         now = source_snapshot(config)
@@ -1311,6 +1334,14 @@ def command_run(args) -> int:
         if record["error"] == "login_required":
             # The benchmark never signs in: stop and report.
             raise SystemExit(f"{job['method']} asked for a login; stop the run")
+    if todo and runtime["sha256"].get("hermes_content") is not None:
+        # The check before and after each job compares sizes and times. The content hash after the last job finds
+        # an edit that kept them.
+        if runtime_state(config)["sha256"].get("hermes_content") != runtime["sha256"]["hermes_content"]:
+            meta["runtime_content_changed"] = True
+            write_meta(meta_path, meta)
+            raise SystemExit("the content of the Hermes runtime files changed during the run (the sizes and times "
+                             "stayed the same); the report refuses this run folder")
     return 0
 
 
@@ -2111,6 +2142,8 @@ def command_report(args) -> int:
     attempts = load_attempts(out_dir)
     planned = planned_jobs(meta)
     gold_now = current_gold_sha256()
+    if meta.get("runtime_content_changed"):
+        raise SystemExit(f"report refused: the Hermes runtime files of {out_dir} changed during the run")
     stray = record_mismatches(meta, attempts)
     if stray:
         raise SystemExit(f"report refused: {len(stray)} records in {out_dir} were made with sources that "

@@ -1900,9 +1900,49 @@ class RunTest(unittest.TestCase):
         self.assertEqual(run.server_model_url({"endpoint": "http://localhost:1234/v1/", "model": "m"}),
                          "http://localhost:1234/api/v0/models/m")
 
+    def test_runtime_probe_hashes_file_contents(self):
+        # A fake installed distribution (synthetic package). The probe runs in this Python and sees only it.
+        from importlib import metadata
+        with tempfile.TemporaryDirectory() as folder:
+            site = Path(folder)
+            info = site / "fake_runtime_pkg-1.0.dist-info"
+            info.mkdir()
+            (info / "METADATA").write_text("Metadata-Version: 2.1\nName: fake-runtime-pkg\nVersion: 1.0\n",
+                                           encoding="utf-8")
+            (info / "RECORD").write_text("fake_runtime_pkg.py,,\n", encoding="utf-8")
+            module = site / "fake_runtime_pkg.py"
+            module.write_text("x = 1\n", encoding="utf-8")
+            only = list(metadata.distributions(path=[str(site)]))
+
+            def probe(*argv):
+                out = io.StringIO()
+                with mock.patch.object(sys, "argv", ["probe", *argv]), \
+                        mock.patch("importlib.metadata.distributions", lambda: only), \
+                        contextlib.redirect_stdout(out):
+                    exec(run.RUNTIME_PROBE, {"__name__": "probe"})
+                return json.loads(out.getvalue())
+
+            first = probe("--content")
+            self.assertIsNone(probe()["content_sha256"])
+            stat = module.stat()
+            # The same size and the same modification time, other bytes.
+            module.write_text("x = 2\n", encoding="utf-8")
+            os.utime(module, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            second = probe("--content")
+            self.assertEqual(second["files_sha256"], first["files_sha256"])
+            self.assertNotEqual(second["content_sha256"], first["content_sha256"])
+            # A run folder whose runtime content changed during the run has no report (synthetic folder).
+            out = site / "out"
+            out.mkdir()
+            (out / "meta.json").write_text(json.dumps({"runtime_content_changed": True}), encoding="utf-8")
+            (out / "runs.jsonl").write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "runtime files of .* changed during the run"):
+                run.command_report(types.SimpleNamespace(out=str(out), json=str(site / "r.json"), md=None, also=[],
+                                                         same_credential=False, rescore=False, raw_dir=[]))
+
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}
-        state = run.runtime_state(config)
+        state = run.runtime_state(config, content=False)  # the content hash of this Python takes minutes
         self.assertEqual(set(state["sha256"]), {"runner_python", "hermes_python", "hermes_prefix", "hermes_packages",
                                                 "hermes_files", "cli.codex_cli"})
         self.assertEqual(state["public"]["hermes_python"]["version"], sys.version.split()[0])
@@ -1910,7 +1950,8 @@ class RunTest(unittest.TestCase):
         public = json.dumps(state["public"])
         for private in (sys.executable, sys.prefix, "fake-codex"):
             self.assertNotIn(json.dumps(private)[1:-1], public)
-        other = run.runtime_state({**config, "cli": {"codex_cli": {"command": ["fake-codex", "--other"]}}})
+        other = run.runtime_state({**config, "cli": {"codex_cli": {"command": ["fake-codex", "--other"]}}},
+                                  content=False)
         self.assertNotEqual(state["sha256"]["cli.codex_cli"], other["sha256"]["cli.codex_cli"])
         self.assertEqual({k: v for k, v in state["sha256"].items() if k != "cli.codex_cli"},
                          {k: v for k, v in other["sha256"].items() if k != "cli.codex_cli"})
