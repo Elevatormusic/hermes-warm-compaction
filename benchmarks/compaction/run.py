@@ -533,13 +533,21 @@ def harness_ids(meta: dict) -> set[str]:
         resume.get("harness_sha256") for resume in meta.get("resumes") or []] if item}
 
 
+def plan_methods(meta: dict) -> set[str]:
+    """The methods that a run folder planned: the first configuration and each recorded resume plan."""
+    found = set((meta.get("config") or {}).get("methods") or [])
+    for resume in meta.get("resumes") or []:
+        found |= set(resume.get("methods") or []) | set((resume.get("plan") or {}).get("methods") or [])
+    return found
+
+
 def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
     """Why the run folder of `extra` cannot join the report of `meta` (empty when it can). The runs must use the
     same harness, server model, configuration values (apart from the job plan), and gold files (or --rescore). They
     must use the same Hermes commit when both run Hermes methods, the same plugin files when both run plugin
     methods, and the same version of each CLI that both run."""
     def engines(item: dict) -> set[str]:
-        return {METHODS[name]["engine"] for name in (item.get("config") or {}).get("methods") or [] if name in METHODS}
+        return {METHODS[name]["engine"] for name in plan_methods(item) if name in METHODS}
 
     found = []
     if meta.get("schema") != extra.get("schema"):
@@ -1288,7 +1296,7 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
     it."""
     built = {spec["id"]: fixtures.build(spec)[0] for spec in fixtures.SCENARIOS}
     counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0, "jobs_failed_incomplete": 0,
-              "jobs_other_qa_plan": 0}
+              "jobs_other_qa_prompt": 0}
     sources = raw_sources(out_dir, meta, raw_dirs)
     for run in runs:
         if not run.get("cycles"):
@@ -1299,10 +1307,9 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
             continue
         out = json.loads(raw.read_text(encoding="utf-8"))
         gold = json.loads((GOLD_DIR / f"{run['fixture']}.gold.json").read_text(encoding="utf-8"))
-        # Answers that other batch prompts gave cannot be scored with this gold plan.
-        if any((raw_cycle.get("qa") or {}).get("batches") and [batch["numbers"] for batch in raw_cycle["qa"][
-                "batches"]] != gold.get("qa_batches") for raw_cycle in out.get("cycles", [])):
-            counts["jobs_other_qa_plan"] += 1
+        # Answers to other prompts (another batch plan or another question text) cannot be scored with this gold.
+        if any(not same_prompts(raw_cycle, gold) for raw_cycle in out.get("cycles", [])):
+            counts["jobs_other_qa_prompt"] += 1
             continue
         for cycle, raw_cycle in zip(run["cycles"], out.get("cycles", [])):
             scored = score_cycle(raw_cycle, gold, built[run["fixture"]], run["method"])
@@ -1313,12 +1320,25 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
     return counts
 
 
+def same_prompts(raw_cycle: dict, gold: dict) -> bool:
+    """True when the raw answers of a cycle answer the exact prompts of the current gold file: the batches of its
+    plan, and for each batch the SHA-256 of the user row (instruction and question texts). A raw file without the
+    hash cannot show it."""
+    batches = (raw_cycle.get("qa") or {}).get("batches") or []
+    if not batches:
+        return True
+    if [batch["numbers"] for batch in batches] != gold.get("qa_batches"):
+        return False
+    return all(batch.get("prompt_sha256") == scoring.prompt_sha256(scoring.qa_prompt(
+        [(n, gold["questions"][n - 1]["question"]) for n in batch["numbers"]])) for batch in batches)
+
+
 def refuse_stale(item: dict) -> None:
     """A rescore that cannot score every job would mix old-gold marks with the current gold files."""
-    if item.get("jobs_other_qa_plan"):
-        raise SystemExit(f"report refused: --rescore found {item['jobs_other_qa_plan']} jobs in {item['folder']} "
-                         "that asked the questions in other batches (other prompts) than the current gold plan. "
-                         "Report them with the harness that made them.")
+    if item.get("jobs_other_qa_prompt"):
+        raise SystemExit(f"report refused: --rescore found {item['jobs_other_qa_prompt']} jobs in {item['folder']} "
+                         "whose raw answers do not answer the current QA prompts (other batches, other question "
+                         "text, or no prompt hash). Report them with the harness and gold files that made them.")
     if item["jobs_without_raw"]:
         raise SystemExit(f"report refused: --rescore found {item['jobs_without_raw']} jobs in {item['folder']} "
                          "without a verified raw output (keep_text was off, or no raw file has the hash or the "

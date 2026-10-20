@@ -23,6 +23,13 @@ FAKE_RUNTIME_META = {"host": FAKE_RUNTIME["public"]["host"],
                      "runtime_sha256": FAKE_RUNTIME["sha256"]}
 
 
+def planned_batches(gold: dict, answer) -> list[dict]:
+    """Synthetic raw QA batches in the gold plan, with the prompt hash that the worker records."""
+    return [{"numbers": batch, "text": json.dumps({str(n): answer(n) for n in batch}),
+             "prompt_sha256": scoring.prompt_sha256(scoring.qa_prompt(
+                 [(n, gold["questions"][n - 1]["question"]) for n in batch]))} for batch in gold["qa_batches"]]
+
+
 def question(kind, gold, text="Question?", **extra):
     return {"kind": kind, "gold": gold, "question": text, "retention": fixtures.retention_for(kind, gold), **extra}
 
@@ -293,8 +300,7 @@ class RunTest(unittest.TestCase):
             return gold["questions"][n - 1]["question"] if n == number else "unknown"
 
         cycle = {"cycle": 1, "compacted": True, "history": history["rows"][-4:],
-                 "qa": {"batches": [{"numbers": batch, "text": json.dumps({str(n): answer(n) for n in batch})}
-                                    for batch in gold["qa_batches"]]}}
+                 "qa": {"batches": planned_batches(gold, answer)}}
         stale = run.score_cycle(cycle, gold, history, "warm_ledger")
         stale["marks"][number - 1] = "1" + stale["marks"][number - 1][1:]
         records = [{"job": f"{spec['id']}|warm_ledger|r{rep}|c1", "fixture": spec["id"], "method": "warm_ledger",
@@ -305,7 +311,7 @@ class RunTest(unittest.TestCase):
                 json.dumps({"cycles": [cycle]}), encoding="utf-8")
             counts = run.rescore(Path(folder), records)
         self.assertEqual(counts, {"jobs_rescored": 1, "jobs_without_raw": 1, "marks_changed": 1,
-                                  "jobs_failed_incomplete": 0, "jobs_other_qa_plan": 0})
+                                  "jobs_failed_incomplete": 0, "jobs_other_qa_prompt": 0})
         self.assertEqual(records[0]["cycles"][0]["marks"][number - 1][0], "0")
         # Raw answers to other batch prompts (consecutive batches of 12) are not rescored, and the report refuses.
         consecutive = [list(range(start, min(start + 12, len(gold["questions"])) + 1))
@@ -317,10 +323,23 @@ class RunTest(unittest.TestCase):
             (Path(folder) / "raw" / f"{spec['id']}__warm_ledger__r1__c1.json").write_text(
                 json.dumps({"cycles": [other]}), encoding="utf-8")
             counts = run.rescore(Path(folder), records[:1])
-        self.assertEqual((counts["jobs_other_qa_plan"], counts["jobs_rescored"]), (1, 0))
+        self.assertEqual((counts["jobs_other_qa_prompt"], counts["jobs_rescored"]), (1, 0))
         with self.assertRaisesRegex(SystemExit, "other batches"):
             run.refuse_stale({"folder": "f", **counts})
         self.assertEqual(records[1]["cycles"][0]["marks"][number - 1][0], "1")
+        # The same batch layout with another question text (an old prompt), or with no prompt hash: not rescored.
+        old_gold = json.loads(json.dumps(gold))
+        old_gold["questions"][number - 1]["question"] = "An older text of this question?"
+        stale_prompt = {**cycle, "qa": {"batches": planned_batches(old_gold, lambda _n: "unknown")}}
+        no_hash = {**cycle, "qa": {"batches": [{k: v for k, v in batch.items() if k != "prompt_sha256"}
+                                               for batch in cycle["qa"]["batches"]]}}
+        for raw_cycle in (stale_prompt, no_hash):
+            with tempfile.TemporaryDirectory() as folder:
+                (Path(folder) / "raw").mkdir()
+                (Path(folder) / "raw" / f"{spec['id']}__warm_ledger__r1__c1.json").write_text(
+                    json.dumps({"cycles": [raw_cycle]}), encoding="utf-8")
+                counts = run.rescore(Path(folder), json.loads(json.dumps(records[:1])))
+            self.assertEqual((counts["jobs_other_qa_prompt"], counts["jobs_rescored"]), (1, 0))
 
     def test_size_check_has_no_data_when_no_ledger_run_compacts(self):
         runs = self.synthetic_runs()
@@ -405,8 +424,7 @@ class RunTest(unittest.TestCase):
         spec = next(item for item in SCENARIOS if item["id"] == "s4-orchard")
         history, gold = fixtures.build(spec)
         cycle = {"cycle": 1, "compacted": True, "history": history["rows"][-4:],
-                 "qa": {"batches": [{"numbers": batch, "text": json.dumps({str(n): "unknown" for n in batch})}
-                                    for batch in gold["qa_batches"]]}}
+                 "qa": {"batches": planned_batches(gold, lambda _n: "unknown")}}
         data = json.dumps({"cycles": [cycle]}).encode("utf-8")
         name = f"{spec['id']}__warm_ledger__r1__c1.json"
         meta = {"schema": "s", **FAKE_RUNTIME_META, "config": {"model": "m", "methods": ["warm_ledger"]},
@@ -668,6 +686,15 @@ class RunTest(unittest.TestCase):
         checked = {**base, "config": {**base["config"], "server_check": True}}
         self.assertEqual(run.merge_mismatches(checked, {**cli, "server_model": model}, False),
                          ["server model (not recorded)"])
+        # The methods of a folder are those of the first plan and of every resume plan: a resume that added a
+        # plugin method makes the plugin files part of the merge check.
+        resumed = {**cli, "resumes": [{"methods": ["codex_cli", "warm_ledger"],
+                                       "plan": {"methods": ["codex_cli", "warm_ledger"]}}]}
+        self.assertEqual(run.plan_methods(resumed), {"codex_cli", "warm_ledger"})
+        self.assertEqual(run.plan_methods({**cli, "resumes": [{"plan": {"methods": ["full_context"]}}]}),
+                         {"codex_cli", "full_context"})
+        self.assertEqual(run.merge_mismatches(base, {**resumed, "plugin": {"files_sha256": {"x": "2"}}}, False),
+                         ["Hermes commit", "plugin files"])
         codex = {**cli, "cli": {"codex_cli": {"version": "0.147.0"}}}
         self.assertEqual(run.merge_mismatches(codex, {**codex, "cli": {"codex_cli": {"version": "0.148.0"}}}, False),
                          ["codex_cli version"])
@@ -867,9 +894,47 @@ class CliWorkerTest(unittest.TestCase):
                          {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "SUMMARY"}]},
                      ]}}]
         rows, meta = cli_worker.codex_context(lines)
-        self.assertEqual(rows, [{"role": "user", "content": "goal"}, {"role": "user", "content": "SUMMARY"}])
+        self.assertEqual(rows, [{"role": "user", "content": "goal"}, {"role": "user", "content": "[developer] x"},
+                                {"role": "user", "content": "SUMMARY"}])
         self.assertEqual(meta["compress_model_s"], 2.5)
         self.assertEqual(cli_worker.codex_context(lines[:1]), (None, {}))
+
+    def test_cli_contexts_keep_every_item_kind(self):
+        # Codex: tool calls and outputs, custom tools, local shell, web search, and reasoning text become rows.
+        items = [
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "goal"}]},
+            {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "I run it."}]},
+            {"type": "function_call", "name": "shell", "arguments": '{"cmd": "make"}', "call_id": "c1"},
+            {"type": "function_call_output", "call_id": "c1", "output": "exit_code: 2"},
+            {"type": "custom_tool_call", "name": "apply_patch", "input": "*** Begin Patch", "call_id": "c2"},
+            {"type": "custom_tool_call_output", "call_id": "c2", "output": {"content": "Done"}},
+            {"type": "local_shell_call", "call_id": "c3", "action": {"command": ["ls"]}},
+            {"type": "web_search_call", "id": "w1", "action": {"query": "x"}},
+            {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Plan: fix the build."}]},
+            {"type": "reasoning", "summary": [], "encrypted_content": "e"}]
+        rows = cli_worker.codex_rows(items)
+        self.assertEqual([row["role"] for row in rows],
+                         ["user", "assistant", "tool", "assistant", "tool", "assistant", "assistant"])
+        self.assertEqual([call["function"]["name"] for call in rows[1]["tool_calls"]], ["shell"])
+        self.assertEqual(rows[2], {"role": "tool", "tool_call_id": "c1", "content": "exit_code: 2"})
+        self.assertEqual([call["function"]["name"] for call in rows[5]["tool_calls"]], ["local_shell", "web_search"])
+        self.assertEqual(rows[4]["content"], "Done")
+        self.assertEqual(rows[6]["content"], "Plan: fix the build.")
+        text = scoring.history_text(rows)
+        for fact in ("make", "exit_code: 2", "apply_patch", "Plan: fix the build."):
+            self.assertIn(fact, text)
+        with self.assertRaisesRegex(cli_worker.JobFailed, "codex_context_item:new_kind"):
+            cli_worker.codex_rows([{"type": "new_kind"}])
+        # Claude Code: the context keeps thinking text; a reply text does not; an unknown block fails the job.
+        content = [{"type": "thinking", "thinking": "Check the cache key."}, {"type": "text", "text": "Done."}]
+        self.assertEqual(cli_worker.claude_text(content, thinking=True), "Check the cache key.\nDone.")
+        self.assertEqual(cli_worker.claude_text(content), "Done.")
+        with self.assertRaisesRegex(cli_worker.JobFailed, "claude_context_block:new_block"):
+            cli_worker.claude_text([{"type": "new_block"}])
+        entries = [{"type": "system", "subtype": "compact_boundary"},
+                   {"type": "assistant", "message": {"role": "assistant", "content": content}}]
+        self.assertEqual(cli_worker.claude_context(entries)[0],
+                         [{"role": "assistant", "content": "Check the cache key.\nDone."}])
 
     def test_claude_transcript_links_entries_and_pairs_tool_results(self):
         entries = cli_worker.claude_transcript(self.history, "sid", Path("cwd"), "0.0.0", "m", self.base)
@@ -1136,6 +1201,9 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertEqual(sent, [scoring.qa_prompt([(n, gold["questions"][n - 1]["question"]) for n in batch])
                                 for batch in gold["qa_batches"]])
         self.assertEqual([batch["numbers"] for batch in result["batches"]], gold["qa_batches"])
+        # Each raw batch names the exact prompt that the model saw.
+        self.assertEqual([batch["prompt_sha256"] for batch in result["batches"]],
+                         [scoring.prompt_sha256(text) for text in sent])
         # A plan that does not ask each question once fails before any request.
         for plan in ([[1]], gold["qa_batches"] + [[1]]):
             with mock.patch.object(worker, "post_chat", side_effect=AssertionError("no request")):
@@ -1164,9 +1232,7 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertEqual((record["status"], record["error"]), ("failed", "qa_incomplete"))
         # --rescore applies the same rule to kept raw output (gold batch plan, the last answer left out).
         last = gold["qa_batches"][-1][-1]
-        planned = {**cycle, "qa": {"batches": [
-            {"numbers": batch, "text": json.dumps({str(n): "unknown" for n in batch if n != last})}
-            for batch in gold["qa_batches"]]}}
+        planned = {**cycle, "qa": {"batches": planned_batches(gold, lambda n: "" if n == last else "unknown")}}
         records = [{"job": f"{spec['id']}|warm_ledger|r1|c1", "fixture": spec["id"], "method": "warm_ledger",
                     "status": "ok", "error": None, "cycles": [run.score_cycle(cycle, gold, history, "warm_ledger")]}]
         with tempfile.TemporaryDirectory() as folder:

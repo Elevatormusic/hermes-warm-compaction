@@ -116,17 +116,69 @@ def codex_message_text(item: dict) -> str:
                    if part.get("type") in ("input_text", "output_text", "text"))
 
 
+def codex_text(value) -> str:
+    """A tool output or input as text: a string as it is, else its JSON form."""
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
+def codex_rows(items: list[dict]) -> list[dict]:
+    """Chat rows for the items of a Codex replacement history. Every kind that Codex keeps becomes a row: messages,
+    tool calls (function, custom, local shell, web search) as assistant tool calls, tool outputs as tool rows, and
+    the text of reasoning items. An unknown kind fails the job, so that no kept item is lost without a trace."""
+    rows: list[dict] = []
+
+    def call(call_id, name, arguments) -> None:
+        tool_call = {"id": str(call_id or f"call_{len(rows)}"), "type": "function",
+                     "function": {"name": str(name or "tool"), "arguments": codex_text(arguments)}}
+        last = rows[-1] if rows else None
+        if last and last["role"] == "assistant":
+            last.setdefault("tool_calls", []).append(tool_call)
+        else:
+            rows.append({"role": "assistant", "content": "", "tool_calls": [tool_call]})
+
+    for item in items:
+        kind = item.get("type")
+        if kind == "message":
+            role = item.get("role")
+            text = codex_message_text(item)
+            if role in ("user", "assistant"):
+                rows.append({"role": role, "content": text})
+            elif role in ("developer", "system"):
+                # A mid-history instruction: a user row with its role named (a chat template allows one system row).
+                rows.append({"role": "user", "content": f"[{role}] {text}"})
+            else:
+                raise JobFailed(f"codex_context_item:message_{role}")
+        elif kind == "function_call":
+            call(item.get("call_id"), item.get("name"), item.get("arguments"))
+        elif kind == "custom_tool_call":
+            call(item.get("call_id"), item.get("name"), item.get("input"))
+        elif kind == "local_shell_call":
+            call(item.get("call_id"), "local_shell", item.get("action"))
+        elif kind == "web_search_call":
+            call(item.get("id"), "web_search", item.get("action"))
+        elif kind in ("function_call_output", "custom_tool_call_output"):
+            output = item.get("output")
+            if isinstance(output, dict) and "content" in output:
+                output = output["content"]
+            rows.append({"role": "tool", "tool_call_id": str(item.get("call_id")), "content": codex_text(output)})
+        elif kind == "reasoning":
+            text = "\n".join(part.get("text", "") for part in (item.get("summary") or []) + (item.get("content") or [])
+                             if isinstance(part, dict) and part.get("text"))
+            if text:
+                rows.append({"role": "assistant", "content": text})
+        else:
+            raise JobFailed(f"codex_context_item:{kind}")
+    return rows
+
+
 def codex_context(lines: list[dict]) -> tuple[list[dict] | None, dict]:
-    """The context after the last compaction: the replacement history of the last compacted item."""
+    """The context after the last compaction: the replacement history of the last compacted item, as chat rows."""
     compacted = [index for index, line in enumerate(lines) if line.get("type") == "compacted"]
     if not compacted:
         return None, {}
     index = compacted[-1]
     payload = lines[index]["payload"]
-    rows = []
-    for item in payload.get("replacement_history") or []:
-        if item.get("type") == "message" and item.get("role") in ("user", "assistant"):
-            rows.append({"role": item["role"], "content": codex_message_text(item)})
+    rows = codex_rows(payload.get("replacement_history") or [])
     if not payload.get("replacement_history") and payload.get("message"):
         rows.append({"role": "user", "content": payload["message"]})
     # The compaction time: from the start of the turn that compacted to the compacted item.
@@ -330,18 +382,28 @@ def claude_transcript(fixture: dict, session_id: str, cwd: Path, version: str, m
     return entries
 
 
-def claude_text(content) -> str:
+def claude_text(content, thinking: bool = False) -> str:
+    """The text of a Claude Code message: text, tool calls, and tool results; with thinking=True also the thinking
+    text (a context keeps it, a reply text does not). An unknown block kind fails the job."""
     if isinstance(content, str):
         return content
     parts = []
     for block in content or []:
         if block.get("type") == "text":
             parts.append(block.get("text", ""))
+        elif block.get("type") == "thinking":
+            if thinking:
+                parts.append(block.get("thinking", ""))
+        elif block.get("type") in ("redacted_thinking", "image", "document"):
+            # No text that a fact check or the questions can use.
+            continue
         elif block.get("type") == "tool_use":
             parts.append(f"[tool call {block.get('name')}: {json.dumps(block.get('input'), ensure_ascii=False)}]")
         elif block.get("type") == "tool_result":
             inner = block.get("content")
-            parts.append(inner if isinstance(inner, str) else claude_text(inner))
+            parts.append(inner if isinstance(inner, str) else claude_text(inner, thinking))
+        else:
+            raise JobFailed(f"claude_context_block:{block.get('type')}")
     return "\n".join(part for part in parts if part)
 
 
@@ -358,7 +420,7 @@ def claude_context(entries: list[dict]) -> tuple[list[dict] | None, dict]:
         if entry.get("type") not in ("user", "assistant") or entry.get("isMeta"):
             continue
         message = entry.get("message") or {}
-        text = claude_text(message.get("content"))
+        text = claude_text(message.get("content"), thinking=True)
         if "<command-name>" in text or "<local-command-stdout>" in text:
             continue
         if entry.get("isCompactSummary"):

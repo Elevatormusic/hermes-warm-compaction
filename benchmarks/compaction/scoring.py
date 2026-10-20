@@ -17,6 +17,7 @@ still there, not whether a model can use it.
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import math
 import re
@@ -164,6 +165,11 @@ def parse_answers(text: str, numbers: list[int]) -> tuple[dict[str, str], bool]:
 def qa_prompt(items: list[tuple[int, str]]) -> str:
     """The user row of one QA request: the instruction and the numbered questions (number, question text)."""
     return QA_INSTRUCTION + "\n\n" + "\n".join(f"{number}. {text}" for number, text in items)
+
+
+def prompt_sha256(text: str) -> str:
+    """The SHA-256 of a QA user row: --rescore checks that a raw answer is the answer to this exact prompt."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def prompt_leaks(items: list[tuple[int, dict]]) -> list[str]:

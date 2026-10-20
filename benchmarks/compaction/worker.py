@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scoring import missing_answers, qa_prompt  # noqa: E402
+from scoring import missing_answers, prompt_sha256, qa_prompt  # noqa: E402
 
 WIRE_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
 # Config sections that define the method of a job. hermes_config cannot set anything in them.
@@ -104,7 +104,8 @@ def ask(job: dict, system: str, rows: list) -> dict:
             "finish_reason": choice.get("finish_reason"), "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
             "cached_tokens": (usage.get("prompt_tokens_details") or {}).get("cached_tokens")})
-        result["batches"].append({"numbers": [item["n"] for item in part], "text": content})
+        result["batches"].append({"numbers": [item["n"] for item in part], "text": content,
+                                  "prompt_sha256": prompt_sha256(text)})
     return result
 
 
