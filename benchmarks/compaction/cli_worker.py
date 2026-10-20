@@ -606,13 +606,36 @@ def text_rows_all(rows: list[dict]) -> list[dict]:
     return wire_rows(rows)
 
 
+def compaction_failure(item: dict, compact: dict, path: str) -> str | None:
+    """Why the compaction command itself did not complete successfully (None when it did). A CLI can write a
+    compacted session record and still time out, exit with an error, or report a failed turn: such rows are not a
+    successful compaction. Codex: the app server turn must have the status "completed" and no error. Claude Code:
+    the command must exit with 0 and report no error result."""
+    if compact["timeout"]:
+        return "cli_timeout"
+    if path == "codex":
+        if compact.get("error"):
+            return str(compact["error"])[:200]
+        if compact.get("status") != "completed":
+            return f"turn_{compact.get('status') or 'missing'}"
+        return None
+    if compact["exit_code"] != 0:
+        return f"exit_{compact['exit_code']}"
+    if (item.get("compact_result") or {}).get("is_error"):
+        return "error_result"
+    return None
+
+
 def finish(item: dict, job: dict, fixture: dict, rows: list[dict] | None, compact: dict, meta: dict,
            path: str) -> None:
     item.update(compress_wall_s=compact["elapsed_s"], compress_exit=compact["exit_code"],
                 compress_timeout=compact["timeout"], compress_s=meta.get("compress_model_s"))
+    failure = compaction_failure(item, compact, path)
+    if failure:
+        # Rows that a failed command wrote are not the result of a compaction: no questions, no sizes.
+        rows = None
     item["compacted"] = bool(rows)
-    item["compress_error"] = None if rows else ("cli_timeout" if compact["timeout"] else
-                                                compact.get("error") or "no_compaction_record")
+    item["compress_error"] = None if rows else (failure or "no_compaction_record")
     item["outcome"] = {"path": path if rows else "aborted", "summary_chars": meta.get("summary_chars"),
                        **(meta.get("compact_metadata") or {})}
     # The chat fields of every row (also an assistant row with tool calls only, and the tool rows): the questions

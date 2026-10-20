@@ -2165,7 +2165,7 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertEqual(rows[1]["content"], "")
         asked = []
         item = {"rows_before": 10}
-        compact = {"elapsed_s": 1.0, "exit_code": 0, "timeout": False}
+        compact = {"elapsed_s": 1.0, "exit_code": 0, "timeout": False, "status": "completed", "error": None}
 
         def fake_ask(_job, _system, given):
             asked.append(given)
@@ -2180,6 +2180,32 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertEqual(expected[1]["tool_calls"][0]["function"]["name"], "shell")
         self.assertEqual(expected[2]["tool_call_id"], "c1")
         self.assertEqual((item["rows_after"], item["est_tokens_after"]), (4, worker.estimate_tokens(expected)))
+
+    def test_failed_cli_compaction_command_is_not_accepted(self):
+        rows = [{"role": "user", "content": "synthetic summary"}]
+        codex_ok = {"elapsed_s": 1.0, "exit_code": 0, "timeout": False, "status": "completed", "error": None}
+        claude_ok = {"elapsed_s": 1.0, "exit_code": 0, "timeout": False}
+        # The command wrote a compacted record, then timed out, exited with an error, or reported a failed turn.
+        cases = (("codex", codex_ok, {}, None),
+                 ("codex", {**codex_ok, "timeout": True}, {}, "cli_timeout"),
+                 ("codex", {**codex_ok, "status": "failed"}, {}, "turn_failed"),
+                 ("codex", {**codex_ok, "error": "turn_error"}, {}, "turn_error"),
+                 ("claude_code", claude_ok, {}, None),
+                 ("claude_code", {**claude_ok, "exit_code": 1}, {}, "exit_1"),
+                 ("claude_code", claude_ok, {"compact_result": {"is_error": True}}, "error_result"))
+        for path, compact, extra, failure in cases:
+            with self.subTest(path=path, failure=failure):
+                item = {"rows_before": 10, **extra}
+                with mock.patch.object(cli_worker, "ask", return_value={"batches": [], "calls": []}) as ask:
+                    cli_worker.finish(item, {}, {"system": "system"}, rows, compact, {}, path=path)
+                self.assertEqual(item["compacted"], failure is None)
+                self.assertEqual(item["compress_error"], failure)
+                self.assertEqual(item["outcome"]["path"], path if failure is None else "aborted")
+                self.assertEqual(ask.called, failure is None)
+                # The record keeps the reason; the scored cycle is a failed compaction of the method.
+                scored = run.score_cycle({**item, "cycle": 1}, {"questions": []}, {"rows": []}, f"{path}_cli"
+                                         if path == "codex" else "claude_code_cli")
+                self.assertEqual(scored["compress_error"], failure)
 
     def test_cli_sizes_measure_the_compaction_input(self):
         reply = "y" * 4000
