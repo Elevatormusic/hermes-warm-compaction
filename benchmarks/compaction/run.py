@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -332,8 +333,9 @@ def cli_state(config: dict, methods: list[str]) -> dict[str, Any]:
 
 
 PRIVATE_CONFIG_KEYS = ("hermes_python", "hermes_source", "plugin_source", "history_dir", "cli")
-# Keys that select which jobs run. They do not change the result of a job, so a resume can change them.
-PLAN_KEYS = ("methods", "fixtures", "replicates", "drift")
+# Keys that select which jobs run or only guard the run. They do not change the result of a job, so a resume can
+# change them.
+PLAN_KEYS = ("methods", "fixtures", "replicates", "drift", "server_check")
 
 
 def config_hash(config: dict) -> str:
@@ -369,6 +371,26 @@ def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli:
     harness = sorted(name for name in set(latest or {}) | set(harness_hashes())
                      if (latest or {}).get(name) != harness_hashes().get(name))
     return hard, harness
+
+
+def server_state(config: dict) -> str | None:
+    """With "server_check": true, None when the LM Studio REST API reports the model loaded with the configured
+    context length, else a short reason. A changed server (for example a reload with other settings) makes the
+    results of a job invalid."""
+    if not config.get("server_check"):
+        return None
+    root = str(config["endpoint"]).rstrip("/")
+    root = root[:-3] if root.endswith("/v1") else root
+    try:
+        with urllib.request.urlopen(f"{root}/api/v0/models/{config['model']}", timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as error:
+        return f"server_unreachable:{type(error).__name__}"
+    if data.get("state") != "loaded":
+        return f"model_state:{data.get('state')}"
+    if data.get("loaded_context_length") != int(config["context_length"]):
+        return f"loaded_context_length:{data.get('loaded_context_length')}"
+    return None
 
 
 def command_run(args) -> int:
@@ -433,9 +455,18 @@ def command_run(args) -> int:
             print(job["id"], json.dumps(job["settings"]))
         return 0
     for number, job in enumerate(todo, 1):
+        problem = server_state(config)
+        if problem:
+            raise SystemExit(f"server check failed before {job['id']}: {problem}; stop (no record written)")
         record = run_job(job, config, out_dir, history_dir)
+        problem = server_state(config)
+        if problem:
+            # The server changed during the job: keep the record, mark it invalid so a resume runs it again.
+            record["status"], record["error"] = "invalid", f"server_state_changed:{problem}"
         with runs_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
+        if problem:
+            raise SystemExit(f"server check failed after {job['id']}: {problem}; the job is marked invalid")
         paths = [cycle["path"] for cycle in record.get("cycles", [])]
         accuracy = [round(sum(m[0] == "1" for m in c["marks"]) / max(len(c["marks"]), 1), 2)
                     for c in record.get("cycles", [])]

@@ -273,6 +273,36 @@ class RunTest(unittest.TestCase):
         old["resumes"] = [{"harness_sha256": run.harness_hashes()}]
         self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}), ([], []))
 
+    def test_server_check_reads_the_loaded_context_length(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        state = {"state": "loaded", "loaded_context_length": 131072}
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                body = json.dumps(state).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            config = {"server_check": True, "endpoint": f"http://127.0.0.1:{server.server_port}/v1", "model": "m",
+                      "context_length": 131072}
+            self.assertIsNone(run.server_state(config))
+            state["loaded_context_length"] = 8192
+            self.assertEqual(run.server_state(config), "loaded_context_length:8192")
+            state["state"] = "not-loaded"
+            self.assertEqual(run.server_state(config), "model_state:not-loaded")
+            self.assertIsNone(run.server_state({**config, "server_check": False}))
+        finally:
+            server.shutdown()
+
     def test_score_cycle_and_report(self):
         runs = self.synthetic_runs()
         self.assertEqual(sum(mark[0] == "1" for mark in runs[0]["cycles"][0]["marks"]), 45)
