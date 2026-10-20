@@ -773,6 +773,12 @@ class CliWorkerTest(unittest.TestCase):
         self.assertEqual(run.anthropic_base_url({"endpoint": "http://localhost:1234/v1/"}), "http://localhost:1234")
 
 
+# Synthetic main-turn replies of the fake CLIs.
+CODEX_REPLY = {"type": "response_item", "payload": {"type": "message", "role": "assistant",
+                                                   "content": [{"type": "output_text", "text": "Done."}]}}
+CLAUDE_REPLY = {"type": "assistant", "message": {"role": "assistant", "content": "Done."}}
+
+
 class MainTurnFailureTest(unittest.TestCase):
     """A failed main turn stops the job before the compaction. Fake Hermes and CLI parts; no model runs."""
 
@@ -834,15 +840,41 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertFalse(worker.base_config(job)["compression"]["enabled"])
         self.assertTrue(worker.base_config({**job, "engine": "compressor"})["compression"]["enabled"])
         with self.assertRaisesRegex(worker.JobFailed, "control_auto_compaction_on"):
-            self.run_hermes("none", lambda rows: {"messages": rows}, compression_enabled=True)
+            self.run_hermes("none", lambda rows: {"messages": rows, "final_response": "ok"}, compression_enabled=True)
         # A control turn whose history shrinks (a compaction) fails; it is not labeled "none".
         with self.assertRaisesRegex(worker.JobFailed, "control_history_shrank"):
-            self.run_hermes("none", lambda rows: {"messages": rows[-3:]}, compression_enabled=False)
+            self.run_hermes("none", lambda rows: {"messages": rows[-3:], "final_response": "ok"},
+                            compression_enabled=False)
+
+    def test_preflight_sizes_cover_the_same_rows_before_and_after(self):
+        resume = fixtures.build(SCENARIOS[0])[0]["resume"]
+        summary = [{"role": "user", "content": "[synthetic summary]"}]
+
+        def reply(_rows, tail=({"role": "assistant", "content": "x" * 4000},)):
+            # A preflight compaction: the main turn ran on the summary, the user row, and then the reply.
+            return {"messages": summary + [{"role": "user", "content": resume}, *tail], "final_response": "x"}
+
+        fixture, out = self.run_hermes("compressor", reply)
+        cycle = out["cycles"][0]
+        self.assertTrue(cycle["preflight"])
+        # Before: the history and the user row. After: the summary and the user row, without the reply.
+        compacted = summary + [{"role": "user", "content": resume}]
+        self.assertEqual(cycle["est_tokens_before"], worker.estimate_tokens(worker.wire_rows(
+            fixture["rows"] + [{"role": "user", "content": resume}])))
+        self.assertEqual((cycle["rows_after"], cycle["est_tokens_after"]),
+                         (2, worker.estimate_tokens(worker.wire_rows(compacted))))
+        self.assertEqual(cycle["removed"], len(fixture["rows"]) + 1 - 2)
+        # The questions see the history after the main turn (with the reply).
+        self.assertEqual(len(cycle["history"]), 3)
+        with self.assertRaisesRegex(worker.JobFailed, "preflight_user_row_missing"):
+            self.run_hermes("compressor", lambda _rows: {"messages": summary + [
+                {"role": "assistant", "content": "x"}], "final_response": "x"})
 
     def test_sizes_measure_the_exact_compaction_input(self):
         def reply(rows):
             return {"messages": list(rows) + [{"role": "user", "content": "resume"},
-                                              {"role": "assistant", "content": "x" * 4000}]}
+                                              {"role": "assistant", "content": "x" * 4000}],
+                    "final_response": "x" * 4000}
 
         def compress(session, _focus):
             session["history"] = session["history"][-2:]
@@ -1045,9 +1077,37 @@ class MainTurnFailureTest(unittest.TestCase):
 
     def test_cli_main_turn_may_not_compact(self):
         with self.assertRaisesRegex(cli_worker.JobFailed, "main_turn_compacted"):
-            self.run_cli_session("claude_code_cli", [{"type": "system", "subtype": "compact_boundary"}])
+            self.run_cli_session("claude_code_cli", [CLAUDE_REPLY, {"type": "system", "subtype": "compact_boundary"}])
         with self.assertRaisesRegex(cli_worker.JobFailed, "main_turn_compacted"):
-            self.run_cli_session("codex_cli", [{"type": "compacted", "payload": {"message": "summary"}}])
+            self.run_cli_session("codex_cli", [CODEX_REPLY, {"type": "compacted", "payload": {"message": "summary"}}])
+
+    def test_every_main_turn_without_reply_text_fails_the_job(self):
+        # Codex and Claude Code: a main turn that exits 0 but adds no assistant reply text. The assistant rows of
+        # the seeded session do not count as the reply.
+        empty_codex = {"type": "response_item", "payload": {"type": "message", "role": "assistant",
+                                                            "content": [{"type": "output_text", "text": " "}]}}
+        empty_claude = {"type": "assistant", "message": {"role": "assistant", "content": ""}}
+        for engine, lines in (("codex_cli", []), ("codex_cli", [empty_codex]), ("claude_code_cli", []),
+                              ("claude_code_cli", [empty_claude])):
+            with self.subTest(engine=engine, lines=lines), \
+                    self.assertRaisesRegex(cli_worker.MainTurnFailed, "^empty_reply$"):
+                self.run_cli_session(engine, lines)
+        # Hermes: run_conversation without final response text; no compaction runs.
+        for final in (None, "", " \n"):
+            calls = []
+            history, _gold = fixtures.build(SCENARIOS[0])
+            job = {"hermes_source": "synthetic", "engine": "compressor", "endpoint": "http://127.0.0.1:9/v1",
+                   "api_key": "fake", "model": "fake", "cycles": 1, "questions": [], "qa_batches": []}
+            out = {"cycles": []}
+            fake = self.fake_hermes(calls, lambda rows, final=final: {
+                "messages": list(rows) + [{"role": "user", "content": "resume"}], "final_response": final})
+            with self.subTest(final=final), tempfile.TemporaryDirectory() as folder, \
+                    mock.patch.dict(sys.modules, fake), mock.patch.object(worker, "write_config"), \
+                    mock.patch.object(sys, "path", list(sys.path)):
+                with self.assertRaisesRegex(worker.MainTurnFailed, "^empty_reply$"):
+                    worker.run_cycles(job, history, Path(folder), out)
+                self.assertEqual(calls, [])
+                self.assertTrue(out["cycles"][0]["main_failed"])
 
     def test_cli_sizes_measure_the_compaction_input(self):
         reply = "y" * 4000

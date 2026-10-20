@@ -246,6 +246,10 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
             if item["main_failed"]:
                 # A failed main turn gives a different history from the other methods: the job fails here.
                 raise MainTurnFailed()
+            if not str(reply.get("final_response") or "").strip():
+                # A main turn without reply text is not a complete turn: the job fails here too.
+                item["main_failed"] = True
+                raise MainTurnFailed("empty_reply")
             messages = list(reply.get("messages") or history)
             item["main_prompt_tokens"] = getattr(engine, "last_prompt_tokens", None)
             item["rows_after_main"] = len(messages)
@@ -266,9 +270,12 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
                 # Its input: the history and the new user row of the main turn.
                 source = list(history) + [{"role": "user", "content": fixture["resume"]}]
                 item.update(rows_before=len(source), est_tokens_before=estimate_tokens(wire_rows(source)))
-                item.update(compress_error=None, compress_s=None, removed=len(history) + 1 - len(messages),
+                # Its output: the compacted rows up to the new user row. The rows after it are the main turn
+                # (the reply), which the input does not have; the size after compaction leaves them out.
+                compacted = compaction_output(messages, fixture["resume"])
+                item.update(compress_error=None, compress_s=None, removed=len(source) - len(compacted),
                             outcome={**engine_outcome(engine), "trigger": "preflight"},
-                            rows_after=len(messages), est_tokens_after=estimate_tokens(wire_rows(messages)),
+                            rows_after=len(compacted), est_tokens_after=estimate_tokens(wire_rows(compacted)),
                             compacted=True, preflight=True, history=wire_rows(messages))
                 item["compress_s"] = item["outcome"].get("elapsed_s")
                 item["qa"] = ask(job, fixture["system"], messages)
@@ -308,7 +315,17 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
 
 
 class MainTurnFailed(Exception):
-    """The main turn (run_conversation) reported a failure. The job stops before the compaction."""
+    """The main turn (run_conversation) reported a failure or gave no reply text. The job stops before the
+    compaction."""
+
+
+def compaction_output(messages: list, resume: str) -> list:
+    """The rows of a preflight compaction: the history after the main turn up to its user row (the last user row
+    with the main request text). Fail the job when that row is not there."""
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") == "user" and messages[index].get("content") == resume:
+            return messages[:index + 1]
+    raise JobFailed("preflight_user_row_missing")
 
 
 def main() -> int:
@@ -322,8 +339,8 @@ def main() -> int:
     try:
         run_cycles(job, fixture, Path(os.environ["HERMES_HOME"]), out)
         out["status"] = "ok"
-    except MainTurnFailed:
-        out["error"] = "main_turn_failed"
+    except MainTurnFailed as error:
+        out["error"] = f"main_turn_failed:{error}" if str(error) else "main_turn_failed"
     except JobFailed as error:
         out["error"] = str(error)
     except Exception as error:

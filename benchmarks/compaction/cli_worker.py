@@ -166,6 +166,7 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     day.mkdir(parents=True)
     rollout = day / f"rollout-{base.strftime('%Y-%m-%dT%H-%M-%S')}-{session_id}.jsonl"
     lines = codex_rollout(fixture, session_id, cwd, job["cli_version"], provider, base)
+    seeded = len(lines)
     rollout.write_text("".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines), encoding="utf-8")
     common = [*job["cli_command"], "exec", "--skip-git-repo-check",
               "-c", f"developer_instructions={json.dumps(fixture['system'])}"]
@@ -177,12 +178,14 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     main = run_cli(common + ["-c", "model_auto_compact_token_limit=100000000", "resume", session_id,
                              fixture["resume"]], cwd, env, timeout_s)
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"])
-    check_main(item, main)
     lines = [json.loads(line) for line in rollout.read_text(encoding="utf-8").splitlines() if line.strip()]
+    # The reply of the main turn: only the rollout lines that the main turn added.
+    reply = codex_main_reply(lines[seeded:])
+    check_main(item, main, reply=reply)
     if any(line.get("type") == "compacted" for line in lines):
         # Only the planned compaction step may compact.
         raise JobFailed("main_turn_compacted")
-    compaction_input(item, fixture, codex_main_reply(lines))
+    compaction_input(item, fixture, reply)
     # The manual compaction: the app server request thread/compact/start (what /compact sends). It starts a
     # compaction turn only; no model turn follows.
     compact = codex_app_server_compact([*job["cli_command"], "app-server", "-c",
@@ -395,6 +398,7 @@ def run_claude(job: dict, fixture: dict, work: Path, out: dict) -> None:
     transcript = project / f"{session_id}.jsonl"
     entries = claude_transcript(fixture, session_id, cwd, job["cli_version"], job["model"],
                                 datetime.now(timezone.utc) - timedelta(hours=1))
+    seeded = len(entries)
     transcript.write_text("".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries),
                           encoding="utf-8")
     # No tools, as in the Hermes jobs. No setting sources, so no user or project settings are read.
@@ -407,12 +411,14 @@ def run_claude(job: dict, fixture: dict, work: Path, out: dict) -> None:
     main = run_cli(common + [fixture["resume"]], cwd, env, timeout_s)
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"],
                 main_result=cli_result(main["text"]))
-    check_main(item, main, item["main_result"])
     entries = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
+    # The reply of the main turn: only the transcript entries that the main turn added.
+    reply = claude_main_reply(entries[seeded:])
+    check_main(item, main, item["main_result"], reply=reply)
     if any(entry.get("type") == "system" and entry.get("subtype") == "compact_boundary" for entry in entries):
         # Only the planned compaction step may compact (Claude Code can compact on its own before a turn).
         raise JobFailed("main_turn_compacted")
-    compaction_input(item, fixture, claude_main_reply(entries))
+    compaction_input(item, fixture, reply)
     compact = run_cli(common + ["/compact"], cwd, env, timeout_s)
     if compact["login_prompt"]:
         raise LoginRequired()
@@ -471,11 +477,14 @@ def claude_main_reply(entries: list[dict]) -> str:
     return ""
 
 
-def check_main(item: dict, main: dict, result: dict | None = None) -> None:
+def check_main(item: dict, main: dict, result: dict | None = None, reply: str = "") -> None:
+    """Fail the job when the main turn timed out, exited with an error, reported an error result, or gave no
+    assistant reply text."""
     if main["login_prompt"]:
         raise LoginRequired()
     reason = ("timeout" if main["timeout"] else f"exit_{main['exit_code']}" if main["exit_code"] != 0
-              else "error_result" if (result or {}).get("is_error") else None)
+              else "error_result" if (result or {}).get("is_error")
+              else "empty_reply" if not str(reply or "").strip() else None)
     if reason:
         item["main_failed"] = True
         raise MainTurnFailed(reason)
