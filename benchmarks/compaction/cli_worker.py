@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from worker import JobFailed, ask, estimate_tokens  # noqa: E402
+from worker import JobFailed, ask, estimate_tokens, route_headers, wire_rows  # noqa: E402
 
 LOGIN_PATTERNS = re.compile(r"(?i)(please run /login|not logged in|invalid api key|login required|sign in to|"
                             r"codex login|authentication required)")
@@ -67,11 +67,6 @@ def run_cli(command: list[str], cwd: Path, env: dict[str, str], timeout_s: float
     result["elapsed_s"] = round(time.monotonic() - started, 3)
     result["login_prompt"] = bool(LOGIN_PATTERNS.search(result["text"]))
     return result
-
-
-def text_rows(rows: list[dict]) -> list[dict]:
-    """Chat rows with text content only, for the questions and the size estimate."""
-    return [{"role": row["role"], "content": row["content"]} for row in rows if row.get("content")]
 
 
 # Codex CLI.
@@ -210,8 +205,12 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
         'name = "Local benchmark endpoint"',
         f'base_url = {json.dumps(job["endpoint"])}',
         'wire_api = "responses"',
+        # The same route as the Hermes jobs and the questions: the key and the allowed extra headers.
+        'env_key = "WC_BENCH_API_KEY"',
+        "http_headers = {" + ", ".join(f"{json.dumps(key)} = {json.dumps(value)}"
+                                        for key, value in route_headers(job).items()) + "}",
         ""]), encoding="utf-8")
-    env = cli_environment(home, {"CODEX_HOME": str(home)})
+    env = cli_environment(home, {"CODEX_HOME": str(home), "WC_BENCH_API_KEY": job["api_key"]})
     session_id = str(uuid.uuid4())
     base = datetime.now(timezone.utc) - timedelta(hours=1)
     day = home / "sessions" / base.strftime("%Y") / base.strftime("%m") / base.strftime("%d")
@@ -449,7 +448,9 @@ def run_claude(job: dict, fixture: dict, work: Path, out: dict) -> None:
     config = home / ".claude"
     env = cli_environment(home, {
         "CLAUDE_CONFIG_DIR": str(config), "ANTHROPIC_BASE_URL": job["anthropic_base_url"],
-        "ANTHROPIC_API_KEY": "lm-studio", "ANTHROPIC_MODEL": job["model"],
+        # The same route as the Hermes jobs and the questions: the key and the allowed extra headers.
+        "ANTHROPIC_API_KEY": job["api_key"], "ANTHROPIC_MODEL": job["model"],
+        "ANTHROPIC_CUSTOM_HEADERS": "\n".join(f"{key}: {value}" for key, value in route_headers(job).items()),
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": job["model"], "ANTHROPIC_DEFAULT_SONNET_MODEL": job["model"],
         "ANTHROPIC_DEFAULT_OPUS_MODEL": job["model"], "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1", "MAX_THINKING_TOKENS": "0",
@@ -566,7 +567,9 @@ def finish(item: dict, job: dict, fixture: dict, rows: list[dict] | None, compac
                                                 compact.get("error") or "no_compaction_record")
     item["outcome"] = {"path": path if rows else "aborted", "summary_chars": meta.get("summary_chars"),
                        **(meta.get("compact_metadata") or {})}
-    rows = text_rows(rows or [])
+    # The chat fields of every row (also an assistant row with tool calls only, and the tool rows): the questions
+    # and the size after compaction use the same rows.
+    rows = wire_rows(rows or [])
     item["removed"] = max(item["rows_before"] - len(rows), 0) if item["compacted"] else 0
     item["rows_after"] = len(rows)
     item["est_tokens_after"] = estimate_tokens(rows)

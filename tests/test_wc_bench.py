@@ -380,7 +380,8 @@ class RunTest(unittest.TestCase):
         result = run.aggregate(runs, meta)
         self.assertIsNone(result["methods"]["warm_ledger"]["tokens"]["est_after"]["mean"])
         self.assertIsNone(result["decision"]["checks"]["H4_smaller_than_stock"])
-        self.assertIn("Warm path + ledger does not meet the rule", " ".join(result["decision"]["verdict"]))
+        self.assertIn("comparison with the built-in compressor is unavailable",
+                      " ".join(result["decision"]["verdict"]))
 
     def test_run_stops_before_jobs_when_hermes_is_not_clean(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -616,6 +617,36 @@ class RunTest(unittest.TestCase):
         result = run.aggregate([drift, second], {"config": {}, "plugin": {}, "hermes": {}})
         self.assertEqual(result["drift"]["warm_ledger"]["cycle_1_and_3"]["runs"], 1)
         self.assertTrue(result["decision"]["checks"]["D1_drift_within_10_points"])
+
+    def test_every_report_section_lists_each_planned_method(self):
+        # Only warm_ledger has records. warm_no_ledger and a warm_ledger drift job are planned but have no record.
+        runs = [run for run in self.synthetic_runs() if run["method"] == "warm_ledger"]
+        fixture = SCENARIOS[0]["id"]
+        planned = {"a": {"id": "a", "fixture": fixture, "method": "warm_no_ledger", "rep": 1, "cycles": 1},
+                   "d": {"id": "d", "fixture": fixture, "method": "warm_ledger", "rep": 1, "cycles": 3}}
+        meta = {"config": {"model": "fake", "context_length": 1, "threshold": 0.95, "replicates": 1},
+                "plugin": {"commit": None}, "hermes": {"commit": None, "clean": True}, "started_utc": "2026"}
+        result = run.aggregate(runs, meta, planned=planned)
+        self.assertEqual(result["methods"]["warm_no_ledger"]["runs"], 0)
+        # Paired: each planned pair is listed with 0 pairs and no difference.
+        pairs = [item for item in result["paired"] if (item["first"], item["second"]) ==
+                 ("warm_ledger", "warm_no_ledger")]
+        self.assertEqual(len(pairs), len(run.CATEGORIES))
+        self.assertTrue(all(item["pairs"] == 0 and item["difference"] is None for item in pairs))
+        # Drift: the planned method is listed with 0 runs; D1 is unavailable.
+        self.assertEqual((result["drift"]["warm_ledger"]["runs"], result["drift"]["warm_ledger"]["planned_runs"]),
+                         (0, 1))
+        checks = result["decision"]["checks"]
+        self.assertIsNone(checks["D1_drift_within_10_points"])
+        # H checks without data are unavailable (None), not a false failure.
+        self.assertIsNone(checks["H1_ledger_helps"])
+        self.assertIsNone(checks["H2_no_regression"])
+        self.assertIn("The ledger result is unavailable (no data for a check).", result["decision"]["verdict"])
+        text = run.markdown(result, meta)
+        self.assertIn("| warm_ledger | warm_no_ledger | goal | 0 | unavailable | n/a |", text)
+        self.assertIn(f"| {run.METHODS['warm_ledger']['label']} | 0 / 1 | - | unavailable | - | n/a |", text)
+        # With no planned drift job, the drift section has no row for the method.
+        self.assertNotIn("warm_ledger", run.aggregate(runs, meta, planned={"a": planned["a"]})["drift"])
 
     def test_report_drops_the_local_config_digests(self):
         marker = "fake-value-456"
@@ -1173,6 +1204,7 @@ class MainTurnFailureTest(unittest.TestCase):
     def run_cli_job(self, engine, main):
         history, _gold = fixtures.build(SCENARIOS[0])
         job = {"engine": engine, "cli_command": ["fake-cli"], "cli_version": "0.0.0", "model": "fake",
+               "api_key": "fake",
                "endpoint": "http://127.0.0.1:9/v1", "anthropic_base_url": "http://127.0.0.1:9",
                "context_length": 131072, "cli_timeout_s": 5}
         out = {"cycles": []}
@@ -1251,7 +1283,7 @@ class MainTurnFailureTest(unittest.TestCase):
                "qa_batches": gold["qa_batches"], "model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": ""}
         sent = []
 
-        def fake_post(_endpoint, _key, body, _timeout):
+        def fake_post(_endpoint, _key, body, _timeout, _headers=None):
             sent.append(body["messages"][-1]["content"])
             numbers = gold["qa_batches"][len(sent) - 1]
             return {"choices": [{"message": {"content": json.dumps({str(n): "unknown" for n in numbers})},
@@ -1320,6 +1352,7 @@ class MainTurnFailureTest(unittest.TestCase):
         """Run a CLI job with a fake CLI that appends lines to the session file (synthetic data)."""
         history, _gold = fixtures.build(SCENARIOS[0])
         job = {"engine": engine, "cli_command": ["fake-cli"], "cli_version": "0.0.0", "model": "fake",
+               "api_key": "fake",
                "endpoint": "http://127.0.0.1:9/v1", "anthropic_base_url": "http://127.0.0.1:9",
                "context_length": 131072, "cli_timeout_s": 5, "questions": [], "qa_batches": []}
         out = {"cycles": []}
@@ -1374,6 +1407,91 @@ class MainTurnFailureTest(unittest.TestCase):
                     worker.run_cycles(job, history, Path(folder), out)
                 self.assertEqual(calls, [])
                 self.assertTrue(out["cycles"][0]["main_failed"])
+
+    def test_qa_and_cli_requests_use_the_route_of_the_main_turn(self):
+        # Synthetic route: a fake key and one allowed extra header (hermes_config.model.headers).
+        route = {"api_key": "fake-key", "hermes_config": {"model": {"headers": {"X-Gateway": "synthetic"}}}}
+        self.assertEqual(worker.route_headers(route), {"X-Gateway": "synthetic"})
+        self.assertEqual(worker.route_headers({}), {})
+        sent = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({"choices": [{"message": {"content": '{"1": "a"}'},
+                                                "finish_reason": "stop"}]}).encode("utf-8")
+
+        def fake_urlopen(request, **_kwargs):
+            sent.append(request)
+            return Response()
+
+        job = {**route, "questions": [{"n": 1, "text": "Q?"}], "qa_batches": [[1]], "model": "m",
+               "endpoint": "http://127.0.0.1:9/v1"}
+        with mock.patch.object(worker.urllib.request, "urlopen", fake_urlopen):
+            worker.ask(job, "system", [])
+        headers = {key.lower(): value for key, value in sent[0].header_items()}
+        self.assertEqual((headers["x-gateway"], headers["authorization"]), ("synthetic", "Bearer fake-key"))
+        # Codex CLI: the provider reads the same key and sends the same headers. Claude Code: the same.
+        for engine in ("codex_cli", "claude_code_cli"):
+            history, _gold = fixtures.build(SCENARIOS[0])
+            cli_job = {**route, "engine": engine, "cli_command": ["fake-cli"], "cli_version": "0.0.0", "model": "m",
+                       "endpoint": "http://127.0.0.1:9/v1", "anthropic_base_url": "http://127.0.0.1:9",
+                       "context_length": 131072, "cli_timeout_s": 5}
+            seen = {}
+
+            def fake_run(_command, _cwd, env, *_args, seen=seen):
+                seen["env"] = dict(env)
+                config = Path(env.get("CODEX_HOME", "missing")) / "config.toml"
+                seen["config"] = config.read_text(encoding="utf-8") if config.exists() else ""
+                return {"elapsed_s": 1.0, "login_prompt": False, "exit_code": 1, "timeout": False, "text": ""}
+
+            with self.subTest(engine=engine), tempfile.TemporaryDirectory() as folder, \
+                    mock.patch.object(cli_worker, "run_cli", fake_run):
+                function = cli_worker.run_codex if engine == "codex_cli" else cli_worker.run_claude
+                with self.assertRaises(cli_worker.MainTurnFailed):
+                    function(cli_job, history, Path(folder), {"cycles": []})
+            if engine == "codex_cli":
+                self.assertEqual(seen["env"]["WC_BENCH_API_KEY"], "fake-key")
+                self.assertIn('env_key = "WC_BENCH_API_KEY"', seen["config"])
+                self.assertIn('http_headers = {"X-Gateway" = "synthetic"}', seen["config"])
+                if sys.version_info >= (3, 11):
+                    import tomllib
+                    provider = tomllib.loads(seen["config"])["model_providers"]["benchlocal"]
+                    self.assertEqual(provider["http_headers"], {"X-Gateway": "synthetic"})
+            else:
+                self.assertEqual(seen["env"]["ANTHROPIC_API_KEY"], "fake-key")
+                self.assertEqual(seen["env"]["ANTHROPIC_CUSTOM_HEADERS"], "X-Gateway: synthetic")
+
+    def test_cli_questions_get_every_row_of_the_compacted_context(self):
+        # A Codex context with an assistant row that has tool calls only, and the tool row of the call.
+        rows = cli_worker.codex_rows([
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "goal"}]},
+            {"type": "function_call", "name": "shell", "arguments": '{"cmd": "make"}', "call_id": "c1"},
+            {"type": "function_call_output", "call_id": "c1", "output": "exit_code: 2"},
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "SUMMARY"}]}])
+        self.assertEqual(rows[1]["content"], "")
+        asked = []
+        item = {"rows_before": 10}
+        compact = {"elapsed_s": 1.0, "exit_code": 0, "timeout": False}
+
+        def fake_ask(_job, _system, given):
+            asked.append(given)
+            return {}
+
+        with mock.patch.object(cli_worker, "ask", fake_ask):
+            cli_worker.finish(item, {}, {"system": "system"}, rows, compact, {}, path="codex")
+        expected = worker.wire_rows(rows)
+        self.assertEqual(item["history"], expected)
+        self.assertEqual(asked, [expected])
+        self.assertEqual([row["role"] for row in expected], ["user", "assistant", "tool", "user"])
+        self.assertEqual(expected[1]["tool_calls"][0]["function"]["name"], "shell")
+        self.assertEqual(expected[2]["tool_call_id"], "c1")
+        self.assertEqual((item["rows_after"], item["est_tokens_after"]), (4, worker.estimate_tokens(expected)))
 
     def test_cli_sizes_measure_the_compaction_input(self):
         reply = "y" * 4000

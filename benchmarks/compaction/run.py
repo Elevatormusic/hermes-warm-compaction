@@ -963,12 +963,14 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                 both += a and b
                 neither += not a and not b
             n = a_only + b_only + both + neither
-            if n:
-                result["paired"].append({
-                    "first": first, "second": second, "category": category, "pairs": n, "first_only": a_only,
-                    "second_only": b_only, "difference": (a_only - b_only) / n,
-                    "p_mcnemar": scoring.mcnemar(a_only, b_only)})
-    for name in sorted({run["method"] for run in drift}, key=list(METHODS).index):
+            # A planned pair without data is listed with 0 pairs (no difference, no p-value).
+            result["paired"].append({
+                "first": first, "second": second, "category": category, "pairs": n, "first_only": a_only,
+                "second_only": b_only, "difference": (a_only - b_only) / n if n else None,
+                "p_mcnemar": scoring.mcnemar(a_only, b_only)})
+    drift_methods = {run["method"] for run in drift} | {
+        job["method"] for job in planned.values() if job["cycles"] > 1 and job["method"] in METHODS}
+    for name in sorted(drift_methods, key=list(METHODS).index):
         recorded_drift = [run for run in drift if run["method"] == name]
         items = [run for run in recorded_drift if run.get("status") == "ok" and run.get("cycles")]
         per_cycle = []
@@ -1031,8 +1033,14 @@ GUARD_CATEGORIES = ("goal", "decision", "next_step", "task_state")
 
 
 def paired(result: dict, first: str, second: str, category: str) -> dict | None:
+    """The paired comparison, or None when it has no pairs (no data)."""
     return next((item for item in result["paired"] if (item["first"], item["second"], item["category"]) ==
-                 (first, second, category)), None)
+                 (first, second, category) and item["pairs"]), None)
+
+
+def all_or_none(items: list, check) -> bool | None:
+    """None when an item has no data (the check is unavailable), else whether the check passes for all."""
+    return None if any(item is None for item in items) else all(check(item) for item in items)
 
 
 def exact_difference(item: dict) -> Fraction:
@@ -1049,33 +1057,31 @@ def decide(result: dict) -> dict[str, Any]:
     checks: dict[str, Any] = {}
     methods = result["methods"]
     if "warm_ledger" in methods and "warm_no_ledger" in methods:
-        gains = {c: paired(result, "warm_ledger", "warm_no_ledger", c) for c in LEDGER_CATEGORIES}
-        checks["H1_ledger_helps"] = all(
-            item is not None and exact_difference(item) >= Fraction(10, 100) and (item["p_mcnemar"] or 1) < 0.05
-            for item in gains.values())
-        losses = {c: paired(result, "warm_ledger", "warm_no_ledger", c) for c in GUARD_CATEGORIES}
+        gains = [paired(result, "warm_ledger", "warm_no_ledger", c) for c in LEDGER_CATEGORIES]
+        checks["H1_ledger_helps"] = all_or_none(gains, lambda item: exact_difference(item) >= Fraction(10, 100)
+                                                and (item["p_mcnemar"] or 1) < 0.05)
+        losses = [paired(result, "warm_ledger", "warm_no_ledger", c) for c in GUARD_CATEGORIES]
         # "Not more than 5 points below": exactly 5 points below passes.
-        checks["H2_no_regression"] = all(
-            item is not None and not (exact_difference(item) < Fraction(-5, 100)) and not (
-                item["difference"] < 0 and (item["p_mcnemar"] or 1) < 0.05) for item in losses.values())
+        checks["H2_no_regression"] = all_or_none(losses, lambda item: not (
+            exact_difference(item) < Fraction(-5, 100)) and not (
+            item["difference"] < 0 and (item["p_mcnemar"] or 1) < 0.05))
     if "fallback_relaxed_ledger" in methods and "fallback_relaxed_no_ledger" in methods:
         gains = [paired(result, "fallback_relaxed_ledger", "fallback_relaxed_no_ledger", c) for c in LEDGER_CATEGORIES]
-        checks["H1b_ledger_helps_fallback"] = all(
-            item is not None and exact_difference(item) >= Fraction(10, 100) and (item["p_mcnemar"] or 1) < 0.05
-            for item in gains)
+        checks["H1b_ledger_helps_fallback"] = all_or_none(gains, lambda item: exact_difference(item) >= Fraction(
+            10, 100) and (item["p_mcnemar"] or 1) < 0.05)
     if "fallback_relaxed_ledger" in methods and "fallback_quoted_ledger" in methods:
         relaxed = methods["fallback_relaxed_ledger"]["success"]
         quoted = methods["fallback_quoted_ledger"]["success"]
-        checks["R1_relaxed_succeeds_more_often"] = (relaxed["low"] is not None and quoted["high"] is not None
-                                                    and relaxed["low"] > quoted["high"])
+        checks["R1_relaxed_succeeds_more_often"] = (None if relaxed["low"] is None or quoted["high"] is None
+                                                    else relaxed["low"] > quoted["high"])
     if "warm_ledger" in methods and "stock_hermes" in methods:
         warm, stock = methods["warm_ledger"]["categories"], methods["stock_hermes"]["categories"]
-        checks["H3a_matches_stock_on_ledger_categories"] = all(
-            warm[c]["rate"] is not None and stock[c]["rate"] is not None and warm[c]["high"] >= stock[c]["rate"]
-            for c in LEDGER_CATEGORIES)
-        checks["H3b_no_loss_on_model_categories"] = all(
-            warm[c]["rate"] is not None and stock[c]["rate"] is not None and warm[c]["high"] >= stock[c]["rate"]
-            for c in ("goal", "decision", "next_step"))
+        def against_stock(categories) -> bool | None:
+            items = [None if warm[c]["rate"] is None or stock[c]["rate"] is None else c for c in categories]
+            return all_or_none(items, lambda c: warm[c]["high"] >= stock[c]["rate"])
+
+        checks["H3a_matches_stock_on_ledger_categories"] = against_stock(LEDGER_CATEGORIES)
+        checks["H3b_no_loss_on_model_categories"] = against_stock(("goal", "decision", "next_step"))
         warm_after = methods["warm_ledger"]["tokens"]["est_after"]["mean"]
         stock_after = methods["stock_hermes"]["tokens"]["est_after"]["mean"]
         # None: no run of one method compacted, so the check has no data. It does not pass.
@@ -1095,11 +1101,16 @@ def decide(result: dict) -> dict[str, Any]:
                        "The success rates of the two fallback formats are not separated by the rule.")
     if checks.get("H1_ledger_helps") and checks.get("H2_no_regression"):
         verdict.append("Keep the ledger on by default.")
+    elif None in (checks.get("H1_ledger_helps", False), checks.get("H2_no_regression", False)):
+        verdict.append("The ledger result is unavailable (no data for a check).")
     elif "H1_ledger_helps" in checks:
         verdict.append("The ledger result does not meet the rule for a default.")
     if all(checks.get(k) for k in ("H3a_matches_stock_on_ledger_categories", "H3b_no_loss_on_model_categories",
                                    "H4_smaller_than_stock")) and "H4_smaller_than_stock" in checks:
         verdict.append("Warm path + ledger is competitive with the built-in compressor on this workload.")
+    elif any(checks.get(k, False) is None for k in ("H3a_matches_stock_on_ledger_categories",
+                                                    "H3b_no_loss_on_model_categories", "H4_smaller_than_stock")):
+        verdict.append("The comparison with the built-in compressor is unavailable (no data for a check).")
     elif "H4_smaller_than_stock" in checks:
         verdict.append("Warm path + ledger does not meet the rule against the built-in compressor.")
     return {"checks": checks, "verdict": verdict}
@@ -1230,8 +1241,9 @@ def markdown(result: dict, meta: dict) -> str:
               "| --- | --- | --- | --- | --- | --- |"]
     for item in result["paired"]:
         p = "n/a" if item["p_mcnemar"] is None else f"{item['p_mcnemar']:.3g}"
+        difference = "unavailable" if item["difference"] is None else f"{100 * item['difference']:+.1f} points"
         lines.append(f"| {item['first']} | {item['second']} | {item['category']} | {item['pairs']} | "
-                     f"{100 * item['difference']:+.1f} points | {p} |")
+                     f"{difference} | {p} |")
     if result["drift"]:
         lines += ["", "## Repeated compaction (drift)", "",
                   "The same session, compacted again after each new chunk of work. Accuracy is on the questions about "
@@ -1239,6 +1251,9 @@ def markdown(result: dict, meta: dict) -> str:
                   "| Method | Runs ok / planned | Cycle | Accuracy | Paths | Est. tokens after |",
                   "| --- | --- | --- | --- | --- | --- |"]
         for name, entry in result["drift"].items():
+            if not entry["cycles"]:
+                lines.append(f"| {METHODS[name]['label']} | 0 / {entry['planned_runs']} | - | unavailable | - | "
+                             "n/a |")
             for cycle in entry["cycles"]:
                 lines.append(f"| {METHODS[name]['label']} | {entry['runs']} / {entry['planned_runs']} | "
                              f"{cycle['cycle']} | "

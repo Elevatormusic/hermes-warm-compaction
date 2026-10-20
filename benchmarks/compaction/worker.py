@@ -58,10 +58,17 @@ def wire_rows(rows: list) -> list:
     return out
 
 
-def post_chat(endpoint: str, api_key: str, body: dict, timeout_s: float) -> dict:
+def route_headers(job: dict) -> dict[str, str]:
+    """The allowed extra request headers of the model route (hermes_config.model.headers). The main turn, the
+    compaction, and the questions send them all."""
+    headers = ((job.get("hermes_config") or {}).get("model") or {}).get("headers") or {}
+    return {str(key): str(value) for key, value in headers.items()}
+
+
+def post_chat(endpoint: str, api_key: str, body: dict, timeout_s: float, headers: dict | None = None) -> dict:
     data = json.dumps(body).encode("utf-8")
     request = urllib.request.Request(endpoint.rstrip("/") + "/chat/completions", data=data, headers={
-        "Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
+        **(headers or {}), "Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
     with urllib.request.urlopen(request, timeout=timeout_s) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -84,7 +91,8 @@ def ask(job: dict, system: str, rows: list) -> dict:
                 "max_tokens": int(job.get("qa_max_tokens", 2048))}
         started = time.monotonic()
         try:
-            reply = post_chat(job["endpoint"], job["api_key"], body, float(job.get("qa_timeout_s", 600)))
+            reply = post_chat(job["endpoint"], job["api_key"], body, float(job.get("qa_timeout_s", 600)),
+                              route_headers(job))
         except Exception as error:
             # A failed request (timeout, HTTP error) gives no answers: the job fails, it is not scored as wrong.
             result["error"] = f"qa_request:{type(error).__name__}"
