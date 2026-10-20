@@ -832,9 +832,13 @@ def planned_jobs(meta: dict) -> dict[str, dict]:
 #   job, or a planned job that did not run).
 # - Success, paths, and failure reasons: every completed compaction (completed_cycle), also of a job that failed in
 #   a later step (for example in the questions). A failed or empty compaction is a completed compaction too.
+# - Sizes (before, after, ratio; H4; the drift size): every completed compaction that compacted, or a control cycle
+#   (sized_cycle), also of a job that failed in a later step. A compaction that failed or changed nothing has no
+#   size after compaction.
 # - Times: every completed step of every attempt (timed_cycle), also of a job that failed later and of an earlier
-#   attempt that a resume ran again.
-# - Accuracy, sizes, paired comparisons, and drift accuracy: every scored cycle (scored_cycle).
+#   attempt that a resume ran again. The question time and the question prompt size need finished questions: they
+#   use the scored cycles.
+# - Accuracy, paired comparisons, and drift accuracy: every scored cycle (scored_cycle).
 # No population has an attempt that the server check marked invalid.
 def completed_cycle(run: dict, index: int) -> dict | None:
     """The cycle at index when its compaction step ended (it has rows_after: a compaction that succeeded, failed,
@@ -849,6 +853,15 @@ def scored_cycle(run: dict, index: int) -> dict | None:
     """The completed cycle at index when it has scored answers: a job with status ok, and a cycle that compacted
     (or a control cycle). A cycle that did not compact asked no questions."""
     cycle = completed_cycle(run, index) if run.get("status") == "ok" else None
+    if cycle is None:
+        return None
+    return cycle if cycle.get("compacted") or METHODS[run["method"]]["engine"] == "none" else None
+
+
+def sized_cycle(run: dict, index: int) -> dict | None:
+    """The completed cycle at index when it compacted (or a control cycle), for any job status: its sizes are
+    measured also when a later step (the questions) failed the job."""
+    cycle = completed_cycle(run, index)
     if cycle is None:
         return None
     return cycle if cycle.get("compacted") or METHODS[run["method"]]["engine"] == "none" else None
@@ -981,14 +994,17 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         missing = sum(missing_by_category[c] for c in scored)
         entry["overall_failures_wrong"] = rate(entry["overall"]["k"], entry["overall"]["n"] + missing)
         values = [cycle for _run, cycle in cycles]
+        # Sizes: every completed compaction that compacted, also of a job that failed later (sized_cycle).
+        sized = [cycle for run in items if (cycle := sized_cycle(run, 0)) is not None]
         # The size before compaction and the ratio use only cycles that measured the exact compaction input.
-        measured = [c for c in values if c.get("size_basis") == "compaction_input" and c.get("est_tokens_before")]
+        measured = [c for c in sized if c.get("size_basis") == "compaction_input" and c.get("est_tokens_before")]
         entry["tokens"] = {
             "est_before": scoring.mean_interval([c["est_tokens_before"] for c in measured]),
-            "est_after": scoring.mean_interval([c["est_tokens_after"] for c in values]),
+            "est_after": scoring.mean_interval([c["est_tokens_after"] for c in sized]),
             "ratio_after_before": scoring.mean_interval([c["est_tokens_after"] / c["est_tokens_before"]
                                                          for c in measured]),
-            "before_not_measured_runs": len(values) - len(measured),
+            "sized_runs": len(sized),
+            "before_not_measured_runs": len(sized) - len(measured),
             "qa_prompt_tokens": scoring.mean_interval([c["qa_prompt_tokens"] for c in values
                                                        if c.get("qa_prompt_tokens")])}
         # Time: every completed step of every attempt, also of a job that failed later (for example in the
@@ -1049,11 +1065,15 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             right = total = 0
             paths = defaultdict(int)
             kept = []
-            # Paths: every completed compaction of the cycle, also of a job that failed later.
+            sized = []
+            # Paths: every completed compaction of the cycle; sizes: every one that compacted. Also of a job that
+            # failed later.
             for run in recorded_drift:
                 completed = completed_cycle(run, index)
                 if completed is not None:
                     paths[completed["path"]] += 1
+                if sized_cycle(run, index) is not None:
+                    sized.append(completed)
             for run in items:
                 cycle = scored(run, index)
                 if cycle is None:
@@ -1063,7 +1083,7 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                 right, total = right + k, total + n
             per_cycle.append({"cycle": index + 1, "accuracy": rate(right, total), "paths": dict(paths),
                               "scored_runs": len(kept),
-                              "est_tokens_after": scoring.mean_interval([c["est_tokens_after"] for c in kept])})
+                              "est_tokens_after": scoring.mean_interval([c["est_tokens_after"] for c in sized])})
         # D1 compares cycle 3 with cycle 1 on the runs that have both cycles scored.
         both = [run for run in items if scored(run, 0) and scored(run, 2)]
         first = [hits(run, scored(run, 0)) for run in both]

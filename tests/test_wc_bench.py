@@ -545,8 +545,14 @@ class RunTest(unittest.TestCase):
         # compaction; accuracy leaves the cycle out; the job is still a job failure.
         runs = self.synthetic_runs()
         runs[0].update(status="failed", error="qa_request:TimeoutError")
-        entry = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})["methods"]["warm_ledger"]
+        result = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})
+        entry = result["methods"]["warm_ledger"]
         self.assertEqual((entry["success"]["k"], entry["success"]["n"]), (1, 1))
+        # Sizes use every completed compaction that compacted, so H4 has data; accuracy stays scored-only.
+        self.assertEqual((entry["tokens"]["sized_runs"], entry["tokens"]["est_after"]["mean"]), (1, 10))
+        self.assertEqual(entry["tokens"]["before_not_measured_runs"], 1)
+        self.assertIsNotNone(result["decision"]["checks"]["H4_smaller_than_stock"])
+        self.assertIsNone(entry["latency_s"]["questions"]["mean"])
         self.assertEqual(entry["paths"], {"warm": 1})
         self.assertEqual(entry["failure_reasons"], {})
         self.assertEqual((entry["compacted_runs"], entry["overall"]["n"], entry["job_failures"]), (0, 0, 1))
@@ -560,6 +566,7 @@ class RunTest(unittest.TestCase):
         cycles = result["drift"]["warm_ledger"]["cycles"]
         self.assertEqual([item["paths"] for item in cycles], [{"warm": 1}] * 3)
         self.assertEqual([item["scored_runs"] for item in cycles], [0, 0, 0])
+        self.assertEqual([item["est_tokens_after"]["mean"] for item in cycles], [10, 10, 10])
         # An invalid attempt (changed server) is in no population.
         runs = self.synthetic_runs()
         runs[0].update(status="invalid")
