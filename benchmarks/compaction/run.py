@@ -1175,10 +1175,13 @@ def command_run(args) -> int:
         now = source_snapshot(config)
         return [key for key in start if now[key] != start[key]]
 
-    # The model of the run: the fields that meta.json recorded at the start (a resume checked them already).
-    expected_model = meta.get("server_model") if config.get("server_check") else None
+    # The model of the run: the fields that meta.json recorded at the start (a resume checked them already). A
+    # folder that recorded a model keeps the check before and after each job, also when a resume configuration
+    # turns "server_check" off.
+    expected_model = meta.get("server_model")
+    checked = {**config, "server_check": True} if config.get("server_check") or expected_model else config
     for number, job in enumerate(todo, 1):
-        problem = server_state(config, expected_model)
+        problem = server_state(checked, expected_model)
         if problem:
             raise SystemExit(f"server check failed before {job['id']}: {problem}; stop (no record written)")
         changed = changed_sources()
@@ -1186,7 +1189,7 @@ def command_run(args) -> int:
             raise SystemExit(f"sources changed before {job['id']}: {', '.join(changed)}; stop (no record written)")
         record = run_job(job, config, out_dir, history_dir)
         record["sources"] = record_sources(start)
-        problem = server_state(config, expected_model)
+        problem = server_state(checked, expected_model)
         changed = changed_sources()
         if changed:
             # A source changed during the job: the job may have read other files. Mark it invalid (a resume runs

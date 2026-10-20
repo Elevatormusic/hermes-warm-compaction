@@ -1587,6 +1587,37 @@ class RunTest(unittest.TestCase):
             self.assertFalse((out / "meta.json").exists())
             self.assertFalse((out / "runs.jsonl").exists())
 
+    def test_resume_keeps_the_server_check_of_a_checked_folder(self):
+        model = {key: f"synthetic-{key}" for key in run.SERVER_MODEL_KEYS}
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            out.mkdir()
+            # A folder that the first run made with "server_check": true (synthetic meta.json).
+            (out / "meta.json").write_text(json.dumps({"server_model": model, "config": {}}), encoding="utf-8")
+            config = {"hermes_source": "h", "plugin_source": "p", "history_dir": str(Path(folder) / "fixtures"),
+                      "threshold": 0.95, "methods": ["stock_hermes"], "fixtures": ["s1-ledgerline"],
+                      "replicates": 1, "server_check": False, "endpoint": "http://127.0.0.1:9/v1", "model": "m",
+                      "context_length": 8}
+            (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+            calls = []
+
+            def first_check(checked, expected=None):
+                calls.append((checked.get("server_check"), expected))
+                raise RuntimeError("synthetic stop at the first job check")
+
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                    mock.patch.object(run, "plugin_state", return_value={"commit": "p", "files_sha256": {},
+                                                                          "settings_known": []}), \
+                    mock.patch.object(run, "runtime_state", return_value=FAKE_RUNTIME), \
+                    mock.patch.object(run, "server_model", return_value=model), \
+                    mock.patch.object(run, "resume_mismatches", return_value=([], [])), \
+                    mock.patch.object(run, "server_state", first_check), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(RuntimeError, "synthetic stop"):
+                run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
+            # The resume turned the check off, but the folder recorded a model: the job check still runs on it.
+            self.assertEqual(calls, [(True, model)])
+
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}
         state = run.runtime_state(config)
