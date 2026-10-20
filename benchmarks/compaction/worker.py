@@ -136,7 +136,9 @@ def base_config(job: dict) -> dict:
                   "context_length": int(job["context_length"]), "streaming": False},
         "context": {"engine": "warm_compaction" if job["engine"] == "warm_compaction" else "compressor"},
         "tools": {"tool_search": {"enabled": "off"}},
-        "compression": {"progress_notices": False, "threshold": float(job["threshold"])},
+        # The control (engine "none") turns automatic compaction off: no step of it may compact.
+        "compression": {"enabled": job["engine"] != "none", "progress_notices": False,
+                        "threshold": float(job["threshold"])},
         "auxiliary": {"transient_retries": 0, "warm_compaction": {"provider": "auto"},
                       "title_generation": {"enabled": False, "model_upgrade_enabled": False}},
         "plugins": {"enabled": ["warm_compaction"] if job["engine"] == "warm_compaction" else [],
@@ -151,7 +153,8 @@ def write_config(home: Path, job: dict) -> None:
     config = base_config(job)
     conflicts = override_conflicts(config, job.get("hermes_config") or {})
     if conflicts:
-        raise JobFailed(f"hermes_config_protected:{','.join(conflicts)}")
+        # The error keeps a count only: the key names come from the user configuration.
+        raise JobFailed(f"hermes_config_protected:{len(conflicts)}")
     try:
         import yaml
 
@@ -213,6 +216,8 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
         engine = agent.context_compressor
         out["engine_name"] = getattr(engine, "name", None)
         expected = "warm_compaction" if job["engine"] == "warm_compaction" else "compressor"
+        if job["engine"] == "none" and getattr(agent, "compression_enabled", None) is not False:
+            raise JobFailed("control_auto_compaction_on")
         if out["engine_name"] != expected:
             # For example, the plugin did not load and Hermes used its built-in compressor.
             raise JobFailed(f"engine_mismatch:{out['engine_name']}")
@@ -222,8 +227,9 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
             out["cycles"].append(item)
             if cycle > 0:
                 history = list(history) + copy.deepcopy(fixture["continuations"][cycle - 1])
-            item["rows_before"] = len(history)
-            item["est_tokens_before"] = estimate_tokens(wire_rows(history))
+            # Before the main turn. The compaction input (rows_before, est_tokens_before) is set below.
+            item["rows_before_main"] = len(history)
+            item["est_tokens_before_main"] = estimate_tokens(wire_rows(history))
             started = time.monotonic()
             reply = agent.run_conversation(fixture["resume"], system_message=fixture["system"],
                                            conversation_history=history)
@@ -237,6 +243,9 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
             item["rows_after_main"] = len(messages)
             if job["engine"] == "none":
                 # The control: the same main turn, no compaction. The answers use the complete history.
+                if len(messages) < len(history):
+                    raise JobFailed("control_history_shrank")
+                item.update(rows_before=len(messages), est_tokens_before=estimate_tokens(wire_rows(messages)))
                 item.update(compress_error=None, compress_s=None, removed=0, outcome={"path": "none"},
                             rows_after=len(messages), est_tokens_after=estimate_tokens(wire_rows(messages)),
                             compacted=False, history=wire_rows(messages))
@@ -246,6 +255,9 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
             if len(messages) < len(history):
                 # The engine compacted during the main turn (its preflight check before the main request). That is
                 # the compaction of this cycle: the main request ran on the compacted history. No manual compress.
+                # Its input: the history and the new user row of the main turn.
+                source = list(history) + [{"role": "user", "content": fixture["resume"]}]
+                item.update(rows_before=len(source), est_tokens_before=estimate_tokens(wire_rows(source)))
                 item.update(compress_error=None, compress_s=None, removed=len(history) + 1 - len(messages),
                             outcome={**engine_outcome(engine), "trigger": "preflight"},
                             rows_after=len(messages), est_tokens_after=estimate_tokens(wire_rows(messages)),
@@ -254,6 +266,7 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
                 item["qa"] = ask(job, fixture["system"], messages)
                 history = messages
                 continue
+            item.update(rows_before=len(messages), est_tokens_before=estimate_tokens(wire_rows(messages)))
             session = {"agent": agent, "history": list(messages), "history_lock": threading.Lock(),
                        "history_version": 1, "session_key": agent.session_id}
             started = time.monotonic()

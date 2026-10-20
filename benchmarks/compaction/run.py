@@ -126,6 +126,12 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
     names = [spec["id"] for spec in fixtures.SCENARIOS]
     chosen = names if config.get("fixtures", "all") == "all" else list(config["fixtures"])
     methods = list(config["methods"])
+    drift = config.get("drift") or {}
+    # Only known names: the plan values go into meta.json and the report.
+    unknown = (set(chosen) | set(drift.get("fixtures", []))) - set(names) or (
+        set(methods) | set(drift.get("methods", []))) - set(METHODS)
+    if unknown:
+        raise ValueError(f"unknown fixture or method names in the configuration: {len(unknown)}")
     jobs, skipped = [], []
     usable = []
     for name in methods:
@@ -141,7 +147,6 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
             for name, settings in usable[shift:] + usable[:shift]:
                 jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c1", "fixture": fixture, "method": name,
                              "rep": rep + 1, "cycles": 1, "settings": settings})
-    drift = config.get("drift") or {}
     for fixture in drift.get("fixtures", []):
         for rep in range(reps):
             for name, settings in usable:
@@ -246,6 +251,11 @@ def score_cycle(cycle: dict, gold: dict, history: dict, method: str) -> dict:
         "compress_error": cycle.get("compress_error"), "outcome": {k: outcome.get(k) for k in keep if k in outcome},
         "removed": cycle.get("removed"), "rows_before": cycle.get("rows_before"), "rows_after": cycle.get("rows_after"),
         "est_tokens_before": cycle.get("est_tokens_before"), "est_tokens_after": cycle.get("est_tokens_after"),
+        "rows_before_main": cycle.get("rows_before_main"),
+        "est_tokens_before_main": cycle.get("est_tokens_before_main"),
+        # "compaction_input": est_tokens_before is the input of the compaction (after the main turn). Records made
+        # before this field measured it before the main turn.
+        "size_basis": "compaction_input" if "est_tokens_before_main" in cycle else "before_main_turn",
         "main_s": cycle.get("main_s"), "compress_s": cycle.get("compress_s"),
         "main_prompt_tokens": cycle.get("main_prompt_tokens"),
         "qa_prompt_tokens": calls[0].get("prompt_tokens") if calls else None,
@@ -383,13 +393,19 @@ def shape(value: Any, prefix: str = "") -> dict[str, str]:
     return {prefix: type(value).__name__}
 
 
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+
 def public_url(url: Any) -> Any:
-    """The scheme, host, port, and path of a URL: no user name, password, query, or fragment."""
+    """The scheme, and the host and port of a loopback endpoint. No path (a gateway can put a credential in it), no
+    user name, password, query, or fragment, and no name of another host."""
     if not isinstance(url, str):
-        return url
+        return {"redacted": True, "types": shape(url)}
     parts = urllib.parse.urlsplit(url)
     host = parts.hostname or ""
-    return urllib.parse.urlunsplit((parts.scheme, f"{host}:{parts.port}" if parts.port else host, parts.path, "", ""))
+    if host in LOOPBACK_HOSTS or host.endswith(".localhost"):
+        return f"{parts.scheme}://{host}:{parts.port}" if parts.port else f"{parts.scheme}://{host}"
+    return f"{parts.scheme}://<remote host>"
 
 
 def public_config(config: dict) -> dict:
@@ -796,11 +812,14 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         missing = sum(missing_by_category[c] for c in scored)
         entry["overall_failures_wrong"] = rate(entry["overall"]["k"], entry["overall"]["n"] + missing)
         values = [cycle for _run, cycle in cycles]
+        # The size before compaction and the ratio use only cycles that measured the exact compaction input.
+        measured = [c for c in values if c.get("size_basis") == "compaction_input" and c.get("est_tokens_before")]
         entry["tokens"] = {
-            "est_before": scoring.mean_interval([c["est_tokens_before"] for c in values]),
+            "est_before": scoring.mean_interval([c["est_tokens_before"] for c in measured]),
             "est_after": scoring.mean_interval([c["est_tokens_after"] for c in values]),
             "ratio_after_before": scoring.mean_interval([c["est_tokens_after"] / c["est_tokens_before"]
-                                                         for c in values if c.get("est_tokens_before")]),
+                                                         for c in measured]),
+            "before_not_measured_runs": len(values) - len(measured),
             "qa_prompt_tokens": scoring.mean_interval([c["qa_prompt_tokens"] for c in values
                                                        if c.get("qa_prompt_tokens")])}
         # Time of all runs, also the runs that did not compact: a failed attempt costs time too.
@@ -809,7 +828,9 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "compress": scoring.mean_interval([c["compress_s"] for c in attempts if c.get("compress_s") is not None]),
             "compress_compacted": scoring.mean_interval([c["compress_s"] for c in values
                                                          if c.get("compress_s") is not None]),
-            "main_request": scoring.mean_interval([c["main_s"] for c in attempts if c.get("main_s") is not None]),
+            # A preflight run compacted inside the main request: its main time includes the compaction.
+            "main_request": scoring.mean_interval([c["main_s"] for c in attempts
+                                                   if c.get("main_s") is not None and not c.get("preflight")]),
             "questions": scoring.mean_interval([c["qa_s"] for c in values if c.get("qa_s") is not None])}
         entry["per_run_failed"] = [{"fixture": run["fixture"], "rep": run["rep"], "path": cycle["path"],
                                     "compress_s": cycle["compress_s"], "main_s": cycle["main_s"]}
@@ -838,27 +859,48 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         recorded_drift = [run for run in drift if run["method"] == name]
         items = [run for run in recorded_drift if run.get("status") == "ok" and run.get("cycles")]
         per_cycle = []
+        control = METHODS[name]["engine"] == "none"
+
+        def scored(run: dict, index: int, control: bool = control) -> dict | None:
+            # A cycle that did not compact asked no questions: it is left out, not scored as wrong.
+            if index >= len(run["cycles"]):
+                return None
+            cycle = run["cycles"][index]
+            return cycle if cycle.get("compacted") or control else None
+
+        def hits(run: dict, cycle: dict) -> tuple[int, int]:
+            marks = [mark for question, mark in zip(gold[run["fixture"]], cycle["marks"])
+                     if question["category"] != "recent"]
+            return sum(mark[0] == "1" for mark in marks), len(marks)
+
         for index in range(max(len(run["cycles"]) for run in items) if items else 0):
-            hits = total = 0
+            right = total = 0
             paths = defaultdict(int)
+            kept = []
             for run in items:
-                if index >= len(run["cycles"]):
+                if index < len(run["cycles"]):
+                    paths[run["cycles"][index]["path"]] += 1
+                cycle = scored(run, index)
+                if cycle is None:
                     continue
-                cycle = run["cycles"][index]
-                paths[cycle["path"]] += 1
-                for question, mark in zip(gold[run["fixture"]], cycle["marks"]):
-                    if question["category"] != "recent":
-                        hits += mark[0] == "1"
-                        total += 1
-            per_cycle.append({"cycle": index + 1, "accuracy": rate(hits, total), "paths": dict(paths),
-                              "est_tokens_after": scoring.mean_interval(
-                                  [run["cycles"][index]["est_tokens_after"] for run in items
-                                   if index < len(run["cycles"])])})
+                kept.append(cycle)
+                k, n = hits(run, cycle)
+                right, total = right + k, total + n
+            per_cycle.append({"cycle": index + 1, "accuracy": rate(right, total), "paths": dict(paths),
+                              "scored_runs": len(kept),
+                              "est_tokens_after": scoring.mean_interval([c["est_tokens_after"] for c in kept])})
+        # D1 compares cycle 3 with cycle 1 on the runs that have both cycles scored.
+        both = [run for run in items if scored(run, 0) and scored(run, 2)]
+        first = [hits(run, scored(run, 0)) for run in both]
+        third = [hits(run, scored(run, 2)) for run in both]
+        paired_cycles = {"runs": len(both), "cycle_1": rate(sum(k for k, _ in first), sum(n for _, n in first)),
+                         "cycle_3": rate(sum(k for k, _ in third), sum(n for _, n in third))}
         drift_planned = {job_id for job_id, job in planned.items() if job["method"] == name and job["cycles"] > 1}
         drift_total = len(drift_planned | {run["job"] for run in recorded_drift})
         result["drift"][name] = {
             "runs": len(items), "planned_runs": drift_total, "failed_or_not_run": drift_total - len(items),
-            "fixtures": sorted({run["fixture"] for run in items}), "cycles": per_cycle}
+            "fixtures": sorted({run["fixture"] for run in items}), "cycles": per_cycle,
+            "cycle_1_and_3": paired_cycles}
     result["decision"] = decide(result)
     return result
 
@@ -929,10 +971,10 @@ def decide(result: dict) -> dict[str, Any]:
     if "warm_ledger" in methods and methods["warm_ledger"]["success"]:
         checks["S1_warm_success_at_least_90"] = exact_rate(methods["warm_ledger"]["success"]) >= Fraction(90, 100)
     if "warm_ledger" in result["drift"]:
-        cycles = result["drift"]["warm_ledger"]["cycles"]
-        if len(cycles) >= 3 and cycles[0]["accuracy"]["rate"] is not None:
-            checks["D1_drift_within_10_points"] = exact_rate(cycles[2]["accuracy"]) >= (
-                exact_rate(cycles[0]["accuracy"]) - Fraction(10, 100))
+        both = result["drift"]["warm_ledger"].get("cycle_1_and_3") or {}
+        # None: no run has cycle 1 and cycle 3 scored, so the check has no data. It does not pass.
+        checks["D1_drift_within_10_points"] = None if not both.get("runs") else (
+            exact_rate(both["cycle_3"]) >= exact_rate(both["cycle_1"]) - Fraction(10, 100))
     verdict = []
     if "R1_relaxed_succeeds_more_often" in checks:
         verdict.append("The relaxed fallback format succeeds more often than the quoted format."
@@ -1128,6 +1170,14 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = ()) 
     return counts
 
 
+def refuse_stale(item: dict) -> None:
+    """A rescore that cannot score every job would mix old-gold marks with the current gold files."""
+    if item["jobs_without_raw"]:
+        raise SystemExit(f"report refused: --rescore found {item['jobs_without_raw']} jobs in {item['folder']} "
+                         "without raw output (keep_text was off); their marks use the old gold files. Add "
+                         "--raw-dir for them, or report without --rescore (the report then warns).")
+
+
 def command_report(args) -> int:
     out_dir = Path(args.out)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
@@ -1139,6 +1189,7 @@ def command_report(args) -> int:
     if args.rescore:
         raw_dirs = [Path(folder) for folder in args.raw_dir or []]
         rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs)})
+        refuse_stale(rescores[-1])
     for extra in args.also or []:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
@@ -1150,6 +1201,7 @@ def command_report(args) -> int:
         extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
         if args.rescore:
             rescores.append({"folder": extra_dir.name, **rescore(extra_dir, extra_runs, raw_dirs)})
+            refuse_stale(rescores[-1])
         elif extra_meta.get("gold_sha256") != gold_now:
             meta.setdefault("gold_changed_after_run", []).append(extra_dir.name)
         runs += extra_runs

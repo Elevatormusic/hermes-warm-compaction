@@ -170,14 +170,19 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     common = [*job["cli_command"], "exec", "--skip-git-repo-check",
               "-c", f"developer_instructions={json.dumps(fixture['system'])}"]
     timeout_s = float(job.get("cli_timeout_s", 1800))
-    item = {"cycle": 1, "rows_before": len(fixture["rows"]),
-            "est_tokens_before": estimate_tokens(text_rows_all(fixture["rows"]))}
+    item = {"cycle": 1, "rows_before_main": len(fixture["rows"]),
+            "est_tokens_before_main": estimate_tokens(text_rows_all(fixture["rows"]))}
     out["cycles"].append(item)
     # The main turn: no compaction (a limit above any request size).
     main = run_cli(common + ["-c", "model_auto_compact_token_limit=100000000", "resume", session_id,
                              fixture["resume"]], cwd, env, timeout_s)
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"])
     check_main(item, main)
+    lines = [json.loads(line) for line in rollout.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if any(line.get("type") == "compacted" for line in lines):
+        # Only the planned compaction step may compact.
+        raise JobFailed("main_turn_compacted")
+    compaction_input(item, fixture, codex_main_reply(lines))
     # The manual compaction: the app server request thread/compact/start (what /compact sends). It starts a
     # compaction turn only; no model turn follows.
     compact = codex_app_server_compact([*job["cli_command"], "app-server", "-c",
@@ -396,13 +401,18 @@ def run_claude(job: dict, fixture: dict, work: Path, out: dict) -> None:
     common = [*job["cli_command"], "-p", "--setting-sources", "", "--tools", "", "--output-format", "json",
               "--append-system-prompt", fixture["system"], "--resume", session_id]
     timeout_s = float(job.get("cli_timeout_s", 1800))
-    item = {"cycle": 1, "rows_before": len(fixture["rows"]),
-            "est_tokens_before": estimate_tokens(text_rows_all(fixture["rows"]))}
+    item = {"cycle": 1, "rows_before_main": len(fixture["rows"]),
+            "est_tokens_before_main": estimate_tokens(text_rows_all(fixture["rows"]))}
     out["cycles"].append(item)
     main = run_cli(common + [fixture["resume"]], cwd, env, timeout_s)
     item.update(main_s=main["elapsed_s"], main_exit=main["exit_code"], main_timeout=main["timeout"],
                 main_result=cli_result(main["text"]))
     check_main(item, main, item["main_result"])
+    entries = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if any(entry.get("type") == "system" and entry.get("subtype") == "compact_boundary" for entry in entries):
+        # Only the planned compaction step may compact (Claude Code can compact on its own before a turn).
+        raise JobFailed("main_turn_compacted")
+    compaction_input(item, fixture, claude_main_reply(entries))
     compact = run_cli(common + ["/compact"], cwd, env, timeout_s)
     if compact["login_prompt"]:
         raise LoginRequired()
@@ -435,6 +445,30 @@ class LoginRequired(Exception):
 class MainTurnFailed(Exception):
     """The main turn of the CLI timed out, exited with an error, or reported an error result. The job stops before
     the compaction: a compaction of an incomplete session is not comparable."""
+
+
+def compaction_input(item: dict, fixture: dict, reply: str) -> None:
+    """The size of the context that the compaction gets: the session rows, the main user row, and the main reply.
+    The size before the main turn stays in est_tokens_before_main."""
+    rows = text_rows_all(fixture["rows"]) + [{"role": "user", "content": fixture["resume"]}] + (
+        [{"role": "assistant", "content": reply}] if reply else [])
+    item.update(rows_before=len(rows), est_tokens_before=estimate_tokens(rows))
+
+
+def codex_main_reply(lines: list[dict]) -> str:
+    for line in reversed(lines):
+        payload = line.get("payload") or {}
+        if line.get("type") == "response_item" and payload.get("type") == "message" and payload.get("role") == \
+                "assistant":
+            return codex_message_text(payload)
+    return ""
+
+
+def claude_main_reply(entries: list[dict]) -> str:
+    for entry in reversed(entries):
+        if entry.get("type") == "assistant" and not entry.get("isMeta"):
+            return claude_text((entry.get("message") or {}).get("content"))
+    return ""
 
 
 def check_main(item: dict, main: dict, result: dict | None = None) -> None:
