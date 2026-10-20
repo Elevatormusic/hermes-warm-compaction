@@ -1344,6 +1344,14 @@ class RunTest(unittest.TestCase):
             with mock.patch.object(run, "cli_files_sha256", side_effect=AssertionError("hashed")):
                 run.runtime_state({**config, "methods": ["stock_hermes"]})
 
+    def test_example_config_checks_the_server_and_plans_the_full_run(self):
+        example = json.loads((Path(run.__file__).parent / "config.example.json").read_text(encoding="utf-8"))
+        # The example is an LM Studio plan of several hours: the server check must be on.
+        self.assertIs(example.get("server_check"), True)
+        self.assertEqual(run.public_url(example["endpoint"]), "http://localhost:1234")
+        jobs, skipped = run.plan(example, {"settings_known": ["warm", "ledger", "fallback_format"]})
+        self.assertEqual((len(jobs), skipped), (270, []))
+
     def test_server_check_reads_the_loaded_context_length(self):
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
