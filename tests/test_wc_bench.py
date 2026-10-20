@@ -718,6 +718,20 @@ class RunTest(unittest.TestCase):
             result = json.loads((first / "r.json").read_text(encoding="utf-8"))["results"]
             self.assertEqual(result["methods"]["warm_ledger"]["not_run"], 1)
             self.assertEqual(result["methods"]["warm_ledger"]["success"]["k"], 0)
+            # Other gold files than at the run (synthetic hash): the stored marks follow the old question table, so
+            # the report stops without --rescore. (An added folder with other gold files is refused by the merge
+            # check.)
+            stale = Path(folder) / "c"
+            stale.mkdir()
+            (stale / "meta.json").write_text(json.dumps({**meta, "gold_sha256": {"s1.gold.json": "0" * 64}}),
+                                             encoding="utf-8")
+            for out, also in ((stale, []),):
+                with self.subTest(out=out.name), contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()), \
+                        self.assertRaisesRegex(SystemExit, "gold files changed after the run of c; add --rescore"):
+                    run.command_report(types.SimpleNamespace(**{**vars(args), "out": str(out), "also": also,
+                                                                "json": str(out / "stale.json")}))
+                self.assertFalse((out / "stale.json").exists())
             self.assertEqual(result["drift"]["warm_ledger"]["runs"], 0)
             self.assertIn("unavailable", (first / "r.md").read_text(encoding="utf-8"))
             # --rescore with a --raw-dir of a run folder without records.
@@ -793,7 +807,8 @@ class RunTest(unittest.TestCase):
         # A run folder made before the rule keeps raw values in meta.json: the report redacts them.
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
-            meta = {"schema": "s", "config": config, "plugin": {}, "hermes": {}}
+            meta = {"schema": "s", "config": config, "plugin": {}, "hermes": {},
+                    "gold_sha256": run.current_gold_sha256()}
             (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
             (out / "runs.jsonl").write_text("", encoding="utf-8")
             args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=False,
@@ -1005,7 +1020,8 @@ class RunTest(unittest.TestCase):
         marker = "fake-value-456"
         config = {"model": "m", "threshold": 0.95, "hermes_config": {"model": {"headers": {"X-Fake": marker}}}}
         meta = {"schema": "s", "config": run.public_config(config), "config_sha256": run.config_digests(config),
-                "plugin": {}, "hermes": {}, "runtime_sha256": {"runner_python": "0" * 64}}
+                "plugin": {}, "hermes": {}, "runtime_sha256": {"runner_python": "0" * 64},
+                "gold_sha256": run.current_gold_sha256()}
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
             (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
@@ -1024,7 +1040,8 @@ class RunTest(unittest.TestCase):
         first = {"method": "fallback_quoted_ledger", "reason": "plugin_setting_missing"}
         later = {"method": "warm_no_ledger", "reason": "plugin_setting_missing"}
         meta = {"schema": "s", "config": {"model": "m"}, "plugin": {}, "hermes": {}, "skipped_methods": [first],
-                "resumes": [{"plan": {"methods": ["warm_no_ledger"]}, "skipped_methods": [later, first]}]}
+                "resumes": [{"plan": {"methods": ["warm_no_ledger"]}, "skipped_methods": [later, first]}],
+                "gold_sha256": run.current_gold_sha256()}
         self.assertEqual(run.skipped_methods(meta), [first, later])
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
@@ -1403,6 +1420,18 @@ class RunTest(unittest.TestCase):
                     self.assertRaisesRegex(SystemExit, "WC_FAKE_KEY_ENV, which is not set"):
                 run.command_run(types.SimpleNamespace(config=str(config_path), out=str(out), limit=None,
                                                       dry_run=True, allow_harness_change=False))
+            # A folder with files but no meta.json (old records of an unknown configuration) is not a new run.
+            orphan = Path(folder) / "orphan"
+            orphan.mkdir()
+            (orphan / "runs.jsonl").write_text(json.dumps({"job": "synthetic", "status": "ok"}) + "\n",
+                                               encoding="utf-8")
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "abc", "clean": True}), \
+                    mock.patch.dict(os.environ, {"WC_FAKE_KEY_ENV": "fake-key-value"}), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(SystemExit, "has files but no meta.json"):
+                run.command_run(types.SimpleNamespace(config=str(config_path), out=str(orphan), limit=None,
+                                                      dry_run=True, allow_harness_change=False))
+            self.assertFalse((orphan / "meta.json").exists())
             # A dry run writes no meta.json, so the next run of the folder is not a resume.
             fresh = Path(folder) / "fresh"
             with mock.patch.object(run, "hermes_state", return_value={"commit": "abc", "clean": True}), \

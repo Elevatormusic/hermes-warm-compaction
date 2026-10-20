@@ -1068,6 +1068,10 @@ def command_run(args) -> int:
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if not (out_dir / "meta.json").exists() and any(out_dir.iterdir()):
+        # Records do not carry the model, endpoint, or settings: old records in a new run folder would be counted
+        # as jobs of this configuration.
+        raise SystemExit(f"run refused: {out_dir} has files but no meta.json; a new run needs an empty folder")
     if config.get("qa_batch", scoring.QA_BATCH_MAX) != scoring.QA_BATCH_MAX:
         # The gold files plan the QA batches (at most 12 questions, no gold rule passes on its batch prompt).
         raise SystemExit(f"qa_batch is fixed at {scoring.QA_BATCH_MAX}: the gold files plan the QA batches")
@@ -1759,9 +1763,7 @@ def markdown(result: dict, meta: dict) -> str:
             f"{item['folder']} ({item['jobs_rescored']} jobs, {item['marks_changed']} marks changed, "
             f"{item['jobs_without_raw']} without raw output, {item.get('jobs_failed_incomplete', 0)} failed for an "
             "incomplete answer)" for item in meta["rescore"]["folders"]) + "."]
-          if meta.get("rescore") else []),
-        *(["- Warning: the gold files changed after these runs and the marks were not rescored: "
-           + ", ".join(meta["gold_changed_after_run"]) + "."] if meta.get("gold_changed_after_run") else []), "",
+          if meta.get("rescore") else []), "",
         "## Compaction success", "",
         "A planned job that failed, timed out, or did not run counts as a failure. Attempts include the earlier "
         "attempts of a job that a resume ran again.", "",
@@ -2057,8 +2059,11 @@ def command_report(args) -> int:
     elif meta.get("gold_sha256") != gold_now:
         meta.setdefault("gold_changed_after_run", []).insert(0, out_dir.name)
     if meta.get("gold_changed_after_run"):
-        print("warning: gold files changed after the run; use --rescore to score the raw answers again",
-              file=sys.stderr)
+        # Each stored marks string follows the question table of the old gold files: added, removed, reordered, or
+        # moved questions would give old results to other questions and categories.
+        raise SystemExit("report refused: the gold files changed after the run of "
+                         f"{', '.join(meta['gold_changed_after_run'])}; add --rescore to score the kept raw answers "
+                         "with the current gold files")
     result = aggregate(runs, meta, attempts, planned)
     # A run folder made before the redaction rule can have raw values in meta.json: redact them here too. The
     # digests stay in the local meta.json only.
