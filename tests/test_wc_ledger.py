@@ -179,8 +179,13 @@ class LedgerTest(unittest.TestCase):
         # Synthetic outputs: a short output stays whole; a long one keeps its last line.
         short = "read docs/synth.yaml (41 keys)\nwrote docs/synth.toml"
         long = "\n".join(f"case {index} ok" for index in range(30)) + "\nTest Suites: 48 passed, 48 total"
+        server = "preview config ok\nlistening on 127.0.0.1:8743\n" + "\n".join(f"step {i}" for i in range(9))
         for output, expected in ((short, "exit 0; output:\n  - read docs/synth.yaml (41 keys)\n"
                                          "  - wrote docs/synth.toml"),
+                                 ("preview config ok\nlistening on 127.0.0.1:8743\nstopped after check",
+                                  "exit 0; output:\n  - preview config ok\n  - listening on 127.0.0.1:8743\n"
+                                  "  - stopped after check"),
+                                 (server, "exit 0; output:\n  - listening on 127.0.0.1:8743\n  - step 8"),
                                  (long, "exit 0; output:\n  - Test Suites: 48 passed, 48 total"),
                                  ("..\n", "exit 0")):
             with self.subTest(expected=expected):

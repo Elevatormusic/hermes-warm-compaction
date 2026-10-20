@@ -47,6 +47,7 @@ IDENTIFIER_KINDS = (
                                r"|\$\{([A-Z][A-Z0-9_]{2,63})\}"), 20),
 )
 IDENTIFIER_CHARS = 2_400
+ADDRESS = dict((kind, pattern) for kind, pattern, _cap in IDENTIFIER_KINDS)["addresses"]
 # A sentence of the assistant that gives a reason: the exact words keep a decision and why it was made.
 REASON_WORDS = re.compile(r"\b(?:because|since|so that|instead of|rather than|in order to|due to|to avoid|to prevent)\b"
                           r"|,\s+so\b", re.I)
@@ -78,6 +79,7 @@ ERROR_MARK = "error lines:"
 # The ledger cuts the oldest notes first when it is too large.
 OUTPUT_MARK = "output:"
 NOTE_CHARS = 200
+NOTE_LINES = 3
 # A changed file keeps its first added lines: a version, a setting, or a fix can be only in the edit. It also keeps
 # the step of its latest edits: the first sentence of the assistant text with the edit call.
 MAX_CHANGE_LINES = 2
@@ -132,14 +134,16 @@ def _first_error(text: str, count: int = 1) -> list[str]:
 
 
 def _output_note(text: str) -> list[str]:
-    """A short note of a successful output: all of it when it has at most two lines in NOTE_CHARS, else its last
-    line (often the result count). Lines without a letter or a digit ("..", "---") are not counted."""
+    """A short note of a successful output: all of it when it has at most NOTE_LINES lines in NOTE_CHARS, else the
+    first line with an address ("listening on 127.0.0.1:8743") and the last line (often the result count). Lines
+    without a letter or a digit ("..", "---") are not counted."""
     lines = [" ".join(line.split()) for line in text.splitlines() if any(char.isalnum() for char in line)]
     if not lines:
         return []
-    if len(lines) <= 2 and sum(len(line) for line in lines) <= NOTE_CHARS:
+    if len(lines) <= NOTE_LINES and sum(len(line) for line in lines) <= NOTE_CHARS:
         return lines
-    return [_one_line(lines[-1], NOTE_CHARS)]
+    address = next((line for line in lines[:-1] if ADDRESS.search(line)), None)
+    return [_one_line(line, NOTE_CHARS) for line in (address, lines[-1]) if line]
 
 
 def _with_lines(head: str, mark: str, lines: list[str]) -> str:
