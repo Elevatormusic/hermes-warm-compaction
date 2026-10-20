@@ -1095,6 +1095,18 @@ class RunTest(unittest.TestCase):
         self.assertEqual(run.merge_mismatches(codex, changed(codex, "cli.codex_cli"), False), ["runtime cli.codex_cli"])
         self.assertEqual(run.merge_mismatches(base, {k: v for k, v in cli.items() if k != "runtime_sha256"}, False),
                          ["runtime (not recorded)"])
+        # The key: the same api_key_env name, and with a key the user confirms the same key and route (a run folder
+        # keeps only the name, never the key or a hash of it).
+        keyed = {**base, "config": {**base["config"], "api_key_env": "WC_FAKE_KEY_ENV"}}
+        keyed_cli = {**cli, "config": {**cli["config"], "api_key_env": "WC_FAKE_KEY_ENV"}}
+        self.assertEqual(run.merge_mismatches(base, keyed_cli, False), ["api_key_env"])
+        self.assertEqual(run.merge_mismatches(keyed, {**cli, "config": {**cli["config"], "api_key_env": "OTHER"}},
+                                              False, True), ["api_key_env"])
+        self.assertEqual(run.merge_mismatches(keyed, keyed_cli, False),
+                         ["credential (add --same-credential to confirm the same key and route)"])
+        self.assertEqual(run.merge_mismatches(keyed, keyed_cli, False, True), [])
+        self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "api_key_env": ""}}, False),
+                         [])
         # The job plan and a CLI timeout of a run without CLI methods can differ.
         self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "cli_timeout_s": 5,
                                                                        "replicates": 2}}, False), [])

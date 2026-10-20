@@ -789,11 +789,13 @@ def plan_methods(meta: dict) -> set[str]:
     return found
 
 
-def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
+def merge_mismatches(meta: dict, extra: dict, rescore: bool, same_credential: bool = False) -> list[str]:
     """Why the run folder of `extra` cannot join the report of `meta` (empty when it can). The runs must use the
     same harness, server model, configuration values (apart from the job plan), and gold files (or --rescore). They
     must use the same Hermes commit when both run Hermes methods, the same plugin files when both run plugin
-    methods, and the same version of each CLI that both run."""
+    methods, and the same version of each CLI that both run. They must read the key from the same api_key_env, and
+    with a key the user confirms the same key and route (same_credential): a run folder keeps only the variable
+    name, never the key or a hash of it."""
     def engines(item: dict) -> set[str]:
         return {METHODS[name]["engine"] for name in plan_methods(item) if name in METHODS}
 
@@ -807,6 +809,11 @@ def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
               if key not in exempt and base.get(key) != other.get(key)]
     if harness_ids(meta) != harness_ids(extra):
         found.append("harness files")
+    key_names = [(item.get("config") or {}).get("api_key_env") or "" for item in (meta, extra)]
+    if key_names[0] != key_names[1]:
+        found.append("api_key_env")
+    elif key_names[0] and not same_credential:
+        found.append("credential (add --same-credential to confirm the same key and route)")
     if any(item.get("server_model") or (item.get("config") or {}).get("server_check") for item in (meta, extra)):
         # One folder checked the server model: both must have recorded it, and the same one.
         if not meta.get("server_model") or not extra.get("server_model"):
@@ -1846,7 +1853,8 @@ def command_report(args) -> int:
         # Each added folder must match every folder accepted so far (not only the first): two added folders can
         # share an engine that the first folder does not run.
         problems = [f"{folder} in {', '.join(found)}" for folder, item in accepted
-                    if (found := merge_mismatches(item, extra_meta, args.rescore))]
+                    if (found := merge_mismatches(item, extra_meta, args.rescore,
+                                                  getattr(args, "same_credential", False)))]
         if problems:
             raise SystemExit(f"report refused: {extra_dir} differs from {'; '.join(problems)}")
         accepted.append((extra_dir, extra_meta))
@@ -1867,6 +1875,8 @@ def command_report(args) -> int:
         meta.setdefault("merged_runs", []).append({**{key: extra_meta.get(key) for key in (
             "started_utc", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs", "server_model")},
             "skipped_methods": skipped_methods(extra_meta),
+            "same_credential_confirmed": bool((extra_meta.get("config") or {}).get("api_key_env"))
+            and bool(getattr(args, "same_credential", False)),
             "config": report_config(extra_meta)})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
     if rescores:
@@ -1932,6 +1942,9 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--json", required=True)
     report.add_argument("--md")
     report.add_argument("--also", action="append", help="another run folder to include (repeat for more)")
+    report.add_argument("--same-credential", action="store_true",
+                        help="with --also and api_key_env: confirm that every folder used the same key and route "
+                             "(recorded)")
     report.add_argument("--rescore", action="store_true",
                         help="score the kept raw answers (keep_text) again with the current gold files")
     report.add_argument("--raw-dir", action="append",
