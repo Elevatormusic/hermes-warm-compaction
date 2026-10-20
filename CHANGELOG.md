@@ -15,6 +15,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Without a usable capture (after a restart), compact before a request at the threshold, or when the history, the reply reserve, and 10% of the window do not fit. The earlier rule (half of the window less the reply reserve) compacted a resumed history much earlier than the threshold.
 - Let the fallback transcript grow with the compacted region: its estimated tokens and a margin, at most 40% of the window and 48,000 tokens. The fallback model saw at most 32,000 characters before.
 - Scale the summary with the compacted region, as the built-in compressor does: 30% of the estimated tokens before the tail, from 2,048 to the smaller of 6,000 tokens and 5% of the window. The instruction asks for more words for a larger target. A small region keeps the old sizes.
+- Ask the `## Goal` section of the warm and relaxed handoff to give the exact name or path of the main file, component, or service when the user named one.
 - Add an optional `## Session log` section to the handoff: a dense log of the work, oldest first, with exact identifiers and the reason for each decision.
 - Add `### Identifiers` and `### Reasons` to the work ledger: exact identifiers and the assistant sentences that give a reason, extracted by code.
 - Add `### Task status` to the work ledger: the latest status of each task from progress lists of the assistant (`- task: open`), checkbox lists, and calls of the Hermes `todo` tool.

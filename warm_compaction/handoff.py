@@ -33,7 +33,8 @@ Rules:
 Use these seven headings, in this order, each on its own line. Start the reply with "## Goal":
 
 ## Goal
-The current goal of the user, in one or two sentences.
+The current goal of the user, in one or two sentences. When the user named the main file, component, or service \
+to work on, give its exact name or path.
 
 ## User instructions
 Each instruction, rule, or preference from the user that still applies, as a bullet with the exact words of the \
