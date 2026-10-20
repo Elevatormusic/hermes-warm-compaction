@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -1115,6 +1116,51 @@ class RunTest(unittest.TestCase):
                     with contextlib.redirect_stdout(io.StringIO()):
                         run.command_report(args)
                     self.assertTrue((paths[0] / "r.json").exists())
+
+    def test_plugin_state_records_links_and_never_follows_them(self):
+        def link(target: Path, path: Path) -> None:
+            try:
+                os.symlink(target, path, target_is_directory=True)
+            except OSError:
+                if os.name != "nt":
+                    raise
+                import _winapi  # A junction needs no symlink privilege on Windows.
+                _winapi.CreateJunction(str(target), str(path))
+
+        with tempfile.TemporaryDirectory() as folder:
+            source, outside = Path(folder) / "plugin", Path(folder) / "outside"
+            (source / "warm_compaction").mkdir(parents=True)
+            (source / "warm_compaction" / "engine.py").write_text("x = 1\n", encoding="utf-8")
+            outside.mkdir()
+            (outside / "extra.py").write_text("y = 2\n", encoding="utf-8")  # synthetic external code
+            plain = run.plugin_state(source)
+            subprocess.run(["git", "-C", str(source), "init", "-q"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(source), "add", "-A"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(source), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                            "commit", "-q", "-m", "synthetic"], check=True, capture_output=True)
+            self.assertIsNotNone(run.plugin_state(source)["commit"])
+            link(outside, source / "warm_compaction" / "ext")
+            subprocess.run(["git", "-C", str(source), "add", "-A"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(source), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                            "commit", "-q", "-m", "link"], check=False, capture_output=True)
+            state = run.plugin_state(source)
+            # The link is recorded and its target files are not: no commit labels these files.
+            self.assertIsNone(state["commit"])
+            self.assertNotIn("ext/extra.py", state["files_sha256"])
+            self.assertEqual(state["files_sha256"].get("ext"), getattr(run, "SYMLINK", "symlink"))
+            self.assertEqual((run.plugin_links(plain), run.plugin_links(state)), ([], ["ext"]))
+            # A link added during a run changes the source identity (the next job stops).
+            self.assertNotEqual(state["files_sha256"], plain["files_sha256"])
+            # The run stops before any job.
+            config = {"plugin_source": str(source), "hermes_source": str(source), "history_dir": str(outside / "h")}
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "abc", "clean": True}), \
+                    mock.patch.object(run, "plan", side_effect=AssertionError("planned")):
+                config_path = Path(folder) / "config.json"
+                config_path.write_text(json.dumps(config), encoding="utf-8")
+                args = types.SimpleNamespace(config=str(config_path), out=str(Path(folder) / "out"), limit=None,
+                                             dry_run=True, allow_harness_change=False)
+                with self.assertRaisesRegex(SystemExit, "symbolic links or junctions \\(ext\\)"):
+                    run.command_run(args)
 
     def test_commits_label_only_the_exact_source_folder(self):
         def git(folder, *args):

@@ -88,18 +88,51 @@ def checkout_root(folder: Path) -> bool:
         os.path.normcase(os.path.realpath(folder))
 
 
+# The value of a symbolic link or junction in files_sha256: the link is recorded, its target is not read.
+SYMLINK = "symlink"
+
+
+def is_link(path: Path) -> bool:
+    """True for a symbolic link or a Windows junction."""
+    return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+
+
+def plugin_files(package: Path) -> dict[str, str]:
+    """The SHA-256 hash of every file in package (no __pycache__). A symbolic link or junction is never followed:
+    it is recorded with the value SYMLINK, so a link (also one added later) changes the source identity."""
+    if is_link(package):
+        return {".": SYMLINK}
+    files: dict[str, str] = {}
+    for folder, dirs, names in os.walk(package):
+        base = Path(folder)
+        for name in dirs + names:
+            if is_link(base / name):
+                files[(base / name).relative_to(package).as_posix()] = SYMLINK
+        dirs[:] = [name for name in dirs if name != "__pycache__" and not is_link(base / name)]
+        for name in names:
+            path = base / name
+            if not is_link(path) and path.is_file():
+                files[path.relative_to(package).as_posix()] = sha256_file(path)
+    return dict(sorted(files.items()))
+
+
+def plugin_links(plugin: dict) -> list[str]:
+    """The symbolic links and junctions in the plugin folder."""
+    return [name for name, value in (plugin.get("files_sha256") or {}).items() if value == SYMLINK]
+
+
 def plugin_state(plugin_root: Path) -> dict[str, Any]:
     """Hashes of every file that a job copies and loads (the warm_compaction folder, plugin.yaml included) and the
     settings that its engine knows. The commit is known only when it labels these exact files: plugin_root is the
-    top folder of its checkout, Git tracks every hashed file, and the folder has no changed or untracked file."""
+    top folder of its checkout, the folder has no symbolic link or junction (its target files are not hashed), Git
+    tracks every hashed file, and the folder has no changed or untracked file."""
     package = plugin_root / "warm_compaction"
-    files = {path.relative_to(package).as_posix(): sha256_file(path) for path in sorted(package.rglob("*"))
-             if path.is_file() and "__pycache__" not in path.parts}
+    files = plugin_files(package)
     engine = (package / "engine.py").read_text(encoding="utf-8")
     known = [key for key in ("warm", "ledger", "fallback_format", "ledger_on_failure", "timeout_s")
              if f'"{key}"' in engine.split("THRESHOLD_RANGE", 1)[0]]
     commit = None
-    if checkout_root(plugin_root):
+    if checkout_root(plugin_root) and SYMLINK not in files.values():
         tracked = set((git_output(plugin_root, "ls-files", "-z", "--", "warm_compaction") or "").split("\0"))
         status = git_output(plugin_root, "status", "--porcelain", "--untracked-files=all", "--", "warm_compaction")
         if status is not None and not status.strip() and {f"warm_compaction/{name}" for name in files} <= tracked:
@@ -805,6 +838,10 @@ def command_run(args) -> int:
         # Results must come from a clean, known Hermes source.
         raise SystemExit("hermes_source is not a clean Git checkout; stop before any job runs")
     plugin = plugin_state(Path(config["plugin_source"]))
+    if plugin_links(plugin):
+        # A job copies the plugin folder: a link would load files that the source identity does not cover.
+        raise SystemExit(f"plugin_source has symbolic links or junctions ({', '.join(plugin_links(plugin))}); "
+                         "stop before any job")
     # A plugin folder made with git archive has no Git data: the config can name its commit. The run cannot check
     # it, so it is kept apart, as a configured (not verified) value; the verified commit stays unknown.
     if not plugin["commit"] and config.get("plugin_commit"):
