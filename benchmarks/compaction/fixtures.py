@@ -454,8 +454,7 @@ ANCHOR_SKIP = {"which", "what", "where", "there", "their", "these", "those", "ab
 def short_group(group: list[str]) -> bool:
     """True when every alternative of a retention group is short (under 6 characters) or only digits and number
     signs: such a fact alone also matches unrelated text."""
-    return all(len(scoring.normalize(alternative)) < 6
-               or re.fullmatch(r"[0-9.,:/ x%+-]+", scoring.normalize(alternative)) for alternative in group)
+    return all(scoring.short_text(scoring.normalize(alternative)) for alternative in group)
 
 
 def context_anchor(question: str, group: list[str], text: str, source: str) -> str | None:

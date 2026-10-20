@@ -149,6 +149,26 @@ def history_text(rows: list) -> str:
     return "\n".join(parts)
 
 
+def short_text(normal: str) -> bool:
+    """True for a normalized fact text that is short (under 6 characters) or only digits and number signs: it also
+    matches inside unrelated text."""
+    return len(normal) < 6 or bool(re.fullmatch(r"[0-9.,:/ x%+-]+", normal))
+
+
+def fact_positions(needle: str, normal: str) -> list[int]:
+    """The start positions of a normalized fact text in normalized text. A numeric fact matches only as a whole
+    number: "5" does not match in "15", "50", or "5.5" (a unit such as "5s" or "5ms" can follow). Another short
+    fact matches only at the start of a word, as a word stem ("doc" in "docs", not in "undocumented")."""
+    if not needle:
+        return []
+    pattern = re.escape(needle)
+    if re.fullmatch(r"[0-9.,:/ x%+-]+", needle):
+        pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
+    elif short_text(needle):
+        pattern = r"(?<![a-z0-9])" + pattern
+    return [match.start() for match in re.finditer(pattern, normal)]
+
+
 def retained(question: dict, text: str) -> bool:
     """True when the fact is still in the normalized compacted text (approximate)."""
     if question["kind"] == "verbatim":
@@ -158,8 +178,7 @@ def retained(question: dict, text: str) -> bool:
     for group in question["retention"]:
         found = []
         for alternative in group:
-            needle = normalize(alternative)
-            found += [match.start() for match in re.finditer(re.escape(needle), normal)] if needle else []
+            found += fact_positions(normalize(alternative), normal)
         if not found:
             return False
         positions.append(sorted(found))

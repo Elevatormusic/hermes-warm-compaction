@@ -258,6 +258,11 @@ class ScoringTest(unittest.TestCase):
         # An unrelated "5" in a summary does not keep the axe-scan fact (synthetic summary text).
         self.assertFalse(scoring.retained(item, "Ran 5 jest suites; all passed."))
         self.assertTrue(scoring.retained(item, "The first axe scan found 5 violations."))
+        # A short or numeric fact matches only as a whole token (synthetic summary text).
+        for changed in ("15", "50", "5.5", "2.5"):
+            with self.subTest(changed=changed):
+                self.assertFalse(scoring.retained(item, f"The first axe scan found {changed} violations."))
+        self.assertTrue(scoring.retained(item, "Axe scan: 5, violations listed."))
         # Every short single-group fact in the gold files has a second group: a context word.
         for spec in SCENARIOS:
             gold = json.loads((GOLD_DIR / f"{spec['id']}.gold.json").read_text(encoding="utf-8"))
