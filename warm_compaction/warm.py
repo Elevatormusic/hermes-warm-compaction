@@ -437,7 +437,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request["messages"] = [*body["messages"], *_join_user_rows(added, instruction)]
     request["stream"] = False
     request.pop("stream_options", None)
-    # A stop sequence of the main request could cut the handoff after the five headings.
+    # A stop sequence of the main request could cut the handoff after the handoff headings.
     request.pop("stop", None)
     # A web search costs a search and can bring text that is not in the conversation into the handoff.
     request.pop("web_search_options", None)

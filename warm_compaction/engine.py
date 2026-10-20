@@ -413,7 +413,7 @@ class WarmCompactionEngine(ContextEngine):
             return messages
         if summary is None and self._settings["ledger"] and self._settings["ledger_on_failure"]:
             # Both model summaries failed (a small model can miss the format): compact with the work ledger and the
-            # copied user messages, under the five headings with an unknown line. Without a ledger, keep history.
+            # copied user messages, under the handoff headings with an unknown line. Without a ledger, keep history.
             stub = "\n\n".join(f"{heading}\n{LEDGER_ONLY_LINE}" for heading in handoff.HEADINGS)
             # Leave room for the cut quote of a long prepended request, as on the fallback path.
             quote_room = fallback.CUT_QUOTE_CHARS // 4 if prepend else 0
