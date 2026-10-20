@@ -31,9 +31,14 @@ QA_INSTRUCTION = (
     "Write nothing else.")
 QA_BATCH_MAX = 12
 STATUS_CLASSES = {"done": ("done", "completed", "complete", "finished"),
-                  "open": ("open", "pending", "not started", "in progress", "todo", "to do", "not done"),
+                  "open": ("open", "pending", "not started", "in progress", "todo", "to do", "not done", "incomplete",
+                           "unfinished"),
                   "blocked": ("blocked", "waiting")}
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+# A negated completion phrase on normalized text (normalize removes apostrophes: "isn't" becomes "isnt"), for example
+# "not completed", "not yet finished", "has not been done", "isnt complete". It names the open class.
+NEGATED_DONE = re.compile(r"(?<![a-z0-9])(?:not|never|isnt|arent|wasnt|werent|hasnt|havent|hadnt)"
+                          r"(?: yet)?(?: been)?(?: yet)? (?:done|completed|complete|finished)(?![a-z0-9])")
 
 
 def normalize(text: Any) -> str:
@@ -70,11 +75,14 @@ def keyword_in(text: str, keyword: str) -> bool:
 
 
 def status_class(answer: str) -> str | None:
-    """The one status class that the answer names, or None for no class or more than one."""
+    """The one status class that the answer names, or None for no class or more than one. A negated completion
+    phrase (NEGATED_DONE) names the open class, and its completion word does not name the done class."""
     text = normalize(answer)
+    negated = NEGATED_DONE.search(text) is not None
+    text = NEGATED_DONE.sub(" ", text)
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
-    if {"open", "done"} <= found and contains(text, "not done"):
-        found.discard("done")
+    if negated:
+        found.add("open")
     return found.pop() if len(found) == 1 else None
 
 
