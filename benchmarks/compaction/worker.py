@@ -29,9 +29,11 @@ from scoring import missing_answers, prompt_sha256, qa_prompt  # noqa: E402
 WIRE_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
 # The only Hermes settings that hermes_config can set (an allow-list): extra request headers of the main model
 # route, for a local gateway. Every other key (a route, an engine, an auxiliary model, a plugin) is refused.
-HERMES_CONFIG_ALLOWED = ("model.headers",)
+# Hermes reads model.default_headers for the main client and the auxiliary (compaction) client; it ignores
+# model.headers.
+HERMES_CONFIG_ALLOWED = ("model.default_headers",)
 # Header names that the harness, the HTTP client, or a CLI sets for the route (lower case; names are compared
-# without case). model.headers cannot set them: a second source with another value would replace one silently.
+# without case). model.default_headers cannot set them: a second source with another value would replace one silently.
 RESERVED_HEADERS = ("authorization", "content-type", "content-length", "host", "x-api-key", "anthropic-version")
 # The only QA request fields that qa_extra_body can set: sampler and chat template options, and reasoning_effort (the
 # field that Hermes sends as "none" when reasoning is off for the main turn, so the questions can use the same
@@ -68,30 +70,30 @@ HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 def header_conflicts(headers) -> list[str]:
-    """The problems of model.headers: not a mapping, a name that is not an HTTP token (HEADER_NAME), a value that
-    is not a string or has a character other than visible ASCII, a space, or a tab, a reserved name
+    """The problems of model.default_headers: not a mapping, a name that is not an HTTP token (HEADER_NAME), a
+    value that is not a string or has a character other than visible ASCII, a space, or a tab, a reserved name
     (RESERVED_HEADERS), or two names that differ only in case. Names are compared without case. A non-ASCII value
     is refused because the clients of the run encode it differently (urllib, which sends the questions, encodes
     header values as Latin-1 and fails on other characters after the main turn and the compaction)."""
     if not isinstance(headers, dict):
-        return ["model.headers"]
+        return ["model.default_headers"]
     found, seen = [], set()
     for key, value in headers.items():
         name = str(key)
         if not isinstance(key, str) or not HEADER_NAME.fullmatch(key) or not isinstance(value, str) or any(
                 not (32 <= ord(char) <= 126 or char == "\t") for char in value):
-            found.append(f"model.headers.{name}")
+            found.append(f"model.default_headers.{name}")
         elif name.strip().lower() in RESERVED_HEADERS or name.strip().lower() in seen:
-            found.append(f"model.headers.{name}")
+            found.append(f"model.default_headers.{name}")
         seen.add(name.strip().lower())
     return found
 
 
 def route_headers(job: dict) -> dict[str, str]:
-    """The allowed extra request headers of the model route (hermes_config.model.headers). The main turn, the
+    """The allowed extra request headers of the model route (hermes_config.model.default_headers). The main turn, the
     compaction, the questions, and the CLI methods send them all. A reserved, duplicate, or malformed name fails
     the job (the run refuses it before the first job)."""
-    headers = ((job.get("hermes_config") or {}).get("model") or {}).get("headers") or {}
+    headers = ((job.get("hermes_config") or {}).get("model") or {}).get("default_headers") or {}
     conflicts = header_conflicts(headers)
     if conflicts:
         # The error keeps a count only: the header names come from the user configuration.
@@ -171,11 +173,11 @@ def qa_body_conflicts(extra: dict) -> list[str]:
 
 def override_conflicts(override: dict, prefix: str = "") -> list[str]:
     """The leaf key paths of hermes_config that are not on the allow-list (HERMES_CONFIG_ALLOWED), and the
-    model.headers names that header_conflicts refuses."""
+    model.default_headers names that header_conflicts refuses."""
     found = []
     for key, value in override.items():
         path = f"{prefix}.{key}" if prefix else str(key)
-        if path == "model.headers":
+        if path == "model.default_headers":
             found += header_conflicts(value)
             continue
         if any(path == allowed or path.startswith(allowed + ".") for allowed in HERMES_CONFIG_ALLOWED):

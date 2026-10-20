@@ -214,10 +214,15 @@ class ScoringTest(unittest.TestCase):
         self.assertFalse(scoring.score(question("choice", "blocked"), "not blocked"))
         # An answer that states uncertainty names no class (synthetic answers).
         for answer in ("not sure if completed", "Not clear whether finished.", "unclear if it is blocked",
-                       "I can't tell; maybe done"):
+                       "I can't tell if it is done", "unclear status"):
             for gold in ("open", "done", "blocked"):
                 with self.subTest(answer=answer, gold=gold):
                     self.assertFalse(scoring.score(question("choice", gold), answer))
+        # Uncertainty about another detail keeps the status class.
+        for answer, gold in (("Blocked, but the exact cause is unclear", "blocked"),
+                             ("Done; unsure which test ran last.", "done")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
         # A contrastive "not only" or "not merely" is not a negation.
         for answer in ("not only completed but verified", "Not merely done, but shipped."):
             with self.subTest(answer=answer):
@@ -866,16 +871,17 @@ class RunTest(unittest.TestCase):
         # FAKE values only: a route override with a key and a header, and a URL with a password and a query.
         marker = "fake-value-123"
         config = {"model": "m", "threshold": 0.95, "endpoint": f"http://user:{marker}@127.0.0.1:9/v1?key={marker}",
-                  "hermes_config": {"model": {"api_key": marker, "headers": {"X-Token": marker}}},
+                  "hermes_config": {"model": {"api_key": marker, "default_headers": {"X-Token": marker}}},
                   "qa_extra_body": {"token": marker}, "unknown_key": marker, "hermes_source": "/private"}
         public = run.public_config(config)
         self.assertNotIn(marker, json.dumps(public))
         self.assertNotIn("hermes_source", public)
         self.assertEqual(public["endpoint"], "http://127.0.0.1:9")
-        self.assertEqual(public["hermes_config"]["types"], {"model.api_key": "str", "model.headers.X-Token": "str"})
+        self.assertEqual(public["hermes_config"]["types"],
+                         {"model.api_key": "str", "model.default_headers.X-Token": "str"})
         self.assertEqual(public["hermes_config"], {"redacted": True, "types": public["hermes_config"]["types"]})
         # A resume compares the digests of the raw values; a changed value changes the hash.
-        changed = {**config, "hermes_config": {"model": {"api_key": "other", "headers": {"X-Token": marker}}}}
+        changed = {**config, "hermes_config": {"model": {"api_key": "other", "default_headers": {"X-Token": marker}}}}
         self.assertNotEqual(run.config_hash(changed), run.config_hash(config))
         self.assertEqual(run.digest_hash(run.config_digests(config)), run.config_hash(config))
         # A user value with a "redacted" key is not trusted as a redaction record.
@@ -1097,7 +1103,7 @@ class RunTest(unittest.TestCase):
 
     def test_report_drops_the_local_config_digests(self):
         marker = "fake-value-456"
-        config = {"model": "m", "threshold": 0.95, "hermes_config": {"model": {"headers": {"X-Fake": marker}}}}
+        config = {"model": "m", "threshold": 0.95, "hermes_config": {"model": {"default_headers": {"X-Fake": marker}}}}
         meta = {"schema": "s", "config": run.public_config(config), "config_sha256": run.config_digests(config),
                 "plugin": {}, "hermes": {}, "runtime_sha256": {"runner_python": "0" * 64},
                 "gold_sha256": run.current_gold_sha256()}
@@ -1113,7 +1119,7 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("config_sha256", report["meta"])
         self.assertNotIn("runtime_sha256", report["meta"])
         self.assertEqual(report["meta"]["config"]["hermes_config"],
-                         {"redacted": True, "types": {"model.headers.X-Fake": "str"}})
+                         {"redacted": True, "types": {"model.default_headers.X-Fake": "str"}})
 
     def test_report_lists_the_methods_that_each_resume_skipped(self):
         first = {"method": "fallback_quoted_ledger", "reason": "plugin_setting_missing"}
@@ -1172,8 +1178,8 @@ class RunTest(unittest.TestCase):
     def test_config_overrides_cannot_change_the_method(self):
         job = {"model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": "", "context_length": 8,
                "threshold": 0.9, "engine": "warm_compaction", "settings": {"ledger": True}}
-        # An allow-list: only model.headers. Every other key is refused, also a key that the benchmark does not set
-        # (an auxiliary model of the built-in compressor, another engine key, an unknown section).
+        # An allow-list: only model.default_headers. Every other key is refused, also a key that the benchmark does not
+        # set (an auxiliary model of the built-in compressor, another engine key, an unknown section).
         for override in ({"context": {"engine": "compressor"}}, {"compression": {"threshold": 0.5}},
                          {"plugins": {"entries": {"warm_compaction": {"settings": {"ledger": False}}}}},
                          {"model": {"base_url": "http://127.0.0.1:8/v1"}}, {"auxiliary": {"warm_compaction": {}}},
@@ -1182,8 +1188,13 @@ class RunTest(unittest.TestCase):
             self.assertTrue(worker.override_conflicts(override), override)
         self.assertEqual(worker.override_conflicts({"auxiliary": {"compression": {"model": "other"}}}),
                          ["auxiliary"])
-        self.assertEqual(worker.override_conflicts({"model": {"headers": {"X-Fake": "1"}}}), [])
-        self.assertEqual(worker.override_conflicts({"model": {"headers": {}, "provider": "x"}}), ["model.provider"])
+        self.assertEqual(worker.override_conflicts({"model": {"default_headers": {"X-Fake": "1"}}}), [])
+        # Hermes ignores model.headers, so the main turn and the compaction would not send it: it is refused.
+        self.assertEqual(worker.override_conflicts({"model": {"headers": {"X-Fake": "1"}}}), ["model.headers"])
+        self.assertEqual(worker.route_headers({"hermes_config": {"model": {"default_headers": {"X-Fake": "1"}}}}),
+                         {"X-Fake": "1"})
+        self.assertEqual(worker.override_conflicts({"model": {"default_headers": {}, "provider": "x"}}),
+                         ["model.provider"])
         self.assertEqual(worker.qa_body_conflicts({"max_tokens": 1, "top_p": 1}), ["max_tokens"])
         self.assertEqual(worker.qa_body_conflicts({"logit_bias": {}, "response_format": {}, "seed": 1}),
                          ["logit_bias", "response_format"])
@@ -1221,23 +1232,23 @@ class RunTest(unittest.TestCase):
                    {"X-Gateway": "a\U0001f600b"}, {"X-Gateway": "caf\u00e9"})
         for headers in refused:
             with self.subTest(headers=headers):
-                self.assertTrue(worker.override_conflicts({"model": {"headers": headers}}))
-                self.assertTrue(run.override_conflicts({"hermes_config": {"model": {"headers": headers}}}))
+                self.assertTrue(worker.override_conflicts({"model": {"default_headers": headers}}))
+                self.assertTrue(run.override_conflicts({"hermes_config": {"model": {"default_headers": headers}}}))
                 with self.assertRaisesRegex(worker.JobFailed, "^route_headers_refused:"):
-                    worker.route_headers({"hermes_config": {"model": {"headers": headers}}})
+                    worker.route_headers({"hermes_config": {"model": {"default_headers": headers}}})
         accepted = {"X-Gateway": "synthetic", "X-Trace": "1", "x-gw_1.v2~!#$%&'*+^`|": "a\tb"}
-        self.assertEqual(worker.override_conflicts({"model": {"headers": accepted}}), [])
-        self.assertEqual(worker.route_headers({"hermes_config": {"model": {"headers": accepted}}}), accepted)
+        self.assertEqual(worker.override_conflicts({"model": {"default_headers": accepted}}), [])
+        self.assertEqual(worker.route_headers({"hermes_config": {"model": {"default_headers": accepted}}}), accepted)
         # The QA request fails before it is sent, so the harness key is the only Authorization value.
         job = {"questions": [{"n": 1, "text": "Q?"}], "qa_batches": [[1]], "model": "m",
                "endpoint": "http://127.0.0.1:9/v1", "api_key": "fake-key",
-               "hermes_config": {"model": {"headers": {"authorization": "Bearer other"}}}}
+               "hermes_config": {"model": {"default_headers": {"authorization": "Bearer other"}}}}
         with mock.patch.object(worker.urllib.request, "urlopen", side_effect=AssertionError("no request")):
             with self.assertRaisesRegex(worker.JobFailed, "^route_headers_refused:1$"):
                 worker.ask(job, "system", [])
         with tempfile.TemporaryDirectory() as folder:
             job = {"model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": "", "context_length": 8,
-                   "threshold": 0.9, "engine": "compressor", "hermes_config": {"model": {"headers": {
+                   "threshold": 0.9, "engine": "compressor", "hermes_config": {"model": {"default_headers": {
                        "Content-Type": "text/plain"}}}}
             with self.assertRaisesRegex(worker.JobFailed, "hermes_config_protected:1"):
                 worker.write_config(Path(folder), job)
@@ -2407,8 +2418,8 @@ class MainTurnFailureTest(unittest.TestCase):
                 self.assertTrue(out["cycles"][0]["main_failed"])
 
     def test_qa_and_cli_requests_use_the_route_of_the_main_turn(self):
-        # Synthetic route: a fake key and one allowed extra header (hermes_config.model.headers).
-        route = {"api_key": "fake-key", "hermes_config": {"model": {"headers": {"X-Gateway": "synthetic"}}}}
+        # Synthetic route: a fake key and one allowed extra header (hermes_config.model.default_headers).
+        route = {"api_key": "fake-key", "hermes_config": {"model": {"default_headers": {"X-Gateway": "synthetic"}}}}
         self.assertEqual(worker.route_headers(route), {"X-Gateway": "synthetic"})
         self.assertEqual(worker.route_headers({}), {})
         sent = []
