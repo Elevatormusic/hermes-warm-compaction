@@ -67,8 +67,9 @@ and why. Copy every identifier exactly; do not paraphrase a name, a path, a numb
 of the word limit for this section; keep the sections above short.
 
 ## Next step
-The next action that the user asked for, its exact target, and, if it is blocked, what is missing. Describe it. \
-Do not do it.
+The next action that the user asked for, its exact target when the conversation names one (do not guess a path), \
+and, if it is blocked, what is missing. Then each later step that the user planned, in order, with its exact target \
+and its condition ("once ...", "after that ..."). Describe them. Do not do them.
 """
 
 # INSTRUCTION is the instruction at the default settings. INSTRUCTION_TEMPLATE keeps the word count as a token,
