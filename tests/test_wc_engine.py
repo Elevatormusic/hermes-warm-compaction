@@ -798,6 +798,8 @@ class EngineTest(unittest.TestCase):
         new = engine.compress(rows)
         self.assertEqual(engine.warm_last["path"], "fallback")
         summary = next(row["content"] for row in new if row.get("_compressed_summary") and row["role"] == "assistant")
+        # The copied user messages have their own allowance after the summary.
+        summary = summary.split("## Copied user messages", 1)[0]
         self.assertLessEqual(estimate_tokens(summary), SUMMARY_RESERVE + 100)
 
     def test_a_window_change_before_the_result_is_used_discards_it(self):
@@ -1697,14 +1699,16 @@ class EngineTest(unittest.TestCase):
         engine = self.make(threshold=0.95, tail_tokens=2_000)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        # The host count is not used: a compressible history can have an estimate above it.
-        for current, copied in ((estimate_tokens(rows) + 1_000, False), (estimate_tokens(rows) + 60_000, False),
-                                (estimate_tokens(rows) // 2, False), (None, False)):
+        # The host count is not used: a compressible history can have an estimate above it. The tail, the summary,
+        # and the copies take at most half of the free room; the other half is for the unknown overhead.
+        for current in (estimate_tokens(rows) + 1_000, estimate_tokens(rows) + 60_000, estimate_tokens(rows) // 2,
+                        None):
             with self.subTest(current=current):
                 new = engine.compress(rows, current_tokens=current)
                 summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
                 section = summary.split("## Copied user messages", 1)[1].strip()
-                self.assertEqual(not section.startswith("(none)"), copied)
+                self.assertFalse(section.startswith("(none)"))
+                self.assertLessEqual(estimate_tokens(new), int(engine.threshold_tokens) // 2)
 
     def test_compaction_stops_when_the_fallback_fails(self):
         self.llm = FakeLlm(error=RuntimeError("synthetic failure"))
@@ -2399,8 +2403,11 @@ class EngineTest(unittest.TestCase):
                                        assistant_message=reply_object(rows[-1]))
         new = engine.compress(rows, current_tokens=estimate_tokens(rows) + estimate_tokens(large))
         self.assertEqual(engine.warm_last["reason"], "source_transform_unsupported")
+        # The captured overhead (more than the window) would leave no room for the copies. The overhead is unknown
+        # instead, so the copies get half of the free room.
         summary = next(row["content"] for row in new if "## Copied user messages" in str(row["content"]))
-        self.assertTrue(summary.split("## Copied user messages", 1)[1].strip().startswith("(none)"))
+        self.assertFalse(summary.split("## Copied user messages", 1)[1].strip().startswith("(none)"))
+        self.assertLessEqual(estimate_tokens(new), int(engine.threshold_tokens) // 2)
 
 
 class SettingsTest(unittest.TestCase):

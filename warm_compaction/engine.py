@@ -492,7 +492,7 @@ class WarmCompactionEngine(ContextEngine):
         prepend_tokens = sent_tokens(prepend, policy) if prepend is not None else 0
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         # The copies get the room after the tail as build cuts it: the uncut tail can be much larger.
-        copy_tokens = 0 if overhead is None else self._copy_tokens(
+        copy_tokens = self._copy_tokens(
             layout.bound_tail(messages[start:], tail_tokens, policy=policy), summary, overhead, reserve, policy)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
@@ -823,13 +823,19 @@ class WarmCompactionEngine(ContextEngine):
             return None
         return capture
 
-    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int = 0, reserve: int = 0,
+    def _copy_tokens(self, tail_rows: list, summary: str, overhead: int | None = 0, reserve: int = 0,
                      policy: SendPolicy = SendPolicy()) -> int:
         """Token allowance for the copied user messages and the prepended user row: at most the tail size, and
-        the free room (_room)."""
+        the free room (_room). With an unknown overhead (no capture), the tail, the summary, and the copies use at
+        most half of the free room, as in _tail_cap: the other half is for the system rows and the tool schemas."""
         tail = self._tail_tokens()
-        room = self._room(tail_rows, summary, overhead, reserve, policy)
-        return tail if room is None else max(0, min(tail, room))
+        room = self._room(tail_rows, summary, overhead or 0, reserve, policy)
+        if room is None:
+            return tail
+        if overhead is None:
+            free = self._room([], "", 0, reserve, policy) or 0
+            room = free // 2 - (free - room)
+        return max(0, min(tail, room))
 
     def _cancelled(self) -> bool:
         check = getattr(self, "_compression_cancelled_check", None)
