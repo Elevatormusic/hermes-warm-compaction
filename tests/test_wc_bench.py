@@ -144,7 +144,8 @@ class ScoringTest(unittest.TestCase):
         self.assertFalse(scoring.score(item, "0"))
         self.assertFalse(scoring.score(item, "unknown"))
         # An answer that starts by saying that it is not known is wrong, also with a guess after it (synthetic).
-        for answer in ("unknown, maybe 1", "Not stated; possibly 1", "I don't know - perhaps 1", "unclear: 1?"):
+        for answer in ("unknown, maybe 1", "Not stated; possibly 1", "I don't know - perhaps 1", "unclear: 1?",
+                       "I'm not sure, maybe 1", "I am not sure: 1", "I'm not certain, 1?", "I cannot tell; 1"):
             with self.subTest(answer=answer):
                 self.assertFalse(scoring.score(item, answer))
         self.assertTrue(scoring.score(question("text", "37"), "37 (not stated elsewhere)"))
@@ -278,6 +279,12 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
                 self.assertFalse(scoring.score(question("choice", "done"), answer))
+        # A partial completion is not done (synthetic answers).
+        for answer, gold in (("partially completed", "open"), ("Nearly done.", "open"),
+                             ("Blocked; half finished", "blocked")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
+                self.assertFalse(scoring.score(question("choice", "done"), answer))
         # A future or scheduled completion is not done (synthetic answers).
         for answer, gold in (("will be completed tomorrow", "open"), ("scheduled to be finished after review", "open"),
                              ("Blocked; will be completed after review", "blocked")):
@@ -332,7 +339,10 @@ class ScoringTest(unittest.TestCase):
         # A status word inside a longer word does not keep a status fact (synthetic summary text).
         status = {"kind": "choice", "retention": [["update the docs"], ["complete", "finished", "blocked"]]}
         for text, kept in (("update the docs: complete", True), ("update the docs: incomplete", False),
-                           ("update the docs: unfinished", False), ("update the docs: unblocked", False)):
+                           ("update the docs: unfinished", False), ("update the docs: unblocked", False),
+                           ("update the docs: not complete", False), ("update the docs: never finished", False),
+                           ("update the docs: will be completed", False), ("update the docs: nearly complete", False),
+                           ("update the docs: not blocked, complete", True)):
             with self.subTest(text=text):
                 self.assertEqual(scoring.retained(status, text), kept)
         # A sign before the number changes the value (synthetic summary text).
@@ -2250,6 +2260,7 @@ class RunTest(unittest.TestCase):
                 return json.loads(done.stdout)
 
             self.assertIn("fake-pkg==1.0", probe()["packages"])
+            self.assertEqual(probe()["no_manifest"], [])
             # The same name and version with patched code: the package list stays, the file identity changes.
             for path in (site / "fake_pkg.py", source / "fake_edit.py"):
                 with self.subTest(path=path.name):
@@ -2258,6 +2269,16 @@ class RunTest(unittest.TestCase):
                     after = probe()
                     self.assertEqual(after["packages"], before["packages"])
                     self.assertNotEqual(after.get("files_sha256"), before.get("files_sha256"))
+            # A distribution without a file manifest (no RECORD): the probe names it, and the runner refuses.
+            legacy = site / "fake_legacy-1.0.dist-info"
+            legacy.mkdir()
+            (legacy / "METADATA").write_text("Metadata-Version: 2.1\nName: fake-legacy\nVersion: 1.0\n",
+                                             encoding="utf-8")
+            self.assertEqual(probe()["no_manifest"], ["fake-legacy"])
+            done = types.SimpleNamespace(stdout=json.dumps({**probe(), "content_sha256": None}))
+            with mock.patch.object(run.subprocess, "run", return_value=done), \
+                    self.assertRaisesRegex(SystemExit, "without a file manifest: fake-legacy"):
+                run.runtime_state({"hermes_python": "fake-python"}, content=False)
 
     def test_server_check_reads_the_loaded_context_length(self):
         import threading

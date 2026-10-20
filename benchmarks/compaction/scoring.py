@@ -53,6 +53,9 @@ NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished|finis
 # A completion word with a negative prefix ("incomplete", "unfinished") is a negated completion too: it names the
 # open class, and an explicit blocked label wins over it ("Blocked; incomplete" is blocked).
 INCOMPLETE = re.compile(r"(?<![a-z0-9])(?:incomplete|unfinished)(?![a-z0-9])")
+# A partial completion ("partially completed", "nearly done", "half finished") is not done: it names the open class.
+PARTIAL_DONE = re.compile(r"(?<![a-z0-9])(?:partially|partly|half|mostly|nearly|almost) (?:done|completed|complete|"
+                          r"finished)(?![a-z0-9])")
 # A pending or future completion ("still needs to be completed", "yet to be done", "waiting to complete", "will be
 # completed tomorrow", "scheduled to be finished") is not done: the
 # completion word is removed, and the answer infers the open class (an explicit blocked label wins over it).
@@ -139,16 +142,16 @@ def keyword_in(text: str, keyword: str) -> bool:
 
 def status_class(answer: str) -> str | None:
     """The one status class that the answer names, or None for no class or more than one. A negated completion
-    phrase (NEGATED_DONE, INCOMPLETE) names the open class, and its completion word does not name the done class.
-    A negated open or blocked label (NEGATED_LABEL) names no class. An answer that states uncertainty (UNCERTAIN)
-    names no class."""
+    phrase (NEGATED_DONE, INCOMPLETE, PARTIAL_DONE) names the open class, and its completion word does not name the
+    done class. A negated open or blocked label (NEGATED_LABEL) names no class. An answer that states uncertainty
+    (UNCERTAIN) names no class."""
     text = normalize(answer)
     if UNCERTAIN.search(text):
         return None
     pending = PENDING_DONE.search(text) is not None
     text = PENDING_DONE.sub(r"\1", text)
-    negated = pending or NEGATED_DONE.search(text) is not None or INCOMPLETE.search(text) is not None
-    text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", INCOMPLETE.sub(" ", text)))
+    negated = pending or any(pattern.search(text) for pattern in (NEGATED_DONE, INCOMPLETE, PARTIAL_DONE))
+    text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", INCOMPLETE.sub(" ", PARTIAL_DONE.sub(" ", text))))
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
     if negated and found != {"blocked"}:
         # A negated completion infers the open class. An explicit blocked label wins over it: "Blocked; not
@@ -158,10 +161,12 @@ def status_class(answer: str) -> str | None:
 
 
 # An answer that starts by saying that the conversation does not give the answer is unknown, also with a guess
-# after it ("unknown, maybe 7.3.0").
-UNKNOWN_START = re.compile(r"(?:unknown|not stated|not given|not mentioned|not specified|not established|not recorded|"
-                           r"not known|not sure|unsure|unclear|uncertain|i dont know|i do not know|cannot tell|"
-                           r"cant tell|cannot determine|cant determine|no information|n/a)(?![a-z0-9])")
+# after it ("unknown, maybe 7.3.0"). A first-person form is the same: "I'm not sure, maybe 7.3.0" (normalize gives
+# "im not sure") and "I am not certain".
+UNKNOWN_START = re.compile(r"(?:(?:im|i am|i) )?(?:unknown|not stated|not given|not mentioned|not specified|"
+                           r"not established|not recorded|not known|not sure|not certain|unsure|unclear|uncertain|"
+                           r"i dont know|i do not know|cannot tell|cant tell|cannot determine|cant determine|"
+                           r"no information|n/a)(?![a-z0-9])")
 
 
 def is_unknown(answer: Any) -> bool:
@@ -225,16 +230,33 @@ def fact_positions(needle: str, normal: str) -> list[int]:
     return [match.start() for match in re.finditer(pattern, normal)]
 
 
+DONE_WORDS = frozenset(STATUS_CLASSES["done"])
+
+
+def reversed_done(normal: str) -> set[int]:
+    """The start positions of the completion words that a negation, a pending or future phrase, or a partial phrase
+    reverses ("not complete", "never finished", "will be completed", "nearly done") in normalized text."""
+    starts = set()
+    for pattern in (NEGATED_DONE, PENDING_DONE, PARTIAL_DONE):
+        for match in pattern.finditer(normal):
+            starts.add(match.end() - len(re.search(r"[a-z]+$", match.group()).group()))
+    return starts
+
+
 def retained(question: dict, text: str) -> bool:
-    """True when the fact is still in the normalized compacted text (approximate)."""
+    """True when the fact is still in the normalized compacted text (approximate). A done alternative ("complete")
+    does not match where the text reverses it (reversed_done)."""
     if question["kind"] == "verbatim":
         return loose(question["gold"]) in loose(text)
     normal = normalize(text)
+    reversed_starts = reversed_done(normal)
     positions = []
     for group in question["retention"]:
         found = []
         for alternative in group:
-            found += fact_positions(normalize(alternative), normal)
+            needle = normalize(alternative)
+            found += [position for position in fact_positions(needle, normal)
+                      if needle not in DONE_WORDS or position not in reversed_starts]
         if not found:
             return False
         positions.append(sorted(found))

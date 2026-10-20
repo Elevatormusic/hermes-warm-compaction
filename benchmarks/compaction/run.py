@@ -737,12 +737,16 @@ def stat_row(group, name, path):
             pass
     return [group, name, info.st_size, info.st_mtime_ns, digest]
 
-rows = []
+rows, no_manifest = [], []
 for dist in metadata.distributions():
     group = dist.metadata["Name"]
     rows += [stat_row(group, str(item), item.locate()) for item in dist.files or []]
     direct = json.loads(dist.read_text("direct_url.json") or "{}")
-    if (direct.get("dir_info") or {}).get("editable") and str(direct.get("url", "")).startswith("file:"):
+    editable = (direct.get("dir_info") or {}).get("editable") and str(direct.get("url", "")).startswith("file:")
+    if dist.files is None and not editable:
+        # No file list (RECORD) and no editable source folder: the probe cannot hash the code of the distribution.
+        no_manifest.append(group)
+    if editable:
         source = urllib.request.url2pathname(urllib.parse.urlparse(direct["url"]).path)
         for folder, dirs, names in os.walk(source):
             dirs[:] = sorted(item for item in dirs if item not in (".git", "__pycache__", ".venv", "node_modules"))
@@ -754,7 +758,7 @@ rows.sort(key=lambda row: (row[0], row[1]))
 stats = [row[:4] for row in rows]
 print(json.dumps({"version": platform.python_version(), "implementation": sys.implementation.name,
                   "executable": os.path.realpath(sys.executable), "prefix": os.path.realpath(sys.prefix),
-                  "packages": packages,
+                  "packages": packages, "no_manifest": sorted(no_manifest),
                   "files_sha256": hashlib.sha256(json.dumps(stats).encode("utf-8")).hexdigest(),
                   "content_sha256": (hashlib.sha256(json.dumps([row[:2] + row[4:] for row in rows]).encode("utf-8"))
                                      .hexdigest() if CONTENT else None)}))
@@ -916,6 +920,11 @@ def runtime_state(config: dict, content: bool = True) -> dict[str, Any]:
             probe = json.loads(done.stdout)
         except (OSError, ValueError, subprocess.SubprocessError):
             raise SystemExit("hermes_python did not run the runtime probe; stop before any job") from None
+        if probe.get("no_manifest"):
+            # A distribution without a file list (RECORD), for example a legacy install: the probe cannot hash its
+            # files, so a change of its code would not be found.
+            raise SystemExit("the Hermes environment has distributions without a file manifest: "
+                             + ", ".join(probe["no_manifest"]) + "; reinstall them with pip, then start again")
         public["hermes_python"] = {"version": probe["version"], "implementation": probe["implementation"]}
         digests.update(hermes_python=sha256_value(probe["executable"]), hermes_prefix=sha256_value(probe["prefix"]),
                        hermes_packages=sha256_value(probe["packages"]), hermes_files=probe["files_sha256"])
