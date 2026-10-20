@@ -286,7 +286,10 @@ class RunTest(unittest.TestCase):
         for changed in ({"methods": ["stock_hermes", "stock_hermes"]}, {"fixtures": ["s1-ledgerline"] * 2},
                         {"drift": {**config["drift"], "fixtures": ["s1-ledgerline"] * 2}},
                         {"drift": {**config["drift"], "methods": ["warm_ledger", "warm_ledger"]}},
-                        {"drift": {**config["drift"], "cycles": 1}},
+                        {"drift": {**config["drift"], "cycles": 1}}, {"drift": {**config["drift"], "cycles": 2}},
+                        {"drift": {**config["drift"], "cycles": 4}},
+                        {"drift": {k: v for k, v in config["drift"].items() if k != "methods"}},
+                        {"drift": {k: v for k, v in config["drift"].items() if k != "fixtures"}},
                         {"drift": {k: v for k, v in config["drift"].items() if k != "cycles"}},
                         {"replicates": 0}, {"replicates": "2"}):
             with self.subTest(changed=changed), self.assertRaises(ValueError):
@@ -684,6 +687,16 @@ class RunTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 run.command_report(args)
             self.assertTrue((first / "r2.json").exists())
+            # A run with a key: the --raw-dir check needs the --same-credential confirmation, and accepts it.
+            keyed = {**meta, "config": {**meta["config"], "api_key_env": "WC_FAKE_KEY_ENV"}}
+            for path in (first, raw_run):
+                (path / "meta.json").write_text(json.dumps(keyed), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "--same-credential"):
+                run.command_report(types.SimpleNamespace(**{**vars(args), "json": str(first / "r3.json")}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                run.command_report(types.SimpleNamespace(**{**vars(args), "json": str(first / "r4.json"),
+                                                            "same_credential": True}))
+            self.assertTrue((first / "r4.json").exists())
 
     def test_planned_jobs_include_the_plan_of_each_resume(self):
         config = {"threshold": 0.95, "replicates": 1, "fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"]}
@@ -1318,7 +1331,7 @@ class RunTest(unittest.TestCase):
         # The server check is not part of the plan.
         for changed_plan in ({"methods": ["stock_hermes", "full_context"]}, {"methods": ["full_context"]},
                              {"fixtures": ["s1-ledgerline"]}, {"replicates": 6},
-                             {"drift": {"fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"], "cycles": 2}}):
+                             {"drift": {"fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"], "cycles": 3}}):
             with self.subTest(changed_plan=changed_plan):
                 self.assertEqual(run.resume_mismatches(meta, {**config, **changed_plan}, plugin, hermes, {},
                                                        runtime), (["job plan"], []))

@@ -183,6 +183,10 @@ def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any]
     return settings
 
 
+# The cycle count of a drift job: the first compaction and one for each of the two continuation chunks of a fixture.
+DRIFT_CYCLES = 3
+
+
 def balanced_order(items: list, block: int) -> list:
     """The items in the order of block (0-based), from a Williams design: in each set of n consecutive blocks (2n
     when the count n is odd) every item runs once in each position, and each item runs directly after each other
@@ -234,11 +238,15 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
     if not isinstance(reps, int) or isinstance(reps, bool) or reps < 1:
         raise ValueError("replicates must be an integer of 1 or more")
     if drift.get("fixtures") or drift.get("methods"):
-        # A drift job compacts more than once: a cycle count of 1 would give the ID of a main job. A missing
-        # count is an error too.
+        # A drift section with only fixtures or only methods would plan no drift job: the experiment would be
+        # missing from the run and the report without notice.
+        if not (drift.get("fixtures") and drift.get("methods")):
+            raise ValueError("drift needs both fixtures and methods")
+        # Each fixture has two continuation chunks, and the decision rule compares cycles 1 and 3: exactly
+        # DRIFT_CYCLES cycles (a missing count is an error too).
         cycles = drift.get("cycles")
-        if not isinstance(cycles, int) or isinstance(cycles, bool) or cycles < 2:
-            raise ValueError("drift.cycles must be an integer of 2 or more")
+        if not isinstance(cycles, int) or isinstance(cycles, bool) or cycles != DRIFT_CYCLES:
+            raise ValueError(f"drift.cycles must be {DRIFT_CYCLES}")
     jobs, skipped = [], []
     usable = []
     for name in methods:
@@ -1707,17 +1715,19 @@ def current_gold_sha256() -> dict[str, str]:
     return {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
 
 
-def raw_sources(out_dir: Path, meta: dict | None, raw_dirs: list[Path] | tuple) -> list[tuple[Path, set | None]]:
+def raw_sources(out_dir: Path, meta: dict | None, raw_dirs: list[Path] | tuple,
+                same_credential: bool = False) -> list[tuple[Path, set | None]]:
     """The raw folders that --rescore can read for the records of out_dir: its own raw/ folder, and each --raw-dir
-    that is the raw/ folder of a run folder of the same run identity (merge_mismatches finds no difference). For a
-    --raw-dir, the set has the (job, start time) of each attempt in its runs.jsonl."""
+    that is the raw/ folder of a run folder of the same run identity (merge_mismatches finds no difference; with a
+    key, same_credential is the --same-credential confirmation). For a --raw-dir, the set has the (job, start time)
+    of each attempt in its runs.jsonl."""
     sources: list[tuple[Path, set | None]] = [(out_dir / "raw", None)]
     for folder in raw_dirs:
         parent = Path(folder).parent
         if Path(folder).name != "raw" or not (parent / "meta.json").exists():
             raise SystemExit(f"report refused: --raw-dir {folder} is not the raw folder of a run folder")
         other = json.loads((parent / "meta.json").read_text(encoding="utf-8"))
-        mismatches = merge_mismatches(meta or {}, other, True)
+        mismatches = merge_mismatches(meta or {}, other, True, same_credential)
         if mismatches:
             raise SystemExit(f"report refused: --raw-dir {folder} is from a run that differs in "
                              f"{', '.join(mismatches)}")
@@ -1742,7 +1752,7 @@ def find_raw(run: dict, sources: list[tuple[Path, set | None]]) -> Path | None:
 
 
 def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
-            meta: dict | None = None) -> dict[str, int]:
+            meta: dict | None = None, same_credential: bool = False) -> dict[str, int]:
     """Score the kept worker output (raw/) again with the current gold files. Only the marks change.
     raw_dirs are more raw folders to search, for example of a run that gave reused jobs; meta is the meta.json of
     out_dir, which each of them must match. A job without a verified raw file keeps its marks; the result counts
@@ -1750,7 +1760,7 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
     built = {spec["id"]: fixtures.build(spec)[0] for spec in fixtures.SCENARIOS}
     counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0, "jobs_failed_incomplete": 0,
               "jobs_other_qa_prompt": 0}
-    sources = raw_sources(out_dir, meta, raw_dirs)
+    sources = raw_sources(out_dir, meta, raw_dirs, same_credential)
     for run in runs:
         if not run.get("cycles"):
             continue
@@ -1842,7 +1852,8 @@ def command_report(args) -> int:
     rescores = []
     if args.rescore:
         raw_dirs = [Path(folder) for folder in args.raw_dir or []]
-        rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs, meta)})
+        rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs, meta,
+                                                            getattr(args, "same_credential", False))})
         refuse_stale(rescores[-1])
     # The metadata of each accepted folder as it was read (the report changes meta below).
     accepted = [(out_dir, copy.deepcopy(meta))]
@@ -1865,7 +1876,8 @@ def command_report(args) -> int:
         known = {run["job"] for run in runs}
         extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
         if args.rescore:
-            rescores.append({"folder": extra_dir.name, **rescore(extra_dir, extra_runs, raw_dirs, extra_meta)})
+            rescores.append({"folder": extra_dir.name, **rescore(extra_dir, extra_runs, raw_dirs, extra_meta,
+                                                                 getattr(args, "same_credential", False))})
             refuse_stale(rescores[-1])
         elif extra_meta.get("gold_sha256") != gold_now:
             meta.setdefault("gold_changed_after_run", []).append(extra_dir.name)
