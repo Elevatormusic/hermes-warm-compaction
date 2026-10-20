@@ -592,6 +592,28 @@ class RunTest(unittest.TestCase):
         # Accuracy uses the scored runs only: the ok run and the retried run.
         self.assertEqual(entry["compacted_runs"], 2)
 
+    def test_rescore_refuses_another_synthetic_workload(self):
+        current = {spec["id"]: run.sha256_value(fixtures.build(spec)[0]) for spec in SCENARIOS}
+        harness = run.harness_hashes()
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            # Other fixture histories (synthetic hash), or for an older folder other fixture sources at its start or
+            # at a resume: the raw answers come from another workload.
+            for meta in ({"fixture_sha256": {**current, "s1-ledgerline": "0" * 64}},
+                         {"harness_sha256": {**harness, "fixtures.py": "0" * 64}},
+                         {"harness_sha256": harness, "resumes": [{"harness_sha256": {**harness,
+                                                                                       "scenarios.py": "0" * 64}}]}):
+                with self.subTest(meta=list(meta)), self.assertRaisesRegex(SystemExit, "synthetic workload"):
+                    run.rescore(out, [], meta=meta)
+            # The same workload: recorded hashes, or for an older folder the same fixture sources.
+            self.assertIsNone(run.fixture_mismatch({"fixture_sha256": current}))
+            self.assertIsNone(run.fixture_mismatch({"harness_sha256": harness,
+                                                    "resumes": [{"harness_sha256": harness}]}))
+        # The advice for jobs without raw output names a way that works (a report without --rescore is refused).
+        with self.assertRaises(SystemExit) as stop:
+            run.refuse_stale({"folder": "f", "jobs_without_raw": 1})
+        self.assertNotIn("without --rescore", str(stop.exception))
+
     def test_rescore_reads_only_raw_files_of_a_verified_run(self):
         spec = next(item for item in SCENARIOS if item["id"] == "s4-orchard")
         history, gold = fixtures.build(spec)
@@ -599,7 +621,8 @@ class RunTest(unittest.TestCase):
                  "qa": {"batches": planned_batches(gold, lambda _n: "unknown")}}
         data = json.dumps({"cycles": [cycle]}).encode("utf-8")
         name = f"{spec['id']}__warm_ledger__r1__c1.json"
-        meta = {"schema": "s", **FAKE_RUNTIME_META, "config": {"model": "m", "methods": ["warm_ledger"]},
+        meta = {"schema": "s", **FAKE_RUNTIME_META, "fixture_sha256": run.fixture_sha256(),
+                "config": {"model": "m", "methods": ["warm_ledger"]},
                 "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}}}
 
         def record(**extra):
@@ -715,7 +738,7 @@ class RunTest(unittest.TestCase):
                 "config": {"model": "m", "context_length": 8, "threshold": 0.95, "replicates": 1,
                            "fixtures": [SCENARIOS[0]["id"]], "methods": ["stock_hermes", "warm_ledger"],
                            "drift": {"fixtures": [SCENARIOS[0]["id"]], "methods": ["warm_ledger"], "cycles": 3}},
-                "gold_sha256": run.current_gold_sha256(), **FAKE_RUNTIME_META}
+                "gold_sha256": run.current_gold_sha256(), "fixture_sha256": run.fixture_sha256(), **FAKE_RUNTIME_META}
         with tempfile.TemporaryDirectory() as folder:
             first, raw_run = Path(folder) / "a", Path(folder) / "b"
             for path in (first, raw_run):
@@ -848,7 +871,8 @@ class RunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
             (out / "meta.json").write_text(json.dumps({"schema": "s", "config": {}, "plugin": {}, "hermes": {},
-                                                       "harness_sha256": FAKE_HARNESS}), encoding="utf-8")
+                                                       "harness_sha256": FAKE_HARNESS,
+                                                       "fixture_sha256": run.fixture_sha256()}), encoding="utf-8")
             (out / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in runs), encoding="utf-8")
             args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=True,
                                          raw_dir=None)

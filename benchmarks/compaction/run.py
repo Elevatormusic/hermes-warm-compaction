@@ -955,6 +955,31 @@ def harness_hashes() -> dict[str, str]:
     return {path.name: sha256_file(path) for path in sorted(HERE.glob("*.py"))}
 
 
+# The harness files that make the synthetic sessions: the build is deterministic, so the same files give the same
+# histories.
+FIXTURE_SOURCES = ("fixtures.py", "scenarios.py")
+
+
+def fixture_sha256() -> dict[str, str]:
+    """The SHA-256 of each synthetic session history that the current harness builds, by fixture ID."""
+    return {spec["id"]: sha256_value(fixtures.build(spec)[0]) for spec in fixtures.SCENARIOS}
+
+
+def fixture_mismatch(meta: dict) -> str | None:
+    """Why the synthetic workload of a run folder differs from the current one (None when it is the same). A folder
+    records fixture_sha256; an older folder is compared by the hashes of FIXTURE_SOURCES in the harness of its
+    start and of each resume."""
+    recorded = meta.get("fixture_sha256")
+    if recorded is not None:
+        changed = sorted(key for key, value in fixture_sha256().items() if recorded.get(key) != value)
+        return f"fixture histories {', '.join(changed)}" if changed else None
+    now = harness_hashes()
+    harnesses = [meta.get("harness_sha256") or {}] + [item.get("harness_sha256") or {}
+                                                      for item in meta.get("resumes") or []]
+    changed = sorted({name for name in FIXTURE_SOURCES for hashes in harnesses if hashes.get(name) != now.get(name)})
+    return f"fixture sources {', '.join(changed)} (the folder records no fixture hashes)" if changed else None
+
+
 def harness_id(hashes: dict[str, str]) -> str:
     return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
@@ -1124,7 +1149,7 @@ def command_run(args) -> int:
                 "server_model": model,
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": harness_hashes(),
-                "gold_sha256": current_gold_sha256(),
+                "gold_sha256": current_gold_sha256(), "fixture_sha256": fixture_sha256(),
                 "host": runtime["public"]["host"],
                 "runtime": {key: value for key, value in runtime["public"].items() if key != "host"},
                 "runtime_sha256": runtime["sha256"],
@@ -1929,7 +1954,12 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
     """Score the kept worker output (raw/) again with the current gold files. Only the marks change.
     raw_dirs are more raw folders to search, for example of a run that gave reused jobs; meta is the meta.json of
     out_dir, which each of them must match. A job without a verified raw file keeps its marks; the result counts
-    it."""
+    it. A folder whose synthetic workload differs from the current one (fixture_mismatch) is refused: its raw answers
+    come from other sessions, and the evidence marks would use the new histories."""
+    problem = fixture_mismatch(meta) if meta is not None else None
+    if problem:
+        raise SystemExit(f"report refused: --rescore: the synthetic workload of {out_dir.name} differs from the "
+                         f"current one ({problem}); report it with the harness and gold files that made it")
     built = {spec["id"]: fixtures.build(spec)[0] for spec in fixtures.SCENARIOS}
     counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0, "jobs_failed_incomplete": 0,
               "jobs_other_qa_prompt": 0}
@@ -1979,7 +2009,7 @@ def refuse_stale(item: dict) -> None:
         raise SystemExit(f"report refused: --rescore found {item['jobs_without_raw']} jobs in {item['folder']} "
                          "without a verified raw output (keep_text was off, or no raw file has the hash or the "
                          "attempt of the record); their marks use the old gold files. Add --raw-dir for them, or "
-                         "report without --rescore (the report then warns).")
+                         "report the folder with the harness and gold files that made it.")
 
 
 def source_lines(meta: dict) -> list[str]:
