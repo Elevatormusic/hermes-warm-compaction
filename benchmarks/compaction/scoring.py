@@ -78,10 +78,12 @@ def loose(text: Any) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", normalize(text)).split())
 
 
-# A dotted version ("7.3.0") can have a "v" before it ("v7.3.0"), but not another letter, a digit, or a sign, and
-# not a longer version after it ("7.3.0.1").
-VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+")
+# A dotted version ("7.3.0", "3.0.0-beta.2", "1.2.0+build.5") is one token. It can have a "v" before it ("v7.3.0"),
+# but not another letter, a digit, or a sign. Another version part, prerelease, or build suffix after it makes
+# another version ("7.3.0.1", "7.3.0-beta", "3.0.0-beta.2.1"). A one-dot number keeps the number edge after it.
+VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:-[0-9a-z]+(?:\.[0-9a-z]+)*)?(?:\+[0-9a-z]+(?:\.[0-9a-z]+)*)?")
 VERSION_LEFT = r"(?<![a-uw-z0-9+-])(?<![a-z0-9]v)(?<![0-9][.,])"
+VERSION_RIGHT = r"(?![0-9a-z])(?![.+-][0-9a-z])"
 NUMBER_RIGHT = r"(?![0-9])(?![.,][0-9])"
 NUMERIC = re.compile(r"[0-9.,:/ x%+-]+")
 
@@ -92,7 +94,9 @@ def number_pattern(needle: str) -> str | None:
     ("-5" is not "5", unless the needle has the sign) and no digit or decimal part after it ("5.5" is not "5"); a
     unit such as "5s" or "5ms" can follow."""
     if VERSION.fullmatch(needle):
-        return VERSION_LEFT + re.escape(needle) + NUMBER_RIGHT
+        # A one-dot number without a suffix ("0.412", "91.6") is a decimal: a unit can follow ("0.412s").
+        decimal = needle.count(".") == 1 and not re.search(r"[+-]", needle)
+        return VERSION_LEFT + re.escape(needle) + (NUMBER_RIGHT if decimal else VERSION_RIGHT)
     if NUMERIC.fullmatch(needle) and any(char.isdigit() for char in needle):
         sign = "" if needle[0] in "+-" else r"(?<![+-])"
         return r"(?<![a-z0-9])(?<![0-9][.,])" + sign + re.escape(needle) + NUMBER_RIGHT

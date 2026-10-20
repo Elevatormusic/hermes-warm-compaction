@@ -482,7 +482,15 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
         except subprocess.TimeoutExpired as error:
             record["error"] = "job_timeout"
             completed = error
-        out = json.loads(target.read_text(encoding="utf-8")) if target.exists() else None
+        out = None
+        if target.exists():
+            try:
+                out = json.loads(target.read_text(encoding="utf-8"))
+            except ValueError:
+                # A stop during the report write leaves partial JSON: the attempt fails and keeps its record.
+                record["error"] = record["error"] or "worker_bad_report"
+        if not isinstance(out, dict):
+            out = None
         if out is None:
             record["error"] = record["error"] or "worker_no_report"
             # The end of the worker error output, for local diagnosis only (the run folder stays in .work/).

@@ -156,6 +156,18 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertEqual(scoring.score(item, answer), correct)
 
+    def test_versions_with_suffixes_need_the_whole_version(self):
+        # The s3-quillmark release is a prerelease version; a numeric version does not match a prerelease.
+        beta = "3.0.0-beta.2"
+        for gold, answer, correct in ((beta, "v3.0.0-beta.2", True), (beta, "3.0.0-beta.2.", True),
+                                      (beta, "3.0.0-beta.2.1", False), (beta, "3.0.0-beta.21", False),
+                                      ("7.3.0", "7.3.0-beta", False), ("7.3.0", "7.3.0+build.5", False),
+                                      ("1.2.0+build.5", "v1.2.0+build.5", True), ("0.412", "0.412s", True)):
+            with self.subTest(gold=gold, answer=answer):
+                self.assertEqual(scoring.score(question("text", gold), answer), correct)
+                retained = scoring.retained({"kind": "text", "retention": [[gold], ["release"]]}, f"release {answer}")
+                self.assertEqual(retained, correct)
+
     def test_text_versions_need_whole_versions(self):
         item = question("text", "7.3.0")
         for answer, correct in (("v7.3.0", True), ("7.3.0", True), ("release 7.3.0.", True), ("7.3.0.1", False),
@@ -800,6 +812,18 @@ class RunTest(unittest.TestCase):
             with mock.patch.object(run, "run_tree", side_effect=hung_worker):
                 record = run.run_job(job, config, out_dir, history_dir)
             self.assertEqual((record["status"], record["error"]), ("failed", "job_timeout"))
+
+            # A stop during the report write leaves partial JSON: a failed attempt with its own record.
+            def partial_worker(argv, timeout, **_kwargs):
+                Path(argv[argv.index("--out") + 1]).write_text('{"status": "ok", "cyc', encoding="utf-8")
+                if timeout == 1:
+                    raise subprocess.TimeoutExpired(argv, timeout, stderr=b"")
+                return types.SimpleNamespace(returncode=0, stderr=b"")
+
+            for timeout, error in ((1, "job_timeout"), (3600, "worker_bad_report")):
+                with self.subTest(error=error), mock.patch.object(run, "run_tree", side_effect=partial_worker):
+                    record = run.run_job(job, {**config, "job_timeout_s": timeout}, out_dir, history_dir)
+                    self.assertEqual((record["status"], record["error"]), ("failed", error))
 
     def test_failed_job_with_a_partial_cycle_is_not_scored(self):
         runs = self.synthetic_runs()

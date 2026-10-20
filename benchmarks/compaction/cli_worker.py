@@ -720,7 +720,10 @@ def main() -> int:
     except Exception as error:
         out["error"] = type(error).__name__
         out["trace"] = "".join(traceback.format_exception(type(error), None, error.__traceback__))[-4000:]
-    Path(args.out).write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    # The report replaces the file in one step: a stop during the write leaves no partial report.
+    temporary = Path(args.out).with_name(Path(args.out).name + ".tmp")
+    temporary.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, args.out)
     return 0
 
 
