@@ -16,12 +16,19 @@ still there, not whether a model can use it.
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 import re
 from typing import Any
 
 RETENTION_WINDOW = 600
+QA_INSTRUCTION = (
+    "Answer the numbered questions about this session. Use only the conversation above. If the conversation "
+    "does not give the answer, write \"unknown\". Copy names, paths, numbers, commands, and rules exactly. "
+    "Reply with one JSON object that maps each question number (as a string) to a short answer string. "
+    "Write nothing else.")
+QA_BATCH_MAX = 12
 STATUS_CLASSES = {"done": ("done", "completed", "complete", "finished"),
                   "open": ("open", "pending", "not started", "in progress", "todo", "to do", "not done"),
                   "blocked": ("blocked", "waiting")}
@@ -30,7 +37,11 @@ NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
 def normalize(text: Any) -> str:
     """Lower case, one space between words, no quote characters or backticks, forward slashes."""
-    text = str(text or "")
+    return normalize_text(str(text or ""))
+
+
+@functools.lru_cache(maxsize=65536)
+def normalize_text(text: str) -> str:
     text = text.replace("\\\\", "\\").replace('\\"', '"').replace("\\n", "\n").replace("\\t", " ")
     text = re.sub(r"[`\"'‘’“”]", "", text).replace("\\", "/")
     return " ".join(text.lower().split())
@@ -148,6 +159,33 @@ def parse_answers(text: str, numbers: list[int]) -> tuple[dict[str, str], bool]:
         if match and int(match.group(1)) in numbers:
             answers[match.group(1)] = match.group(2).strip().strip('",')
     return answers, bool(answers)
+
+
+def qa_prompt(items: list[tuple[int, str]]) -> str:
+    """The user row of one QA request: the instruction and the numbered questions (number, question text)."""
+    return QA_INSTRUCTION + "\n\n" + "\n".join(f"{number}. {text}" for number, text in items)
+
+
+def prompt_leaks(items: list[tuple[int, dict]]) -> list[str]:
+    """The ids of the questions in one batch (number, gold question) whose gold rule passes on text that the batch
+    prompt gives: the full prompt, each line (also the own line: an echo), or each word of another line (the
+    instruction, another question, or a question number)."""
+    text = qa_prompt([(number, question["question"]) for number, question in items])
+    lines = [line for line in text.splitlines() if line.strip()]
+    found = []
+    for number, question in items:
+        own = f"{number}. {question['question']}"
+        words = dict.fromkeys(word for line in lines if line != own for word in line.split())
+        if any(score(question, candidate) for candidate in [text, *lines, *words]):
+            found.append(question["id"])
+    return found
+
+
+def missing_answers(text: str, numbers: list[int]) -> list[int]:
+    """The question numbers of a batch that a reply does not answer (no answer or an empty answer). A reply that
+    does not parse misses all."""
+    answers, parsed = parse_answers(text, numbers)
+    return [n for n in numbers if not parsed or not answers.get(str(n), "").strip()]
 
 
 def wilson(successes: int, total: int, z: float = 1.959964) -> tuple[float | None, float | None]:

@@ -19,6 +19,7 @@ import random
 import re
 from pathlib import Path
 
+from . import scoring
 from .scenarios import SCENARIOS
 
 LABEL = "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values."
@@ -399,7 +400,28 @@ def gold_for(spec: dict, evidence: dict, history: dict) -> dict:
             "history_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "rows": len(history["rows"]), "est_tokens": estimate_tokens(history["rows"]),
             "continuation_est_tokens": [estimate_tokens(chunk) for chunk in history["continuations"]],
-            "questions": questions}
+            "questions": questions, "qa_batches": qa_plan(questions)}
+
+
+def qa_plan(questions: list[dict]) -> list[list[int]]:
+    """The QA batches (question numbers). A question goes into the first batch with space where the batch prompt
+    passes no gold rule of a question in it (scoring.prompt_leaks). The plan uses the smallest batch count, from
+    the count that full batches need, where each question finds a batch."""
+    numbered = list(enumerate(questions, 1))
+    count = -(-len(numbered) // scoring.QA_BATCH_MAX)
+    while count <= len(numbered):
+        size = -(-len(numbered) // count)
+        batches: list[list[tuple[int, dict]]] = [[] for _ in range(count)]
+        for item in numbered:
+            target = next((batch for batch in sorted(batches, key=len) if len(batch) < size
+                           and not scoring.prompt_leaks(batch + [item])), None)
+            if target is None:
+                break
+            target.append(item)
+        else:
+            return [[number for number, _question in batch] for batch in batches]
+        count += 1
+    raise ValueError("no QA batch plan without a leak")
 
 
 def exit_patterns(code: int) -> list[str]:

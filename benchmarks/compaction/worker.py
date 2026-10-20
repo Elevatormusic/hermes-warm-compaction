@@ -22,11 +22,9 @@ import traceback
 import urllib.request
 from pathlib import Path
 
-QA_INSTRUCTION = (
-    "Answer the numbered questions about this session. Use only the conversation above. If the conversation "
-    "does not give the answer, write \"unknown\". Copy names, paths, numbers, commands, and rules exactly. "
-    "Reply with one JSON object that maps each question number (as a string) to a short answer string. "
-    "Write nothing else.")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scoring import missing_answers, qa_prompt  # noqa: E402
+
 WIRE_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
 # Config sections that define the method of a job. hermes_config cannot set anything in them.
 PROTECTED_SECTIONS = ("context", "compression", "plugins", "auxiliary.warm_compaction")
@@ -65,13 +63,15 @@ def post_chat(endpoint: str, api_key: str, body: dict, timeout_s: float) -> dict
 
 
 def ask(job: dict, system: str, rows: list) -> dict:
-    """Ask the questions in batches. Each batch is one request with the compacted history and one user row."""
-    questions = job["questions"]
-    batch = int(job.get("qa_batch", 12))
+    """Ask the questions in the batches of the gold plan (job "qa_batches"). Each batch is one request with the
+    compacted history and one user row."""
+    questions = {item["n"]: item for item in job["questions"]}
+    if sorted(n for batch in job["qa_batches"] for n in batch) != sorted(questions):
+        raise JobFailed("qa_plan_mismatch")
     result = {"batches": [], "calls": [], "error": None}
-    for start in range(0, len(questions), batch):
-        part = questions[start:start + batch]
-        text = QA_INSTRUCTION + "\n\n" + "\n".join(f"{item['n']}. {item['text']}" for item in part)
+    for numbers in job["qa_batches"]:
+        part = [questions[n] for n in numbers]
+        text = qa_prompt([(item["n"], item["text"]) for item in part])
         messages = [{"role": "system", "content": system}, *wire_rows(rows), {"role": "user", "content": text}]
         conflicts = qa_body_conflicts(job.get("qa_extra_body") or {})
         if conflicts:
@@ -85,18 +85,26 @@ def ask(job: dict, system: str, rows: list) -> dict:
             # A failed request (timeout, HTTP error) gives no answers: the job fails, it is not scored as wrong.
             result["error"] = f"qa_request:{type(error).__name__}"
             raise JobFailed(result["error"]) from None
-        if not reply.get("choices"):
+        # Only a full answer is accepted: a reply of another shape fails the job, it is not scored as wrong.
+        if not isinstance(reply, dict) or not isinstance(reply.get("choices"), list) or not reply["choices"]:
             raise JobFailed("qa_request:no_choices")
-        choice = reply["choices"][0]
-        message = choice.get("message") or {}
+        choice = reply["choices"][0] if isinstance(reply["choices"][0], dict) else {}
+        message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise JobFailed("qa_request:no_content")
+        if choice.get("finish_reason") != "stop":
+            # "length" cuts the answers; "tool_calls" and "content_filter" are not answers.
+            raise JobFailed(f"qa_request:finish_{str(choice.get('finish_reason'))[:24]}")
+        if missing_answers(content, [item["n"] for item in part]):
+            raise JobFailed("qa_request:incomplete_answers")
         usage = reply.get("usage") or {}
         result["calls"].append({
             "elapsed_s": round(time.monotonic() - started, 3), "ok": True,
             "finish_reason": choice.get("finish_reason"), "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
             "cached_tokens": (usage.get("prompt_tokens_details") or {}).get("cached_tokens")})
-        result["batches"].append({"numbers": [item["n"] for item in part],
-                                  "text": str(message.get("content") or "")})
+        result["batches"].append({"numbers": [item["n"] for item in part], "text": content})
     return result
 
 

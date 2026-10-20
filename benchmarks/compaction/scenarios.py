@@ -235,7 +235,7 @@ SCENARIOS = [
         "decisions": [
             ("Why did the agent compare times with !Before instead of After?",
              "I compare with !t.Before(since) instead of t.After(since), because a record exactly at midnight on "
-             "the --since day must be included.", [["midnight", "inclusive", "exactly", "same day", "equal"]]),
+             "the --since day must be included.", [["midnight", "inclusive", "same day", "equal"]]),
             ("Why did the agent put the date parser in internal/timeparse instead of cmd/tidepool?",
              "I put the parser in internal/timeparse, not in cmd/tidepool, so the import command can reuse it "
              "later.", [["reuse", "share"]]),
@@ -357,13 +357,13 @@ SCENARIOS = [
              "I chose @iarna/toml over smol-toml because smol-toml needs Node 22.", [["node 22", "node22"]]),
             ("Why does the loader choose the parser by file extension instead of trying both parsers?",
              "I choose the parser by extension instead of trying YAML first, because the YAML parser read some TOML "
-             "files as one plain string without an error.", [["string", "without an error", "silently"]]),
+             "files as one plain string without an error.", [["plain string", "without an error", "silently"]]),
             ("Why did the agent convert TOML dates to ISO strings during loading?",
              "I convert TOML datetimes to ISO strings, because Date objects broke the hashing of the build cache "
              "key.", [["cache", "hash"]]),
             ("Why did the agent not delete docs/quillmark.yaml?",
              "I will not delete docs/quillmark.yaml yet, because the user wants both formats for one release.",
-             [["one release", "both formats", "deprecat"]]),
+             [["one release", "both formats"]]),
             ("Why did the agent move the schema validation before the merge of the defaults?",
              "I moved validation before the defaults merge, because the defaults hid a missing required baseUrl.",
              [["baseurl", "base url", "base_url"]]),

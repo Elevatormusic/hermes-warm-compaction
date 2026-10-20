@@ -245,6 +245,12 @@ def score_cycle(cycle: dict, gold: dict, history: dict, method: str) -> dict:
     keep = ("path", "reason", "fallback_reason", "elapsed_s", "prompt_tokens", "cached_tokens", "fallback_attempts",
             "fallback_end_marker", "fallback_output_tokens", "fallback_body_tokens", "compression_count", "trigger")
     calls = qa.get("calls", [])
+    # A cycle that compacted (or a control cycle) must have an answer to each question. qa_missing counts the
+    # questions without one: no batch, a reply that did not parse, or no answer or an empty answer in the reply.
+    asked = {n for batch in qa.get("batches", []) for n in batch["numbers"]}
+    missing = sum(len(scoring.missing_answers(batch["text"], batch["numbers"])) for batch in qa.get("batches", []))
+    missing += sum(1 for n in range(1, len(questions) + 1) if n not in asked)
+    scored = bool(cycle.get("compacted")) or METHODS[method]["engine"] == "none"
     return {
         "cycle": cycle.get("cycle"), "path": classify(cycle, method), "compacted": bool(cycle.get("compacted")),
         "preflight": bool(cycle.get("preflight")), "main_failed": bool(cycle.get("main_failed")),
@@ -261,7 +267,7 @@ def score_cycle(cycle: dict, gold: dict, history: dict, method: str) -> dict:
         "qa_prompt_tokens": calls[0].get("prompt_tokens") if calls else None,
         "qa_s": round(sum(call.get("elapsed_s") or 0 for call in calls), 3),
         "qa_finish": [call.get("finish_reason") for call in calls], "qa_error": qa.get("error"),
-        "qa_parsed": parsed,
+        "qa_parsed": parsed, "qa_missing": missing if scored else None,
         # One string per question: answer correct, fact retained, evidence rows kept verbatim, answer given.
         "marks": marks,
     }
@@ -290,7 +296,7 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
             "fixture_path": str(fixture_path), "endpoint": config["endpoint"], "model": config["model"],
             "api_key": os.environ.get(config.get("api_key_env") or "", "") or "no-key-required",
             "context_length": int(config["context_length"]), "threshold": float(config["threshold"]),
-            "cycles": job["cycles"], "qa_batch": int(config.get("qa_batch", 12)),
+            "cycles": job["cycles"], "qa_batches": gold["qa_batches"],
             "qa_max_tokens": int(config.get("qa_max_tokens", 2048)), "qa_extra_body": config.get("qa_extra_body"),
             "main_max_tokens": int(config.get("main_max_tokens", 4096)),
             "hermes_config": config.get("hermes_config") or {},
@@ -328,6 +334,7 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
             record["worker_python"] = out.get("python")
             record["engine_name"] = out.get("engine_name")
             record["cycles"] = [score_cycle(cycle, gold, history, job["method"]) for cycle in out.get("cycles", [])]
+            fail_incomplete(record)
             if config.get("keep_text"):
                 raw = out_dir / "raw"
                 raw.mkdir(exist_ok=True)
@@ -335,6 +342,14 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
                 (raw / f"{name}.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     record["elapsed_s"] = round(time.monotonic() - started, 3)
     return record
+
+
+def fail_incomplete(record: dict) -> bool:
+    """A job with a scored cycle that has no full answer fails: a missing answer is not scored as wrong."""
+    if record.get("status") == "ok" and any(cycle.get("qa_missing") for cycle in record.get("cycles") or []):
+        record["status"], record["error"] = "failed", "qa_incomplete"
+        return True
+    return False
 
 
 def anthropic_base_url(config: dict) -> str:
@@ -455,6 +470,60 @@ def config_hash(config: dict) -> str:
     return digest_hash(config_digests(config))
 
 
+# Runs in the Python of the Hermes virtual environment. It prints the version, the resolved paths, and the
+# installed packages; run.py keeps only the version and hashes.
+RUNTIME_PROBE = """
+import json, os, platform, sys
+from importlib import metadata
+packages = sorted(f"{item.metadata['Name']}=={item.version}" for item in metadata.distributions())
+print(json.dumps({"version": platform.python_version(), "implementation": sys.implementation.name,
+                  "executable": os.path.realpath(sys.executable), "prefix": os.path.realpath(sys.prefix),
+                  "packages": packages}))
+"""
+HERMES_RUNTIME_KEYS = ("hermes_python", "hermes_prefix", "hermes_packages")
+
+
+def sha256_value(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def runtime_state(config: dict) -> dict[str, Any]:
+    """The runtime that runs the jobs: the host, the Python of the runner and of Hermes, and the argv of each CLI.
+    "public" goes into meta.json and the report. "sha256" has hashes of private paths, the package list, and the
+    CLI argv: meta.json keeps them for the resume and merge checks, and the report does not get them."""
+    public: dict[str, Any] = {"host": {"os": platform.system(), "machine": platform.machine(),
+                                       "python": sys.version.split()[0]}}
+    digests = {"runner_python": sha256_value(os.path.realpath(sys.executable))}
+    if config.get("hermes_python"):
+        try:
+            done = subprocess.run([str(config["hermes_python"]), "-I", "-c", RUNTIME_PROBE], capture_output=True,
+                                  encoding="utf-8", errors="replace", timeout=120)
+            probe = json.loads(done.stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise SystemExit("hermes_python did not run the runtime probe; stop before any job") from None
+        public["hermes_python"] = {"version": probe["version"], "implementation": probe["implementation"]}
+        digests.update(hermes_python=sha256_value(probe["executable"]), hermes_prefix=sha256_value(probe["prefix"]),
+                       hermes_packages=sha256_value(probe["packages"]))
+    for engine, spec in sorted((config.get("cli") or {}).items()):
+        digests[f"cli.{engine}"] = sha256_value((spec or {}).get("command"))
+    return {"public": public, "sha256": digests}
+
+
+def runtime_mismatches(meta: dict, other: dict, keys: list[str] | None = None) -> list[str]:
+    """The runtime parts that differ between two run folders (meta.json form). keys=None compares all; else only
+    the runner, the host, and the given hash keys (a merge compares only what both folders use)."""
+    if meta.get("runtime_sha256") is None or other.get("runtime_sha256") is None:
+        return ["runtime (not recorded)"]
+    found = [] if meta.get("host") == other.get("host") else ["runtime host"]
+    base, extra = meta["runtime_sha256"], other["runtime_sha256"]
+    names = sorted(set(base) | set(extra)) if keys is None else ["runner_python", *keys]
+    found += [f"runtime {name}" for name in names if base.get(name) != extra.get(name)]
+    if (keys is None or "hermes_python" in keys) and (meta.get("runtime") or {}).get("hermes_python") != (
+            other.get("runtime") or {}).get("hermes_python"):
+        found.append("runtime hermes_python version")
+    return found
+
+
 def harness_ids(meta: dict) -> set[str]:
     """The harness versions that made the records of a run folder: the first run and each resume."""
     return {harness_id(item) for item in [meta.get("harness_sha256")] + [
@@ -488,6 +557,8 @@ def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
     if not rescore and meta.get("gold_sha256") != extra.get("gold_sha256"):
         found.append("gold files (use --rescore)")
     hermes_methods = [item - set(CLI_ENGINES) for item in (engines(meta), engines(extra))]
+    found += runtime_mismatches(meta, extra, (list(HERMES_RUNTIME_KEYS) if all(hermes_methods) else []) + [
+        f"cli.{name}" for name in sorted(shared_cli)])
     if all(hermes_methods) and (meta.get("hermes") or {}).get("commit") != (extra.get("hermes") or {}).get("commit"):
         found.append("Hermes commit")
     if all("warm_compaction" in item for item in (engines(meta), engines(extra))) and (
@@ -504,10 +575,12 @@ def harness_id(hashes: dict[str, str]) -> str:
     return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
-def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli: dict) -> tuple[list, list]:
-    """Compare a run folder with the current sources. Return (hard, harness): a hard mismatch always stops the run;
-    a harness mismatch stops it unless the caller allows it and records it."""
-    hard = []
+def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli: dict,
+                      runtime: dict) -> tuple[list, list]:
+    """Compare a run folder with the current sources and runtime (runtime_state). Return (hard, harness): a hard
+    mismatch always stops the run; a harness mismatch stops it unless the caller allows it and records it."""
+    hard = runtime_mismatches(meta, {"host": runtime["public"]["host"], "runtime_sha256": runtime["sha256"],
+                                     "runtime": {k: v for k, v in runtime["public"].items() if k != "host"}})
     if (meta.get("plugin") or {}).get("files_sha256") != plugin["files_sha256"]:
         hard.append("plugin files")
     if (meta.get("hermes") or {}).get("commit") != hermes["commit"]:
@@ -579,6 +652,9 @@ def command_run(args) -> int:
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if config.get("qa_batch", scoring.QA_BATCH_MAX) != scoring.QA_BATCH_MAX:
+        # The gold files plan the QA batches (at most 12 questions, no gold rule passes on its batch prompt).
+        raise SystemExit(f"qa_batch is fixed at {scoring.QA_BATCH_MAX}: the gold files plan the QA batches")
     conflicts = override_conflicts(config)
     if conflicts:
         raise SystemExit(f"config overrides change the benchmark method: {', '.join(conflicts)}; stop before any job")
@@ -595,6 +671,7 @@ def command_run(args) -> int:
     plugin["commit"] = plugin["commit"] or config.get("plugin_commit")
     jobs, skipped = plan(config, plugin)
     cli = cli_state(config, list(config["methods"]))
+    runtime = runtime_state(config)
     meta_path = out_dir / "meta.json"
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
@@ -604,8 +681,9 @@ def command_run(args) -> int:
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": harness_hashes(),
                 "gold_sha256": current_gold_sha256(),
-                "host": {"os": platform.system(), "machine": platform.machine(),
-                         "python": sys.version.split()[0]},
+                "host": runtime["public"]["host"],
+                "runtime": {key: value for key, value in runtime["public"].items() if key != "host"},
+                "runtime_sha256": runtime["sha256"],
                 "skipped_methods": skipped, "planned_jobs": len(jobs)}
         if cli:
             meta["cli"] = cli
@@ -613,7 +691,7 @@ def command_run(args) -> int:
     else:
         # A resume: the jobs of one run folder must come from the same plugin, Hermes, gold files, and settings.
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        hard, harness = resume_mismatches(meta, config, plugin, hermes, cli)
+        hard, harness = resume_mismatches(meta, config, plugin, hermes, cli, runtime)
         if hard:
             raise SystemExit(f"resume refused: {', '.join(hard)} differ from {meta_path}; use a new run folder")
         if harness and not args.allow_harness_change:
@@ -1041,7 +1119,8 @@ def markdown(result: dict, meta: dict) -> str:
           if meta.get("cli") else []),
         *(["- Rescored with the current gold files: " + ", ".join(
             f"{item['folder']} ({item['jobs_rescored']} jobs, {item['marks_changed']} marks changed, "
-            f"{item['jobs_without_raw']} without raw output)" for item in meta["rescore"]["folders"]) + "."]
+            f"{item['jobs_without_raw']} without raw output, {item.get('jobs_failed_incomplete', 0)} failed for an "
+            "incomplete answer)" for item in meta["rescore"]["folders"]) + "."]
           if meta.get("rescore") else []),
         *(["- Warning: the gold files changed after these runs and the marks were not rescored: "
            + ", ".join(meta["gold_changed_after_run"]) + "."] if meta.get("gold_changed_after_run") else []), "",
@@ -1151,7 +1230,8 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = ()) 
     raw_dirs are more raw folders to search, for example of a run that gave reused jobs.
     A job without a raw file keeps its marks; the result counts it."""
     built = {spec["id"]: fixtures.build(spec)[0] for spec in fixtures.SCENARIOS}
-    counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0}
+    counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0, "jobs_failed_incomplete": 0,
+              "jobs_other_qa_plan": 0}
     for run in runs:
         if not run.get("cycles"):
             continue
@@ -1162,16 +1242,26 @@ def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = ()) 
             continue
         out = json.loads(raw.read_text(encoding="utf-8"))
         gold = json.loads((GOLD_DIR / f"{run['fixture']}.gold.json").read_text(encoding="utf-8"))
+        # Answers that other batch prompts gave cannot be scored with this gold plan.
+        if any((raw_cycle.get("qa") or {}).get("batches") and [batch["numbers"] for batch in raw_cycle["qa"][
+                "batches"]] != gold.get("qa_batches") for raw_cycle in out.get("cycles", [])):
+            counts["jobs_other_qa_plan"] += 1
+            continue
         for cycle, raw_cycle in zip(run["cycles"], out.get("cycles", [])):
             scored = score_cycle(raw_cycle, gold, built[run["fixture"]], run["method"])
             counts["marks_changed"] += sum(a != b for a, b in zip(cycle["marks"], scored["marks"]))
-            cycle["marks"], cycle["path"] = scored["marks"], scored["path"]
+            cycle["marks"], cycle["path"], cycle["qa_missing"] = scored["marks"], scored["path"], scored["qa_missing"]
+        counts["jobs_failed_incomplete"] += fail_incomplete(run)
         counts["jobs_rescored"] += 1
     return counts
 
 
 def refuse_stale(item: dict) -> None:
     """A rescore that cannot score every job would mix old-gold marks with the current gold files."""
+    if item.get("jobs_other_qa_plan"):
+        raise SystemExit(f"report refused: --rescore found {item['jobs_other_qa_plan']} jobs in {item['folder']} "
+                         "that asked the questions in other batches (other prompts) than the current gold plan. "
+                         "Report them with the harness that made them.")
     if item["jobs_without_raw"]:
         raise SystemExit(f"report refused: --rescore found {item['jobs_without_raw']} jobs in {item['folder']} "
                          "without raw output (keep_text was off); their marks use the old gold files. Add "
@@ -1224,6 +1314,7 @@ def command_report(args) -> int:
     # digests stay in the local meta.json only.
     meta["config"] = report_config(meta)
     meta.pop("config_sha256", None)
+    meta.pop("runtime_sha256", None)
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
                        "text.", "meta": meta, "results": result,

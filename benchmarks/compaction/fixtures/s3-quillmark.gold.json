@@ -568,7 +568,7 @@
    "kind": "keywords",
    "gold": [
     [
-     "string",
+     "plain string",
      "without an error",
      "silently"
     ]
@@ -578,7 +578,7 @@
    ],
    "retention": [
     [
-     "string",
+     "plain string",
      "without an error",
      "silently"
     ],
@@ -619,8 +619,7 @@
    "gold": [
     [
      "one release",
-     "both formats",
-     "deprecat"
+     "both formats"
     ]
    ],
    "evidence_rows": [
@@ -629,8 +628,7 @@
    "retention": [
     [
      "one release",
-     "both formats",
-     "deprecat"
+     "both formats"
     ],
     [
      "quillmark.yaml"
@@ -893,5 +891,63 @@
     ]
    ]
   }
+ ],
+ "qa_batches": [
+  [
+   1,
+   6,
+   13,
+   17,
+   21,
+   26,
+   31,
+   36,
+   41,
+   46
+  ],
+  [
+   2,
+   7,
+   11,
+   16,
+   22,
+   27,
+   32,
+   37,
+   42
+  ],
+  [
+   3,
+   8,
+   12,
+   18,
+   23,
+   28,
+   33,
+   38,
+   43
+  ],
+  [
+   4,
+   9,
+   14,
+   19,
+   24,
+   29,
+   34,
+   39,
+   44
+  ],
+  [
+   5,
+   10,
+   15,
+   20,
+   25,
+   30,
+   35,
+   40,
+   45
+  ]
  ]
 }

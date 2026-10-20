@@ -12,6 +12,14 @@ from benchmarks.compaction import cli_worker, fixtures, run, scoring, worker
 from benchmarks.compaction.scenarios import SCENARIOS
 
 GOLD_DIR = Path(run.__file__).resolve().parent / "fixtures"
+# A fake runtime identity (fake hashes) for the resume and merge checks.
+FAKE_RUNTIME = {"public": {"host": {"os": "FakeOS", "machine": "x", "python": "3.11.0"},
+                           "hermes_python": {"version": "3.11.14", "implementation": "cpython"}},
+                "sha256": {"runner_python": "a" * 64, "hermes_python": "b" * 64, "hermes_prefix": "c" * 64,
+                           "hermes_packages": "d" * 64, "cli.codex_cli": "e" * 64}}
+FAKE_RUNTIME_META = {"host": FAKE_RUNTIME["public"]["host"],
+                     "runtime": {"hermes_python": FAKE_RUNTIME["public"]["hermes_python"]},
+                     "runtime_sha256": FAKE_RUNTIME["sha256"]}
 
 
 def question(kind, gold, text="Question?", **extra):
@@ -82,6 +90,24 @@ class FixtureTest(unittest.TestCase):
             for item in gold["questions"]:
                 self.assertFalse(scoring.score(item, item["question"]), item["id"])
 
+    def test_no_batch_prompt_passes_a_gold_rule(self):
+        # Each gold rule is checked against the full prompt of its QA request: the prompt, each line, and each word
+        # of the instruction and of the other questions.
+        for name, (_history, gold) in self.built.items():
+            numbers = [n for batch in gold["qa_batches"] for n in batch]
+            self.assertEqual(sorted(numbers), list(range(1, len(gold["questions"]) + 1)), name)
+            for batch in gold["qa_batches"]:
+                self.assertLessEqual(len(batch), scoring.QA_BATCH_MAX, name)
+                items = [(n, gold["questions"][n - 1]) for n in batch]
+                self.assertEqual(scoring.prompt_leaks(items), [], name)
+        # The check finds the leaks of consecutive batches of 12 (the plan before this check).
+        _history, gold = self.built["s4-orchard"]
+        found = []
+        for start in range(0, len(gold["questions"]), 12):
+            found += scoring.prompt_leaks(list(enumerate(gold["questions"][start:start + 12], start + 1)))
+        for leak in ("s4-orchard:12", "s4-orchard:40", "s4-orchard:42"):
+            self.assertIn(leak, found)
+
     def test_questioned_facts_are_before_the_tail_guard(self):
         for history, gold in self.built.values():
             for item in gold["questions"]:
@@ -138,6 +164,26 @@ class ScoringTest(unittest.TestCase):
         self.assertTrue(scoring.retained(item, "- `make test`: exit 2; error"))
         self.assertFalse(scoring.retained(item, "make test" + " x" * 400 + " exit 2"))
         self.assertFalse(scoring.retained(item, "- `make test`: exit 0"))
+
+    def test_prompt_leaks_checks_the_full_batch_prompt(self):
+        def item(id_, kind, gold, text):
+            return {**question(kind, gold, text), "id": id_}
+
+        status = item("a", "keywords", [["billing"]], "What did the user ask for next?")
+        task = item("b", "choice", "open", 'What is the status of "update the billing docs"? done, open, or blocked.')
+        self.assertEqual(scoring.prompt_leaks([(1, status), (2, task)]), ["a"])
+        # A number in another question, a question number, and a word of the instruction.
+        code = item("c", "number", "0", "What exit code did `make` return?")
+        other = item("d", "number", "7", "What exit code did `lint --max-warnings 0` return?")
+        self.assertEqual(scoring.prompt_leaks([(1, code), (2, other)]), ["c"])
+        self.assertEqual(scoring.prompt_leaks([(7, code), (9, other)]), ["c", "d"])
+        rule = item("e", "keywords", [["exactly"]], "How must the agent copy the names?")
+        self.assertEqual(scoring.prompt_leaks([(1, rule)]), ["e"])
+        # Keyword groups can match across two other questions (the full prompt).
+        goal = item("f", "keywords", [["upload"], ["retry"]], "What is the main goal?")
+        parts = [item("g", "text", "x", "Which upload failed?"), item("h", "text", "y", "Which retry ran?")]
+        self.assertEqual(scoring.prompt_leaks([(1, goal), (2, parts[0])]), [])
+        self.assertEqual(scoring.prompt_leaks([(1, goal), (2, parts[0]), (3, parts[1])]), ["f"])
 
     def test_parse_answers_reads_json_and_numbered_lines(self):
         answers, ok = scoring.parse_answers("```json\n{\"1\": \"a\", \"2\": 3}\n```", [1, 2])
@@ -241,10 +287,13 @@ class RunTest(unittest.TestCase):
         spec = next(item for item in SCENARIOS if item["id"] == "s4-orchard")
         history, gold = fixtures.build(spec)
         number = next(n for n, item in enumerate(gold["questions"], 1) if item["id"] == "s4-orchard:40")
-        # Synthetic raw output: answer 40 repeats the question text only.
+        # Synthetic raw output in the gold batch plan: answer 40 repeats the question text only.
+        def answer(n: int) -> str:
+            return gold["questions"][n - 1]["question"] if n == number else "unknown"
+
         cycle = {"cycle": 1, "compacted": True, "history": history["rows"][-4:],
-                 "qa": {"batches": [{"numbers": [number],
-                                     "text": json.dumps({str(number): gold["questions"][number - 1]["question"]})}]}}
+                 "qa": {"batches": [{"numbers": batch, "text": json.dumps({str(n): answer(n) for n in batch})}
+                                    for batch in gold["qa_batches"]]}}
         stale = run.score_cycle(cycle, gold, history, "warm_ledger")
         stale["marks"][number - 1] = "1" + stale["marks"][number - 1][1:]
         records = [{"job": f"{spec['id']}|warm_ledger|r{rep}|c1", "fixture": spec["id"], "method": "warm_ledger",
@@ -254,8 +303,22 @@ class RunTest(unittest.TestCase):
             (Path(folder) / "raw" / f"{spec['id']}__warm_ledger__r1__c1.json").write_text(
                 json.dumps({"cycles": [cycle]}), encoding="utf-8")
             counts = run.rescore(Path(folder), records)
-        self.assertEqual(counts, {"jobs_rescored": 1, "jobs_without_raw": 1, "marks_changed": 1})
+        self.assertEqual(counts, {"jobs_rescored": 1, "jobs_without_raw": 1, "marks_changed": 1,
+                                  "jobs_failed_incomplete": 0, "jobs_other_qa_plan": 0})
         self.assertEqual(records[0]["cycles"][0]["marks"][number - 1][0], "0")
+        # Raw answers to other batch prompts (consecutive batches of 12) are not rescored, and the report refuses.
+        consecutive = [list(range(start, min(start + 12, len(gold["questions"])) + 1))
+                       for start in range(1, len(gold["questions"]) + 1, 12)]
+        other = {**cycle, "qa": {"batches": [{"numbers": batch, "text": json.dumps({str(n): "unknown" for n in batch})}
+                                             for batch in consecutive]}}
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "raw").mkdir()
+            (Path(folder) / "raw" / f"{spec['id']}__warm_ledger__r1__c1.json").write_text(
+                json.dumps({"cycles": [other]}), encoding="utf-8")
+            counts = run.rescore(Path(folder), records[:1])
+        self.assertEqual((counts["jobs_other_qa_plan"], counts["jobs_rescored"]), (1, 0))
+        with self.assertRaisesRegex(SystemExit, "other batches"):
+            run.refuse_stale({"folder": "f", **counts})
         self.assertEqual(records[1]["cycles"][0]["marks"][number - 1][0], "1")
 
     def test_size_check_has_no_data_when_no_ledger_run_compacts(self):
@@ -276,6 +339,11 @@ class RunTest(unittest.TestCase):
                       "history_dir": str(Path(folder) / "fixtures"), "threshold": 0.95, "methods": []}
             (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
             with self.assertRaisesRegex(SystemExit, "not a clean Git checkout"):
+                run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(Path(folder) / "out")])
+            self.assertFalse((Path(folder) / "out" / "runs.jsonl").exists())
+            # The gold files plan the QA batches: another batch size is refused before any job.
+            (Path(folder) / "config.json").write_text(json.dumps({**config, "qa_batch": 46}), encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "qa_batch is fixed"):
                 run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(Path(folder) / "out")])
             self.assertFalse((Path(folder) / "out" / "runs.jsonl").exists())
 
@@ -400,7 +468,7 @@ class RunTest(unittest.TestCase):
         marker = "fake-value-456"
         config = {"model": "m", "threshold": 0.95, "hermes_config": {"model": {"headers": {"X-Fake": marker}}}}
         meta = {"schema": "s", "config": run.public_config(config), "config_sha256": run.config_digests(config),
-                "plugin": {}, "hermes": {}}
+                "plugin": {}, "hermes": {}, "runtime_sha256": {"runner_python": "0" * 64}}
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
             (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
@@ -411,6 +479,7 @@ class RunTest(unittest.TestCase):
                 run.command_report(args)
             report = json.loads((out / "r.json").read_text(encoding="utf-8"))
         self.assertNotIn("config_sha256", report["meta"])
+        self.assertNotIn("runtime_sha256", report["meta"])
         self.assertEqual(report["meta"]["config"]["hermes_config"],
                          {"redacted": True, "types": {"model.headers.X-Fake": "str"}})
 
@@ -471,7 +540,8 @@ class RunTest(unittest.TestCase):
     def test_report_refuses_an_incompatible_run_folder(self):
         gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
         base = {"schema": "s", "gold_sha256": gold, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
-                "config": {"model": "m", "context_length": 8, "threshold": 0.95, "methods": ["warm_ledger"]}}
+                "config": {"model": "m", "context_length": 8, "threshold": 0.95, "methods": ["warm_ledger"]},
+                **FAKE_RUNTIME_META}
         cli = {**base, "hermes": {"commit": "b"}, "plugin": {},
                "config": {**base["config"], "methods": ["codex_cli"]}}
         self.assertEqual(run.merge_mismatches(base, cli, False), [])
@@ -494,6 +564,21 @@ class RunTest(unittest.TestCase):
                          ["codex_cli version"])
         self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "job_timeout_s": 5}}, False),
                          ["config job_timeout_s"])
+        # The runtime: the parts that both folders use must be the same, and both folders must record it.
+        def changed(meta: dict, key: str) -> dict:
+            return {**meta, "runtime_sha256": {**meta["runtime_sha256"], key: "1" * 64}}
+
+        self.assertEqual(run.merge_mismatches(base, changed(base, "hermes_packages"), False),
+                         ["runtime hermes_packages"])
+        self.assertEqual(run.merge_mismatches(base, changed(base, "hermes_python"), False), ["runtime hermes_python"])
+        self.assertEqual(run.merge_mismatches(base, changed(cli, "hermes_packages"), False), [])
+        self.assertEqual(run.merge_mismatches(base, changed(cli, "runner_python"), False), ["runtime runner_python"])
+        self.assertEqual(run.merge_mismatches(base, {**base, "runtime": {"hermes_python": {"version": "3.12.0"}}},
+                                              False), ["runtime hermes_python version"])
+        self.assertEqual(run.merge_mismatches(base, {**cli, "host": {"os": "Other"}}, False), ["runtime host"])
+        self.assertEqual(run.merge_mismatches(codex, changed(codex, "cli.codex_cli"), False), ["runtime cli.codex_cli"])
+        self.assertEqual(run.merge_mismatches(base, {k: v for k, v in cli.items() if k != "runtime_sha256"}, False),
+                         ["runtime (not recorded)"])
         # The job plan and a CLI timeout of a run without CLI methods can differ.
         self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "cli_timeout_s": 5,
                                                                        "replicates": 2}}, False), [])
@@ -515,20 +600,57 @@ class RunTest(unittest.TestCase):
         config = {"model": "m", "threshold": 0.95, "methods": ["stock_hermes"], "plugin_source": "/private"}
         gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
         meta = {"config": {k: v for k, v in config.items() if k != "plugin_source"}, "plugin": plugin,
-                "hermes": hermes, "gold_sha256": gold, "harness_sha256": run.harness_hashes()}
-        self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}), ([], []))
+                "hermes": hermes, "gold_sha256": gold, "harness_sha256": run.harness_hashes(), **FAKE_RUNTIME_META}
+        runtime = FAKE_RUNTIME
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}, runtime), ([], []))
         # Job selection keys can change on a resume; result settings, plugin, and Hermes cannot.
-        self.assertEqual(run.resume_mismatches(meta, {**config, "methods": ["full_context"]}, plugin, hermes, {}),
+        self.assertEqual(run.resume_mismatches(meta, {**config, "methods": ["full_context"]}, plugin, hermes, {},
+                                               runtime),
                          ([], []))
         changed = {**plugin, "files_sha256": {**plugin["files_sha256"], "engine.py": "0"}}
-        self.assertEqual(run.resume_mismatches(meta, config, changed, hermes, {})[0], ["plugin files"])
-        self.assertEqual(run.resume_mismatches(meta, config, plugin, {"commit": "def"}, {})[0], ["Hermes commit"])
-        self.assertEqual(run.resume_mismatches(meta, {**config, "threshold": 0.5}, plugin, hermes, {})[0], ["config"])
+        self.assertEqual(run.resume_mismatches(meta, config, changed, hermes, {}, runtime)[0], ["plugin files"])
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, {"commit": "def"}, {}, runtime)[0],
+                         ["Hermes commit"])
+        self.assertEqual(run.resume_mismatches(meta, {**config, "threshold": 0.5}, plugin, hermes, {}, runtime)[0],
+                         ["config"])
+        # The runtime: the Python of Hermes (path, prefix, packages, version), the runner, the host, the CLI argv.
+        for key in FAKE_RUNTIME["sha256"]:
+            other = {**runtime, "sha256": {**runtime["sha256"], key: "0" * 64}}
+            self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}, other)[0], [f"runtime {key}"])
+        other = {**runtime, "sha256": {**runtime["sha256"], "cli.claude_code": "0" * 64}}
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}, other)[0],
+                         ["runtime cli.claude_code"])
+        other = {"public": {**runtime["public"], "hermes_python": {"version": "3.12.0", "implementation": "cpython"}},
+                 "sha256": runtime["sha256"]}
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}, other)[0],
+                         ["runtime hermes_python version"])
+        other = {"public": {**runtime["public"], "host": {"os": "Other"}}, "sha256": runtime["sha256"]}
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}, other)[0], ["runtime host"])
+        unrecorded = {k: v for k, v in meta.items() if k != "runtime_sha256"}
+        self.assertEqual(run.resume_mismatches(unrecorded, config, plugin, hermes, {}, runtime)[0],
+                         ["runtime (not recorded)"])
         old = {**meta, "harness_sha256": {**meta["harness_sha256"], "worker.py": "0"}}
-        self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}), ([], ["worker.py"]))
+        self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}, runtime), ([], ["worker.py"]))
         # A recorded resume with --allow-harness-change becomes the new reference.
         old["resumes"] = [{"harness_sha256": run.harness_hashes()}]
-        self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}), ([], []))
+        self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}, runtime), ([], []))
+
+    def test_runtime_state_hashes_paths_and_argv(self):
+        config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}
+        state = run.runtime_state(config)
+        self.assertEqual(set(state["sha256"]), {"runner_python", "hermes_python", "hermes_prefix", "hermes_packages",
+                                                "cli.codex_cli"})
+        self.assertEqual(state["public"]["hermes_python"]["version"], sys.version.split()[0])
+        # The public part has no path and no argv.
+        public = json.dumps(state["public"])
+        for private in (sys.executable, sys.prefix, "fake-codex"):
+            self.assertNotIn(json.dumps(private)[1:-1], public)
+        other = run.runtime_state({**config, "cli": {"codex_cli": {"command": ["fake-codex", "--other"]}}})
+        self.assertNotEqual(state["sha256"]["cli.codex_cli"], other["sha256"]["cli.codex_cli"])
+        self.assertEqual({k: v for k, v in state["sha256"].items() if k != "cli.codex_cli"},
+                         {k: v for k, v in other["sha256"].items() if k != "cli.codex_cli"})
+        with self.assertRaisesRegex(SystemExit, "runtime probe"):
+            run.runtime_state({"hermes_python": str(Path(tempfile.gettempdir()) / "no-such-python.exe")})
 
     def test_server_check_reads_the_loaded_context_length(self):
         import threading
@@ -697,7 +819,7 @@ class MainTurnFailureTest(unittest.TestCase):
     def run_hermes(self, engine, reply, compression_enabled=None, compress=None):
         history, _gold = fixtures.build(SCENARIOS[0])
         job = {"hermes_source": "synthetic", "engine": engine, "endpoint": "http://127.0.0.1:9/v1",
-               "api_key": "fake", "model": "fake", "cycles": 1, "questions": []}
+               "api_key": "fake", "model": "fake", "cycles": 1, "questions": [], "qa_batches": []}
         out = {"cycles": []}
         calls = []
         modules = self.fake_hermes(calls, reply, compression_enabled, compress)
@@ -741,7 +863,7 @@ class MainTurnFailureTest(unittest.TestCase):
         calls = []
         history, _gold = fixtures.build(SCENARIOS[0])
         job = {"hermes_source": "synthetic", "engine": "compressor", "endpoint": "http://127.0.0.1:9/v1",
-               "api_key": "fake", "model": "fake", "cycles": 1, "questions": []}
+               "api_key": "fake", "model": "fake", "cycles": 1, "questions": [], "qa_batches": []}
         out = {"cycles": []}
         with tempfile.TemporaryDirectory() as folder, mock.patch.dict(sys.modules, self.fake_hermes(calls)), \
                 mock.patch.object(worker, "write_config"), mock.patch.object(sys, "path", list(sys.path)):
@@ -775,7 +897,7 @@ class MainTurnFailureTest(unittest.TestCase):
 
     def test_failed_qa_request_fails_the_job(self):
         job = {"questions": [{"n": 1, "text": "Q?"}], "model": "m", "endpoint": "http://127.0.0.1:9/v1",
-               "api_key": "", "qa_batch": 12}
+               "api_key": "", "qa_batches": [[1]]}
         with mock.patch.object(worker, "post_chat", side_effect=TimeoutError()):
             with self.assertRaisesRegex(worker.JobFailed, "qa_request:TimeoutError"):
                 worker.ask(job, "system", [])
@@ -796,12 +918,100 @@ class MainTurnFailureTest(unittest.TestCase):
                 out = json.loads((Path(folder) / "out.json").read_text(encoding="utf-8"))
             self.assertEqual((out["status"], out["error"]), ("failed", "qa_request:TimeoutError"))
 
+    def test_every_qa_reply_that_is_not_a_full_answer_fails_the_request(self):
+        job = {"questions": [{"n": 1, "text": "Q1?"}, {"n": 2, "text": "Q2?"}], "model": "m",
+               "endpoint": "http://127.0.0.1:9/v1", "api_key": "", "qa_batches": [[1, 2]]}
+
+        def reply(content: object = '{"1": "a", "2": "b"}', finish: object = "stop") -> dict:
+            return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": finish}]}
+
+        cases = {
+            "no_choices": [{"error": {"message": "overloaded"}}, {"choices": []}, {"choices": "x"}, [], None],
+            "no_content": [reply(None), reply(""), reply("  \n"), reply(["1. a"]),
+                           {"choices": [{"finish_reason": "stop"}]}, {"choices": [{"message": None}]},
+                           {"choices": ["text"]}],
+            "finish_length": [reply(finish="length")],
+            "finish_tool_calls": [reply(finish="tool_calls")],
+            "finish_content_filter": [reply(finish="content_filter")],
+            "finish_None": [reply(finish=None)],
+            "incomplete_answers": [reply("I cannot answer."), reply('{"1": "a"}'), reply('{"1": "a", "2": ""}'),
+                                   reply('{"1": "a", "2": null}'), reply("1. a"), reply('{"3": "a", "4": "b"}'),
+                                   reply("<think>1. a\n2. b</think>")],
+        }
+        for error, replies in cases.items():
+            for item in replies:
+                with self.subTest(error=error, reply=item), \
+                        mock.patch.object(worker, "post_chat", return_value=item):
+                    with self.assertRaisesRegex(worker.JobFailed, f"^qa_request:{error}$"):
+                        worker.ask(job, "system", [])
+        for text in ('{"1": "a", "2": "unknown"}', "1. a\n2. b", '```json\n{"1": "a", "2": "b"}\n```'):
+            with mock.patch.object(worker, "post_chat", return_value=reply(text)):
+                self.assertEqual(worker.ask(job, "system", [])["batches"][0]["text"], text)
+
+    def test_worker_asks_the_batches_of_the_gold_plan(self):
+        _history, gold = fixtures.build(next(item for item in SCENARIOS if item["id"] == "s4-orchard"))
+        job = {"questions": [{"n": n, "text": q["question"]} for n, q in enumerate(gold["questions"], 1)],
+               "qa_batches": gold["qa_batches"], "model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": ""}
+        sent = []
+
+        def fake_post(_endpoint, _key, body, _timeout):
+            sent.append(body["messages"][-1]["content"])
+            numbers = gold["qa_batches"][len(sent) - 1]
+            return {"choices": [{"message": {"content": json.dumps({str(n): "unknown" for n in numbers})},
+                                 "finish_reason": "stop"}]}
+
+        with mock.patch.object(worker, "post_chat", side_effect=fake_post):
+            result = worker.ask(job, "system", [])
+        self.assertEqual(sent, [scoring.qa_prompt([(n, gold["questions"][n - 1]["question"]) for n in batch])
+                                for batch in gold["qa_batches"]])
+        self.assertEqual([batch["numbers"] for batch in result["batches"]], gold["qa_batches"])
+        # A plan that does not ask each question once fails before any request.
+        for plan in ([[1]], gold["qa_batches"] + [[1]]):
+            with mock.patch.object(worker, "post_chat", side_effect=AssertionError("no request")):
+                with self.assertRaisesRegex(worker.JobFailed, "qa_plan_mismatch"):
+                    worker.ask({**job, "qa_batches": plan}, "system", [])
+
+    def test_a_scored_cycle_without_a_full_answer_fails_the_job(self):
+        spec = next(item for item in SCENARIOS if item["id"] == "s1-ledgerline")
+        history, gold = fixtures.build(spec)
+        count = len(gold["questions"])
+        full = json.dumps({str(n): "unknown" for n in range(1, count + 1)})
+        part = json.dumps({str(n): "unknown" for n in range(1, count)})
+        cycle = {"cycle": 1, "compacted": True, "history": history["rows"][-4:],
+                 "qa": {"batches": [{"numbers": list(range(1, count + 1)), "text": full}]}}
+        self.assertEqual(run.score_cycle(cycle, gold, history, "warm_ledger")["qa_missing"], 0)
+        # A question that no batch asked is missing too.
+        short = {**cycle, "qa": {"batches": [{"numbers": list(range(1, count)), "text": part}]}}
+        self.assertEqual(run.score_cycle(short, gold, history, "warm_ledger")["qa_missing"], 1)
+        # A cycle that did not compact asks no questions; the control asks them on each cycle.
+        self.assertIsNone(run.score_cycle({**cycle, "compacted": False, "qa": {}}, gold, history,
+                                          "warm_ledger")["qa_missing"])
+        self.assertEqual(run.score_cycle({**cycle, "compacted": False, "qa": {}}, gold, history,
+                                         "full_context")["qa_missing"], count)
+        record = {"status": "ok", "error": None, "cycles": [run.score_cycle(short, gold, history, "warm_ledger")]}
+        self.assertTrue(run.fail_incomplete(record))
+        self.assertEqual((record["status"], record["error"]), ("failed", "qa_incomplete"))
+        # --rescore applies the same rule to kept raw output (gold batch plan, the last answer left out).
+        last = gold["qa_batches"][-1][-1]
+        planned = {**cycle, "qa": {"batches": [
+            {"numbers": batch, "text": json.dumps({str(n): "unknown" for n in batch if n != last})}
+            for batch in gold["qa_batches"]]}}
+        records = [{"job": f"{spec['id']}|warm_ledger|r1|c1", "fixture": spec["id"], "method": "warm_ledger",
+                    "status": "ok", "error": None, "cycles": [run.score_cycle(cycle, gold, history, "warm_ledger")]}]
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "raw").mkdir()
+            (Path(folder) / "raw" / f"{spec['id']}__warm_ledger__r1__c1.json").write_text(
+                json.dumps({"cycles": [planned]}), encoding="utf-8")
+            counts = run.rescore(Path(folder), records)
+        self.assertEqual(counts["jobs_failed_incomplete"], 1)
+        self.assertEqual((records[0]["status"], records[0]["error"]), ("failed", "qa_incomplete"))
+
     def test_hermes_worker_fails_when_the_engine_is_not_the_planned_one(self):
         calls = []
         history, _gold = fixtures.build(SCENARIOS[0])
         # The fake agent reports the built-in compressor, as when the plugin does not load.
         job = {"hermes_source": "synthetic", "engine": "warm_compaction", "endpoint": "http://127.0.0.1:9/v1",
-               "api_key": "fake", "model": "fake", "cycles": 1, "questions": []}
+               "api_key": "fake", "model": "fake", "cycles": 1, "questions": [], "qa_batches": []}
         with tempfile.TemporaryDirectory() as folder, mock.patch.dict(sys.modules, self.fake_hermes(calls)), \
                 mock.patch.object(worker, "write_config"), mock.patch.object(sys, "path", list(sys.path)):
             with self.assertRaisesRegex(worker.JobFailed, "engine_mismatch:compressor"):
@@ -813,7 +1023,7 @@ class MainTurnFailureTest(unittest.TestCase):
         history, _gold = fixtures.build(SCENARIOS[0])
         job = {"engine": engine, "cli_command": ["fake-cli"], "cli_version": "0.0.0", "model": "fake",
                "endpoint": "http://127.0.0.1:9/v1", "anthropic_base_url": "http://127.0.0.1:9",
-               "context_length": 131072, "cli_timeout_s": 5, "questions": []}
+               "context_length": 131072, "cli_timeout_s": 5, "questions": [], "qa_batches": []}
         out = {"cycles": []}
         with tempfile.TemporaryDirectory() as folder:
             pattern = "codex-home/sessions/**/*.jsonl" if engine == "codex_cli" else "claude-home/**/*.jsonl"

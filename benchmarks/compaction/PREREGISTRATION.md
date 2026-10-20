@@ -27,8 +27,12 @@ compaction.
    file copy, and the real Hermes agent loop (`AIAgent.run_conversation`) with no tools.
 2. The agent sends one main request with the session as its history. Then the Hermes manual compress entry
    compacts the history (`tui_gateway.server._compress_session_history`).
-3. A separate request asks the questions on the compacted history, in batches of 12, at temperature 0. When a
-   compaction does not compact (an abort or no change), no questions are asked.
+3. A separate request asks the questions on the compacted history, at temperature 0, in the batches of the
+   plan in the gold file (at most 12 questions in a batch; five batches of 9 or 10 for 46 questions). No gold rule
+   passes on the prompt of its batch: the full prompt, a line, or a word of the instruction or of another question.
+   A reply that is not a full answer (no text, a finish reason other than `stop`, or a missing or empty answer)
+   fails the job; it is not scored as wrong. When a compaction does not compact (an abort or no change), no
+   questions are asked.
 4. Model: `qwen3.5-4b-mtp` in LM Studio (one parallel slot), for the main request, the compaction, and the
    answers. Context window setting: 131,072. Compaction threshold: 0.95, so no automatic compaction starts
    before the manual one.
