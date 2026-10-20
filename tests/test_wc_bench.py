@@ -325,11 +325,15 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("hermes_source", public)
         self.assertEqual(public["endpoint"], "http://127.0.0.1:9/v1")
         self.assertEqual(public["hermes_config"]["types"], {"model.api_key": "str", "model.headers.X-Token": "str"})
-        self.assertEqual(run.public_config(public), public)
-        # A resume compares raw and redacted values; a changed value still changes the hash.
-        self.assertEqual(run.config_hash(config), run.config_hash(public))
+        self.assertEqual(public["hermes_config"], {"redacted": True, "types": public["hermes_config"]["types"]})
+        # A resume compares the digests of the raw values; a changed value changes the hash.
         changed = {**config, "hermes_config": {"model": {"api_key": "other", "headers": {"X-Token": marker}}}}
-        self.assertNotEqual(run.config_hash(changed), run.config_hash(public))
+        self.assertNotEqual(run.config_hash(changed), run.config_hash(config))
+        self.assertEqual(run.digest_hash(run.config_digests(config)), run.config_hash(config))
+        # A user value with a "redacted" key is not trusted as a redaction record.
+        forged = {"hermes_config": {"redacted": True, "types": {}, "api_key": marker},
+                  "drift": {"fixtures": [], "methods": [], "cycles": 3, "note": marker}}
+        self.assertNotIn(marker, json.dumps(run.public_config(forged)))
         # A run folder made before the rule keeps raw values in meta.json: the report redacts them.
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
@@ -346,6 +350,78 @@ class RunTest(unittest.TestCase):
             self.assertEqual(report["meta"]["config"]["hermes_config"],
                              {"redacted": True, "types": public["hermes_config"]["types"]})
 
+    def test_report_drops_the_local_config_digests(self):
+        marker = "fake-value-456"
+        config = {"model": "m", "threshold": 0.95, "hermes_config": {"model": {"headers": {"X-Fake": marker}}}}
+        meta = {"schema": "s", "config": run.public_config(config), "config_sha256": run.config_digests(config),
+                "plugin": {}, "hermes": {}}
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            (out / "runs.jsonl").write_text("", encoding="utf-8")
+            args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=False,
+                                         raw_dir=None)
+            with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+                run.command_report(args)
+            report = json.loads((out / "r.json").read_text(encoding="utf-8"))
+        self.assertNotIn("config_sha256", report["meta"])
+        self.assertEqual(report["meta"]["config"]["hermes_config"],
+                         {"redacted": True, "types": {"model.headers.X-Fake": "str"}})
+
+    def test_plugin_hash_covers_every_loaded_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            package = Path(folder) / "warm_compaction"
+            package.mkdir()
+            (package / "engine.py").write_text('"warm"\nTHRESHOLD_RANGE = 1\n', encoding="utf-8")
+            (package / "plugin.yaml").write_text("name: warm_compaction\n", encoding="utf-8")
+            first = run.plugin_state(Path(folder))["files_sha256"]
+            (package / "plugin.yaml").write_text("name: warm_compaction\nhooks: []\n", encoding="utf-8")
+            second = run.plugin_state(Path(folder))["files_sha256"]
+        self.assertEqual(sorted(first), ["engine.py", "plugin.yaml"])
+        self.assertNotEqual(first["plugin.yaml"], second["plugin.yaml"])
+
+    def test_decision_thresholds_are_exact_at_the_boundary(self):
+        def pair(category, first_only, second_only, pairs=100):
+            return {"first": "warm_ledger", "second": "warm_no_ledger", "category": category, "pairs": pairs,
+                    "first_only": first_only, "second_only": second_only,
+                    "difference": (first_only - second_only) / pairs, "p_mcnemar": 0.5}
+
+        def result(guard_loss):
+            paired = [pair(c, 12, 0) for c in run.LEDGER_CATEGORIES] + [
+                pair(c, 0, guard_loss) for c in run.GUARD_CATEGORIES]
+            methods = {"warm_ledger": {"success": run.rate(27, 30)}, "warm_no_ledger": {"success": None}}
+            drift = {"warm_ledger": {"cycles": [{"accuracy": run.rate(9, 10)}, {"accuracy": run.rate(8, 10)},
+                                                {"accuracy": run.rate(8, 10)}]}}
+            return {"methods": methods, "paired": paired, "drift": drift}
+
+        # Exactly 5 points lower (not significant) passes H2; 6 points lower fails it.
+        self.assertTrue(run.decide(result(5))["checks"]["H2_no_regression"])
+        self.assertFalse(run.decide(result(6))["checks"]["H2_no_regression"])
+        checks = run.decide(result(5))["checks"]
+        self.assertTrue(checks["S1_warm_success_at_least_90"])  # exactly 90%
+        self.assertTrue(checks["D1_drift_within_10_points"])  # exactly 10 points lower
+
+    def test_config_overrides_cannot_change_the_method(self):
+        job = {"model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": "", "context_length": 8,
+               "threshold": 0.9, "engine": "warm_compaction", "settings": {"ledger": True}}
+        base = worker.base_config(job)
+        for override in ({"context": {"engine": "compressor"}}, {"compression": {"threshold": 0.5}},
+                         {"plugins": {"entries": {"warm_compaction": {"settings": {"ledger": False}}}}},
+                         {"model": {"base_url": "http://127.0.0.1:8/v1"}}, {"auxiliary": {"warm_compaction": {}}}):
+            self.assertTrue(worker.override_conflicts(base, override), override)
+        self.assertEqual(worker.override_conflicts(base, {"model": {"headers": {"X-Fake": "1"}}}), [])
+        self.assertEqual(worker.qa_body_conflicts({"max_tokens": 1, "top_p": 1}), ["max_tokens"])
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(worker.JobFailed, "hermes_config_protected:context.engine"):
+                worker.write_config(Path(folder), {**job, "hermes_config": {"context": {"engine": "compressor"}}})
+            config = {"model": "m", "endpoint": "http://127.0.0.1:9/v1", "context_length": 8, "threshold": 0.9,
+                      "hermes_config": {"compression": {"threshold": 0.5}}, "qa_extra_body": {"model": "other"}}
+            (Path(folder) / "c.json").write_text(json.dumps(config), encoding="utf-8")
+            args = types.SimpleNamespace(config=str(Path(folder) / "c.json"), out=str(Path(folder) / "out"))
+            with self.assertRaisesRegex(SystemExit, "hermes_config.compression.*qa_extra_body.model"):
+                run.command_run(args)
+            self.assertFalse((Path(folder) / "out" / "meta.json").exists())
+
     def test_report_refuses_an_incompatible_run_folder(self):
         gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
         base = {"schema": "s", "gold_sha256": gold, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
@@ -360,6 +436,21 @@ class RunTest(unittest.TestCase):
                          ["Hermes commit", "plugin files"])
         self.assertEqual(run.merge_mismatches(base, {**cli, "gold_sha256": {}}, False), ["gold files (use --rescore)"])
         self.assertEqual(run.merge_mismatches(base, {**cli, "gold_sha256": {}}, True), [])
+        # Harness files, server model, CLI version of a shared CLI method, and other result settings.
+        self.assertEqual(run.merge_mismatches(base, {**cli, "harness_sha256": {"run.py": "0"}}, False),
+                         ["harness files"])
+        model = {"id": "m", "quantization": "Q4_K_M"}
+        self.assertEqual(run.merge_mismatches({**base, "server_model": model},
+                                              {**cli, "server_model": {**model, "quantization": "Q8_0"}}, False),
+                         ["server model"])
+        codex = {**cli, "cli": {"codex_cli": {"version": "0.147.0"}}}
+        self.assertEqual(run.merge_mismatches(codex, {**codex, "cli": {"codex_cli": {"version": "0.148.0"}}}, False),
+                         ["codex_cli version"])
+        self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "job_timeout_s": 5}}, False),
+                         ["config job_timeout_s"])
+        # The job plan and a CLI timeout of a run without CLI methods can differ.
+        self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "cli_timeout_s": 5,
+                                                                       "replicates": 2}}, False), [])
         with tempfile.TemporaryDirectory() as folder:
             first, second = Path(folder) / "a", Path(folder) / "b"
             for path, meta in ((first, base), (second, {**cli, "config": {**cli["config"], "context_length": 9}})):
@@ -590,6 +681,41 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertTrue(out["cycles"][0]["main_failed"])
         return str(caught.exception)
+
+    def test_failed_qa_request_fails_the_job(self):
+        job = {"questions": [{"n": 1, "text": "Q?"}], "model": "m", "endpoint": "http://127.0.0.1:9/v1",
+               "api_key": "", "qa_batch": 12}
+        with mock.patch.object(worker, "post_chat", side_effect=TimeoutError()):
+            with self.assertRaisesRegex(worker.JobFailed, "qa_request:TimeoutError"):
+                worker.ask(job, "system", [])
+        with mock.patch.object(worker, "post_chat", return_value={"error": {"message": "overloaded"}}):
+            with self.assertRaisesRegex(worker.JobFailed, "qa_request:no_choices"):
+                worker.ask(job, "system", [])
+        # Both workers report the failure as the job error (status failed), not as wrong answers.
+        for module, runner in ((worker, "run_cycles"), (cli_worker, "run_codex")):
+            with tempfile.TemporaryDirectory() as folder:
+                fixture = Path(folder) / "f.json"
+                fixture.write_text("{}", encoding="utf-8")
+                (Path(folder) / "job.json").write_text(json.dumps(
+                    {"fixture_path": str(fixture), "engine": "codex_cli", "cycles": 1}), encoding="utf-8")
+                argv = ["w", "--job", str(Path(folder) / "job.json"), "--out", str(Path(folder) / "out.json")]
+                with mock.patch.object(module, runner, side_effect=module.JobFailed("qa_request:TimeoutError")), \
+                        mock.patch.object(sys, "argv", argv), mock.patch.dict("os.environ", {"HERMES_HOME": folder}):
+                    module.main()
+                out = json.loads((Path(folder) / "out.json").read_text(encoding="utf-8"))
+            self.assertEqual((out["status"], out["error"]), ("failed", "qa_request:TimeoutError"))
+
+    def test_hermes_worker_fails_when_the_engine_is_not_the_planned_one(self):
+        calls = []
+        history, _gold = fixtures.build(SCENARIOS[0])
+        # The fake agent reports the built-in compressor, as when the plugin does not load.
+        job = {"hermes_source": "synthetic", "engine": "warm_compaction", "endpoint": "http://127.0.0.1:9/v1",
+               "api_key": "fake", "model": "fake", "cycles": 1, "questions": []}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(sys.modules, self.fake_hermes(calls)), \
+                mock.patch.object(worker, "write_config"), mock.patch.object(sys, "path", list(sys.path)):
+            with self.assertRaisesRegex(worker.JobFailed, "engine_mismatch:compressor"):
+                worker.run_cycles(job, history, Path(folder), {"cycles": []})
+        self.assertEqual(calls, [])
 
     def test_cli_worker_stops_after_a_failed_main_command(self):
         timeout = {"exit_code": None, "timeout": True, "text": ""}

@@ -28,6 +28,14 @@ QA_INSTRUCTION = (
     "Reply with one JSON object that maps each question number (as a string) to a short answer string. "
     "Write nothing else.")
 WIRE_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
+# Config sections that define the method of a job. hermes_config cannot set anything in them.
+PROTECTED_SECTIONS = ("context", "compression", "plugins", "auxiliary.warm_compaction")
+# Request fields of the QA call that define the experiment. qa_extra_body cannot set them.
+QA_PROTECTED_KEYS = ("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "stream", "n")
+
+
+class JobFailed(Exception):
+    """A sub-step of the job failed (not the compaction under test). The job fails and is not scored."""
 
 
 def estimate_tokens(rows) -> int:
@@ -65,17 +73,21 @@ def ask(job: dict, system: str, rows: list) -> dict:
         part = questions[start:start + batch]
         text = QA_INSTRUCTION + "\n\n" + "\n".join(f"{item['n']}. {item['text']}" for item in part)
         messages = [{"role": "system", "content": system}, *wire_rows(rows), {"role": "user", "content": text}]
-        body = {"model": job["model"], "messages": messages, "temperature": 0,
+        conflicts = qa_body_conflicts(job.get("qa_extra_body") or {})
+        if conflicts:
+            raise JobFailed(f"qa_extra_body_protected:{','.join(conflicts)}")
+        body = {**(job.get("qa_extra_body") or {}), "model": job["model"], "messages": messages, "temperature": 0,
                 "max_tokens": int(job.get("qa_max_tokens", 2048))}
-        body.update(job.get("qa_extra_body") or {})
         started = time.monotonic()
         try:
             reply = post_chat(job["endpoint"], job["api_key"], body, float(job.get("qa_timeout_s", 600)))
         except Exception as error:
+            # A failed request (timeout, HTTP error) gives no answers: the job fails, it is not scored as wrong.
             result["error"] = f"qa_request:{type(error).__name__}"
-            result["calls"].append({"elapsed_s": round(time.monotonic() - started, 3), "ok": False})
-            continue
-        choice = (reply.get("choices") or [{}])[0]
+            raise JobFailed(result["error"]) from None
+        if not reply.get("choices"):
+            raise JobFailed("qa_request:no_choices")
+        choice = reply["choices"][0]
         message = choice.get("message") or {}
         usage = reply.get("usage") or {}
         result["calls"].append({
@@ -88,6 +100,26 @@ def ask(job: dict, system: str, rows: list) -> dict:
     return result
 
 
+def qa_body_conflicts(extra: dict) -> list[str]:
+    return sorted(key for key in extra if key in QA_PROTECTED_KEYS)
+
+
+def override_conflicts(base: dict, override: dict, prefix: str = "") -> list[str]:
+    """The key paths in override that change the method of a job: a protected section, or a value that the
+    benchmark sets (the model route and the other settings of base_config). New keys elsewhere are allowed."""
+    found = []
+    for key, value in override.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if any(path == section or path.startswith(section + ".") for section in PROTECTED_SECTIONS):
+            found += override_conflicts({}, value, path) if isinstance(value, dict) and value else [path]
+        elif key in base:
+            if isinstance(value, dict) and isinstance(base[key], dict):
+                found += override_conflicts(base[key], value, path)
+            else:
+                found.append(path)
+    return found
+
+
 def merge(target: dict, source: dict) -> None:
     for key, value in source.items():
         if isinstance(value, dict) and isinstance(target.get(key), dict):
@@ -96,8 +128,25 @@ def merge(target: dict, source: dict) -> None:
             target[key] = value
 
 
+def base_config(job: dict) -> dict:
+    """The Hermes configuration that the benchmark sets: the main model route, the engine, and the plugin settings."""
+    return {
+        "model": {"default": job["model"], "model": job["model"], "provider": "custom",
+                  "base_url": job["endpoint"], "api_key": job["api_key"], "api_mode": "chat_completions",
+                  "context_length": int(job["context_length"]), "streaming": False},
+        "context": {"engine": "warm_compaction" if job["engine"] == "warm_compaction" else "compressor"},
+        "tools": {"tool_search": {"enabled": "off"}},
+        "compression": {"progress_notices": False, "threshold": float(job["threshold"])},
+        "auxiliary": {"transient_retries": 0, "warm_compaction": {"provider": "auto"},
+                      "title_generation": {"enabled": False, "model_upgrade_enabled": False}},
+        "plugins": {"enabled": ["warm_compaction"] if job["engine"] == "warm_compaction" else [],
+                    "hook_callback_timeout": 0,
+                    "entries": {"warm_compaction": {"settings": dict(job.get("settings") or {})}}},
+    }
+
+
 def write_config(home: Path, job: dict) -> None:
-    """The Hermes configuration of this run: the main model route, the engine, and the plugin settings."""
+    """Write base_config with the allowed hermes_config additions. An override of a benchmark setting fails."""
     try:
         import yaml
 
@@ -114,19 +163,10 @@ def write_config(home: Path, job: dict) -> None:
             stream = StringIO()
             writer.dump(data, stream)
             return stream.getvalue()
-    config = {
-        "model": {"default": job["model"], "model": job["model"], "provider": "custom",
-                  "base_url": job["endpoint"], "api_key": job["api_key"], "api_mode": "chat_completions",
-                  "context_length": int(job["context_length"]), "streaming": False},
-        "context": {"engine": "warm_compaction" if job["engine"] == "warm_compaction" else "compressor"},
-        "tools": {"tool_search": {"enabled": "off"}},
-        "compression": {"progress_notices": False, "threshold": float(job["threshold"])},
-        "auxiliary": {"transient_retries": 0, "warm_compaction": {"provider": "auto"},
-                      "title_generation": {"enabled": False, "model_upgrade_enabled": False}},
-        "plugins": {"enabled": ["warm_compaction"] if job["engine"] == "warm_compaction" else [],
-                    "hook_callback_timeout": 0,
-                    "entries": {"warm_compaction": {"settings": dict(job.get("settings") or {})}}},
-    }
+    config = base_config(job)
+    conflicts = override_conflicts(config, job.get("hermes_config") or {})
+    if conflicts:
+        raise JobFailed(f"hermes_config_protected:{','.join(conflicts)}")
     merge(config, job.get("hermes_config") or {})
     (home / "config.yaml").write_text(dump(config), encoding="utf-8")
     # A local model catalogue: host discovery makes no request for it.
@@ -171,6 +211,10 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
     try:
         engine = agent.context_compressor
         out["engine_name"] = getattr(engine, "name", None)
+        expected = "warm_compaction" if job["engine"] == "warm_compaction" else "compressor"
+        if out["engine_name"] != expected:
+            # For example, the plugin did not load and Hermes used its built-in compressor.
+            raise JobFailed(f"engine_mismatch:{out['engine_name']}")
         history = copy.deepcopy(fixture["rows"])
         for cycle in range(int(job.get("cycles", 1))):
             item = {"cycle": cycle + 1}
@@ -258,6 +302,8 @@ def main() -> int:
         out["status"] = "ok"
     except MainTurnFailed:
         out["error"] = "main_turn_failed"
+    except JobFailed as error:
+        out["error"] = str(error)
     except Exception as error:
         out["error"] = type(error).__name__
         # The trace has code locations only when the message is left out; it stays in the local work folder.

@@ -26,10 +26,12 @@ import time
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 from . import fixtures, scoring
+from . import worker as job_worker
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -69,9 +71,11 @@ def sha256_file(path: Path) -> str:
 
 
 def plugin_state(plugin_root: Path) -> dict[str, Any]:
-    """Hashes of the plugin files and the settings that its engine knows."""
+    """Hashes of every file that a job copies and loads (the warm_compaction folder, plugin.yaml included) and the
+    settings that its engine knows."""
     package = plugin_root / "warm_compaction"
-    files = {path.name: sha256_file(path) for path in sorted(package.glob("*.py")) if path.is_file()}
+    files = {path.relative_to(package).as_posix(): sha256_file(path) for path in sorted(package.rglob("*"))
+             if path.is_file() and "__pycache__" not in path.parts}
     engine = (package / "engine.py").read_text(encoding="utf-8")
     known = [key for key in ("warm", "ledger", "fallback_format", "ledger_on_failure", "timeout_s")
              if f'"{key}"' in engine.split("THRESHOLD_RANGE", 1)[0]]
@@ -363,9 +367,10 @@ PUBLIC_CONFIG_KEYS = ("model", "api_key_env", "context_length", "threshold", "re
                       "drift", "qa_batch", "qa_max_tokens", "main_max_tokens", "job_timeout_s", "cli_timeout_s",
                       "keep_text", "server_check", "plugin_commit")
 URL_CONFIG_KEYS = ("endpoint", "anthropic_base_url")
-# Settings that change a job result. Runs that a report joins must have the same values (with these defaults).
-RESULT_CONFIG_DEFAULTS = {"model": None, "context_length": None, "threshold": None, "qa_batch": 12,
-                          "qa_max_tokens": 2048, "qa_extra_body": None, "main_max_tokens": 4096, "hermes_config": {}}
+DRIFT_KEYS = ("fixtures", "methods", "cycles")
+# Keys that a report can join with other values: the job plan and local output options. A run with CLI methods
+# compares cli_timeout_s only with another run that has CLI methods.
+MERGE_EXEMPT_KEYS = PLAN_KEYS + ("keep_text", "plugin_commit", "api_key_env")
 
 
 def shape(value: Any, prefix: str = "") -> dict[str, str]:
@@ -388,58 +393,82 @@ def public_url(url: Any) -> Any:
 
 
 def public_config(config: dict) -> dict:
-    """The configuration as meta.json and the report keep it. Paths and CLI commands are left out. A value that can
-    hold a credential (hermes_config, qa_extra_body, or an unknown key) is replaced by its key paths, value types,
-    and a SHA-256 of the full value. A value that is already redacted stays the same."""
+    """The configuration as meta.json and the report keep it: only allow-listed values. Paths and CLI commands are
+    left out. URLs keep no user name, password, query, or fragment. Every other value (hermes_config, qa_extra_body,
+    an unknown key) becomes its key paths and value types only. The input is always the raw configuration: a value
+    in it is never trusted as a redaction record."""
     kept: dict[str, Any] = {}
     for key, value in config.items():
         if key in PRIVATE_CONFIG_KEYS:
             continue
-        if key in PUBLIC_CONFIG_KEYS:
+        if key == "drift" and isinstance(value, dict):
+            kept[key] = {name: value[name] for name in DRIFT_KEYS if name in value}
+        elif key in PUBLIC_CONFIG_KEYS:
             kept[key] = value
         elif key in URL_CONFIG_KEYS:
             kept[key] = public_url(value)
-        elif isinstance(value, dict) and value.get("redacted") is True:
-            kept[key] = value
-        elif value is None or value == {}:
-            kept[key] = value
         else:
-            kept[key] = {"redacted": True, "types": shape(value),
-                         "sha256": hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()}
+            kept[key] = {"redacted": True, "types": shape(value)}
     return kept
 
 
-def report_config(config: dict) -> dict:
-    """public_config without the hashes of redacted values. The hashes stay in the local meta.json for the resume
-    and merge checks; a published report does not get them (a hash of a short credential can be guessed)."""
-    return {key: ({k: v for k, v in value.items() if k != "sha256"}
-                  if isinstance(value, dict) and value.get("redacted") is True else value)
-            for key, value in public_config(config).items()}
+def config_digests(config: dict) -> dict[str, str]:
+    """A SHA-256 of each configuration value (no private keys). meta.json keeps them, apart from the configuration,
+    for the resume and merge checks; the report does not get them (a hash of a short credential can be guessed)."""
+    return {key: hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+            for key, value in config.items() if key not in PRIVATE_CONFIG_KEYS}
+
+
+def meta_digests(meta: dict) -> dict[str, str]:
+    """The configuration digests of a run folder. A folder made before the digests has raw values in its config."""
+    return meta.get("config_sha256") or config_digests(meta.get("config") or {})
+
+
+def report_config(meta: dict) -> dict:
+    """The configuration of a run folder for the report."""
+    return dict(meta.get("config") or {}) if "config_sha256" in meta else public_config(meta.get("config") or {})
+
+
+def digest_hash(digests: dict[str, str], exempt: tuple = PLAN_KEYS) -> str:
+    kept = {key: value for key, value in digests.items() if key not in exempt}
+    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def config_hash(config: dict) -> str:
-    """A hash of the settings that can change a job result: no private paths and no job selection keys. Raw and
-    redacted values (public_config) give the same hash."""
-    kept = {key: value for key, value in public_config(config).items() if key not in PLAN_KEYS}
-    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode("utf-8")).hexdigest()
+    """A hash of the raw settings that can change a job result: no private paths and no job selection keys."""
+    return digest_hash(config_digests(config))
+
+
+def harness_ids(meta: dict) -> set[str]:
+    """The harness versions that made the records of a run folder: the first run and each resume."""
+    return {harness_id(item) for item in [meta.get("harness_sha256")] + [
+        resume.get("harness_sha256") for resume in meta.get("resumes") or []] if item}
 
 
 def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
     """Why the run folder of `extra` cannot join the report of `meta` (empty when it can). The runs must use the
-    same model, result settings, and gold files (or --rescore). They must use the same Hermes commit when both run
-    Hermes methods, and the same plugin files when both run plugin methods."""
-    def result_settings(item: dict) -> dict:
-        config = public_config(item.get("config") or {})
-        return {key: config.get(key, default) for key, default in RESULT_CONFIG_DEFAULTS.items()}
-
+    same harness, server model, configuration values (apart from the job plan), and gold files (or --rescore). They
+    must use the same Hermes commit when both run Hermes methods, the same plugin files when both run plugin
+    methods, and the same version of each CLI that both run."""
     def engines(item: dict) -> set[str]:
         return {METHODS[name]["engine"] for name in (item.get("config") or {}).get("methods") or [] if name in METHODS}
 
     found = []
     if meta.get("schema") != extra.get("schema"):
         found.append("schema")
-    base, other = result_settings(meta), result_settings(extra)
-    found += [f"config {key}" for key in RESULT_CONFIG_DEFAULTS if base[key] != other[key]]
+    both_cli = all(item & set(CLI_ENGINES) for item in (engines(meta), engines(extra)))
+    exempt = MERGE_EXEMPT_KEYS + (() if both_cli else ("cli_timeout_s",))
+    base, other = meta_digests(meta), meta_digests(extra)
+    found += [f"config {key}" for key in sorted(set(base) | set(other))
+              if key not in exempt and base.get(key) != other.get(key)]
+    if harness_ids(meta) != harness_ids(extra):
+        found.append("harness files")
+    if meta.get("server_model") and extra.get("server_model") and meta["server_model"] != extra["server_model"]:
+        found.append("server model")
+    shared_cli = engines(meta) & engines(extra) & set(CLI_ENGINES)
+    found += [f"{name} version" for name in sorted(shared_cli)
+              if ((meta.get("cli") or {}).get(name) or {}).get("version")
+              != ((extra.get("cli") or {}).get(name) or {}).get("version")]
     if not rescore and meta.get("gold_sha256") != extra.get("gold_sha256"):
         found.append("gold files (use --rescore)")
     hermes_methods = [item - set(CLI_ENGINES) for item in (engines(meta), engines(extra))]
@@ -469,8 +498,11 @@ def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli:
         hard.append("Hermes commit")
     if meta.get("gold_sha256") != {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}:
         hard.append("gold files")
-    if config_hash(meta.get("config") or {}) != config_hash(config):  # both sides redacted the same way
+    if digest_hash(meta_digests(meta)) != config_hash(config):
         hard.append("config")
+    current_model = server_model(config)
+    if meta.get("server_model") and current_model and meta["server_model"] != current_model:
+        hard.append("server model")
     if {name: item.get("version") for name, item in (meta.get("cli") or {}).items() if name in cli} != {
             name: item.get("version") for name, item in cli.items()} and cli:
         hard.append("CLI versions")
@@ -478,6 +510,33 @@ def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli:
     harness = sorted(name for name in set(latest or {}) | set(harness_hashes())
                      if (latest or {}).get(name) != harness_hashes().get(name))
     return hard, harness
+
+
+SERVER_MODEL_KEYS = ("id", "type", "publisher", "arch", "compatibility_type", "quantization", "max_context_length")
+
+
+def server_model(config: dict) -> dict | None:
+    """With "server_check": true, the model file fields that the LM Studio REST API reports (no paths)."""
+    if not config.get("server_check"):
+        return None
+    root = str(config["endpoint"]).rstrip("/")
+    root = root[:-3] if root.endswith("/v1") else root
+    try:
+        with urllib.request.urlopen(f"{root}/api/v0/models/{config['model']}", timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    return {key: data.get(key) for key in SERVER_MODEL_KEYS}
+
+
+def override_conflicts(config: dict) -> list[str]:
+    """Config overrides that would change the method of a job (see worker.PROTECTED_SECTIONS)."""
+    sample = {"model": config.get("model"), "endpoint": config.get("endpoint"), "api_key": "", "engine":
+              "warm_compaction", "context_length": config.get("context_length") or 0,
+              "threshold": config.get("threshold") or 0, "settings": {}}
+    return ([f"hermes_config.{path}" for path in job_worker.override_conflicts(
+        job_worker.base_config(sample), config.get("hermes_config") or {})]
+        + [f"qa_extra_body.{key}" for key in job_worker.qa_body_conflicts(config.get("qa_extra_body") or {})])
 
 
 def server_state(config: dict) -> str | None:
@@ -504,6 +563,9 @@ def command_run(args) -> int:
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    conflicts = override_conflicts(config)
+    if conflicts:
+        raise SystemExit(f"config overrides change the benchmark method: {', '.join(conflicts)}; stop before any job")
     history_dir = Path(config.get("history_dir") or ROOT / ".work" / "bench-fixtures")
     fixtures.write_all(history_dir, history_dir / "gold-check")
     for spec in fixtures.SCENARIOS:
@@ -521,7 +583,8 @@ def command_run(args) -> int:
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
                 "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "config": public_config(config),
+                "config": public_config(config), "config_sha256": config_digests(config),
+                "server_model": server_model(config),
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": harness_hashes(),
                 "gold_sha256": current_gold_sha256(),
@@ -544,7 +607,7 @@ def command_run(args) -> int:
             meta.setdefault("resumes", []).append({
                 "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "harness_sha256": harness_hashes(),
                 "harness_changed": harness, "methods": list(config["methods"]),
-                "plan": {key: config[key] for key in PLAN_KEYS if key in config}})
+                "plan": public_config({key: config[key] for key in PLAN_KEYS if key in config})})
             meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
     # A job is done when its latest record is ok: a later "invalid" or failed record makes it run again.
@@ -817,6 +880,15 @@ def paired(result: dict, first: str, second: str, category: str) -> dict | None:
                  (first, second, category)), None)
 
 
+def exact_difference(item: dict) -> Fraction:
+    """The paired difference as an exact fraction, so a boundary value (for example exactly 5 points) is exact."""
+    return Fraction(item["first_only"] - item["second_only"], item["pairs"])
+
+
+def exact_rate(item: dict) -> Fraction:
+    return Fraction(item["k"], item["n"]) if item.get("n") else Fraction(0)
+
+
 def decide(result: dict) -> dict[str, Any]:
     """Apply the pre-registered decision rule (PREREGISTRATION.md). Return each check and its outcome."""
     checks: dict[str, Any] = {}
@@ -824,16 +896,18 @@ def decide(result: dict) -> dict[str, Any]:
     if "warm_ledger" in methods and "warm_no_ledger" in methods:
         gains = {c: paired(result, "warm_ledger", "warm_no_ledger", c) for c in LEDGER_CATEGORIES}
         checks["H1_ledger_helps"] = all(
-            item is not None and item["difference"] >= 0.10 and (item["p_mcnemar"] or 1) < 0.05
+            item is not None and exact_difference(item) >= Fraction(10, 100) and (item["p_mcnemar"] or 1) < 0.05
             for item in gains.values())
         losses = {c: paired(result, "warm_ledger", "warm_no_ledger", c) for c in GUARD_CATEGORIES}
+        # "Not more than 5 points below": exactly 5 points below passes.
         checks["H2_no_regression"] = all(
-            item is not None and not (item["difference"] <= -0.05) and not (
+            item is not None and not (exact_difference(item) < Fraction(-5, 100)) and not (
                 item["difference"] < 0 and (item["p_mcnemar"] or 1) < 0.05) for item in losses.values())
     if "fallback_relaxed_ledger" in methods and "fallback_relaxed_no_ledger" in methods:
         gains = [paired(result, "fallback_relaxed_ledger", "fallback_relaxed_no_ledger", c) for c in LEDGER_CATEGORIES]
         checks["H1b_ledger_helps_fallback"] = all(
-            item is not None and item["difference"] >= 0.10 and (item["p_mcnemar"] or 1) < 0.05 for item in gains)
+            item is not None and exact_difference(item) >= Fraction(10, 100) and (item["p_mcnemar"] or 1) < 0.05
+            for item in gains)
     if "fallback_relaxed_ledger" in methods and "fallback_quoted_ledger" in methods:
         relaxed = methods["fallback_relaxed_ledger"]["success"]
         quoted = methods["fallback_quoted_ledger"]["success"]
@@ -853,12 +927,12 @@ def decide(result: dict) -> dict[str, Any]:
         checks["H4_smaller_than_stock"] = (None if warm_after is None or stock_after is None
                                            else warm_after <= stock_after)
     if "warm_ledger" in methods and methods["warm_ledger"]["success"]:
-        checks["S1_warm_success_at_least_90"] = (methods["warm_ledger"]["success"]["rate"] or 0) >= 0.90
+        checks["S1_warm_success_at_least_90"] = exact_rate(methods["warm_ledger"]["success"]) >= Fraction(90, 100)
     if "warm_ledger" in result["drift"]:
         cycles = result["drift"]["warm_ledger"]["cycles"]
         if len(cycles) >= 3 and cycles[0]["accuracy"]["rate"] is not None:
-            checks["D1_drift_within_10_points"] = (cycles[2]["accuracy"]["rate"] or 0) >= (
-                cycles[0]["accuracy"]["rate"] - 0.10)
+            checks["D1_drift_within_10_points"] = exact_rate(cycles[2]["accuracy"]) >= (
+                exact_rate(cycles[0]["accuracy"]) - Fraction(10, 100))
     verdict = []
     if "R1_relaxed_succeeds_more_often" in checks:
         verdict.append("The relaxed fallback format succeeds more often than the quoted format."
@@ -1082,8 +1156,8 @@ def command_report(args) -> int:
         attempts += [item for item in load_attempts(extra_dir) if item["job"] not in known]
         planned.update({job_id: job for job_id, job in planned_jobs(extra_meta).items() if job_id not in planned})
         meta.setdefault("merged_runs", []).append({**{key: extra_meta.get(key) for key in (
-            "started_utc", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs")},
-            "config": report_config(extra_meta.get("config") or {})})
+            "started_utc", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs", "server_model")},
+            "config": report_config(extra_meta)})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
     if rescores:
         # The marks come from the current gold files, not from the gold files of the run.
@@ -1094,8 +1168,10 @@ def command_report(args) -> int:
         print("warning: gold files changed after the run; use --rescore to score the raw answers again",
               file=sys.stderr)
     result = aggregate(runs, meta, attempts, planned)
-    # A run folder made before the redaction rule can have raw values in meta.json: redact them here too.
-    meta["config"] = report_config(meta.get("config") or {})
+    # A run folder made before the redaction rule can have raw values in meta.json: redact them here too. The
+    # digests stay in the local meta.json only.
+    meta["config"] = report_config(meta)
+    meta.pop("config_sha256", None)
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
                        "text.", "meta": meta, "results": result,

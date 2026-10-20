@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from worker import ask, estimate_tokens  # noqa: E402
+from worker import JobFailed, ask, estimate_tokens  # noqa: E402
 
 LOGIN_PATTERNS = re.compile(r"(?i)(please run /login|not logged in|invalid api key|login required|sign in to|"
                             r"codex login|authentication required)")
@@ -489,6 +489,8 @@ def main() -> int:
         out["error"] = "login_required"
     except MainTurnFailed as error:
         out["error"] = f"main_turn_failed:{error}"
+    except JobFailed as error:
+        out["error"] = str(error)
     except Exception as error:
         out["error"] = type(error).__name__
         out["trace"] = "".join(traceback.format_exception(type(error), None, error.__traceback__))[-4000:]
