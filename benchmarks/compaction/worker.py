@@ -33,10 +33,11 @@ HERMES_CONFIG_ALLOWED = ("model.headers",)
 # Header names that the harness, the HTTP client, or a CLI sets for the route (lower case; names are compared
 # without case). model.headers cannot set them: a second source with another value would replace one silently.
 RESERVED_HEADERS = ("authorization", "content-type", "content-length", "host", "x-api-key", "anthropic-version")
-# The only QA request fields that qa_extra_body can set: sampler and chat template options. The model, the messages,
-# the output limit, the temperature, and streaming stay fixed.
+# The only QA request fields that qa_extra_body can set: sampler and chat template options, and reasoning_effort (the
+# field that Hermes sends as "none" when reasoning is off for the main turn, so the questions can use the same
+# setting). The model, the messages, the output limit, the temperature, and streaming stay fixed.
 QA_EXTRA_ALLOWED = ("chat_template_kwargs", "seed", "top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty",
-                    "frequency_penalty")
+                    "frequency_penalty", "reasoning_effort")
 
 
 class JobFailed(Exception):

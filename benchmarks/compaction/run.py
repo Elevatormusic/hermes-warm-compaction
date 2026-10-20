@@ -590,6 +590,14 @@ def public_config(config: dict) -> dict:
             kept[key] = {name: value[name] for name in DRIFT_KEYS if name in value}
         elif key in PUBLIC_CONFIG_KEYS:
             kept[key] = value
+        elif key == "qa_extra_body" and isinstance(value, dict):
+            # The key paths and types, and the values of the allowed keys that are a number, a bool, or a short
+            # string (for example reasoning_effort "none" or a seed): the report states the QA settings.
+            kept[key] = {"redacted": True, "types": shape(value),
+                         "values": {name: item for name, item in value.items()
+                                    if name in job_worker.QA_EXTRA_ALLOWED and (isinstance(item, (bool, int, float))
+                                                                               or (isinstance(item, str)
+                                                                                   and len(item) <= 32))}}
         elif key in URL_CONFIG_KEYS:
             kept[key] = public_url(value)
         else:

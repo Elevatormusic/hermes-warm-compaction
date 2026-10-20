@@ -1178,6 +1178,14 @@ class RunTest(unittest.TestCase):
         self.assertEqual(worker.qa_body_conflicts({"logit_bias": {}, "response_format": {}, "seed": 1}),
                          ["logit_bias", "response_format"])
         self.assertEqual(worker.qa_body_conflicts({key: 1 for key in worker.QA_EXTRA_ALLOWED}), [])
+        # The questions can turn reasoning off with the field that Hermes sends for the main turn.
+        self.assertEqual(worker.qa_body_conflicts({"reasoning_effort": "none"}), [])
+        # meta.json keeps the short scalar values of the allowed keys only (synthetic values).
+        public = run.public_config({"qa_extra_body": {"reasoning_effort": "none", "seed": 3, "token": "fake-secret",
+                                                      "chat_template_kwargs": {"enable_thinking": False}}})
+        self.assertEqual(public["qa_extra_body"]["values"], {"reasoning_effort": "none", "seed": 3})
+        self.assertEqual(public["qa_extra_body"]["types"]["chat_template_kwargs.enable_thinking"], "bool")
+        self.assertNotIn("fake-secret", json.dumps(public))
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(worker.JobFailed, "hermes_config_protected:1"):
                 worker.write_config(Path(folder), {**job, "hermes_config": {"context": {"engine": "compressor"}}})
