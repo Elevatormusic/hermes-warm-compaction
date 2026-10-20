@@ -1311,6 +1311,59 @@ class RunTest(unittest.TestCase):
             self.assertFalse(run.hermes_state(source)["clean"])
             self.assertEqual(run.ignored_files(source), ["patch.gen.py"])
 
+    def test_hermes_checkout_with_a_tracked_link_is_not_clean(self):
+        def git(folder, *args, data=None):
+            return subprocess.run(["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                                   *args], check=True, capture_output=True, input=data).stdout
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "hermes"
+            source.mkdir()
+            (source / "agent.py").write_text("x = 1\n", encoding="utf-8")  # synthetic Hermes source
+            git(source, "init", "-q")
+            git(source, "config", "core.symlinks", "false")
+            git(source, "add", "-A")
+            git(source, "commit", "-q", "-m", "synthetic")
+            self.assertTrue(run.hermes_state(source)["clean"])
+            # A tracked symbolic link (mode 120000) to a module outside the checkout. With core.symlinks false the
+            # work tree has the target path as text, so Git reports a clean status on every platform.
+            target = b"../outside/agent_patch.py"
+            blob = git(source, "hash-object", "-w", "--stdin", data=target).decode().strip()
+            git(source, "update-index", "--add", "--cacheinfo", f"120000,{blob},agent_patch.py")
+            (source / "agent_patch.py").write_bytes(target)
+            git(source, "commit", "-q", "-m", "link")
+            self.assertEqual(git(source, "status", "--porcelain"), b"")
+            self.assertFalse(run.hermes_state(source)["clean"])
+            self.assertEqual(run.tracked_links(source), ["agent_patch.py"])
+
+    def test_runner_python_identity_follows_its_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / "Lib" / "__pycache__").mkdir(parents=True)
+            (base / "Lib" / "site-packages").mkdir()
+            executable = base / "python.exe"
+            executable.write_bytes(b"synthetic interpreter 1")
+            (base / "Lib" / "os.py").write_text("x = 1\n", encoding="utf-8")
+
+            def identity():
+                return run.runtime_state({})["sha256"]["runner_python"]
+
+            with mock.patch.object(run.sys, "executable", str(executable)), \
+                    mock.patch.object(run.sys, "base_prefix", str(base)), \
+                    mock.patch("sysconfig.get_path", lambda name, *_a, **_k: str(base / "Lib")):
+                first = identity()
+                # Bytecode caches and installed packages do not change the identity.
+                (base / "Lib" / "__pycache__" / "os.cpython-314.pyc").write_bytes(b"cache")
+                (base / "Lib" / "site-packages" / "extra.py").write_text("y = 1\n", encoding="utf-8")
+                self.assertEqual(identity(), first)
+                # An upgrade in place: the same path, other executable bytes of the same size.
+                executable.write_bytes(b"synthetic interpreter 2")
+                second = identity()
+                self.assertNotEqual(second, first)
+                # A changed standard library module.
+                (base / "Lib" / "os.py").write_text("x = 22\n", encoding="utf-8")
+                self.assertNotEqual(identity(), second)
+
     def test_resume_with_a_credential_needs_confirmation(self):
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder) / "out"
@@ -2289,14 +2342,49 @@ class MainTurnFailureTest(unittest.TestCase):
 
     def test_cli_sizes_measure_the_compaction_input(self):
         reply = "y" * 4000
-        main = [{"type": "assistant", "message": {"role": "assistant", "content": reply}}]
+        thinking, call, result = "t" * 3000, {"q": "c" * 2000}, "r" * 1000  # synthetic main-turn items
+        history, _gold = fixtures.build(SCENARIOS[0])
+        main = [{"type": "user", "message": {"role": "user", "content": history["resume"]}},
+                {"type": "assistant", "message": {"role": "assistant", "content": [
+                    {"type": "thinking", "thinking": thinking}, {"type": "tool_use", "name": "probe", "input": call}]}},
+                {"type": "user", "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": result}]}},
+                {"type": "assistant", "message": {"role": "assistant", "content": reply}}]
         compact = [{"type": "system", "subtype": "compact_boundary", "compactMetadata": {"durationMs": 1000}},
                    {"type": "user", "isCompactSummary": True, "message": {"role": "user", "content": "summary"}}]
         history, out = self.run_cli_session("claude_code_cli", main, compact)
         cycle = out["cycles"][0]
-        expected = cli_worker.text_rows_all(history["rows"]) + [{"role": "user", "content": history["resume"]},
-                                                                 {"role": "assistant", "content": reply}]
+        # The input has the thinking, the tool call, and the tool result of the main turn, and the main user row once.
+        expected = cli_worker.text_rows_all(history["rows"]) + [
+            {"role": "user", "content": history["resume"]},
+            {"role": "assistant", "content": f"{thinking}\n[tool call probe: {json.dumps(call)}]"},
+            {"role": "user", "content": result}, {"role": "assistant", "content": reply}]
         self.assertEqual(cycle["est_tokens_before"], worker.estimate_tokens(expected))
+        self.assertEqual(cycle["rows_before"], len(expected))
+        # Codex: reasoning, a function call, and its output count too; an unknown item kind counts as its JSON text.
+        codex = [{"type": "response_item", "payload": {"type": "message", "role": "user", "content": [
+                     {"type": "input_text", "text": history["resume"]}]}},
+                 {"type": "response_item", "payload": {"type": "reasoning", "summary": [{"type": "summary_text",
+                                                                                          "text": thinking}]}},
+                 {"type": "response_item", "payload": {"type": "function_call", "call_id": "c1", "name": "probe",
+                                                       "arguments": json.dumps(call)}},
+                 {"type": "response_item", "payload": {"type": "function_call_output", "call_id": "c1",
+                                                       "output": result}},
+                 {"type": "response_item", "payload": {"type": "ghost_snapshot", "note": "n" * 500}},
+                 {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [
+                     {"type": "output_text", "text": reply}]}}]
+        with self.assertRaisesRegex(AssertionError, "no compaction expected"):
+            self.run_cli_session("codex_cli", codex)
+        codex_rows = cli_worker.codex_added_rows(codex, history["resume"])
+        self.assertEqual([row["role"] for row in codex_rows], ["assistant", "tool", "user", "assistant"])
+        self.assertEqual(codex_rows[0]["content"], thinking)
+        self.assertEqual(codex_rows[0]["tool_calls"][0]["function"]["arguments"], json.dumps(call))
+        self.assertIn("[ghost_snapshot]", codex_rows[2]["content"])
+        item = {}
+        cli_worker.compaction_input(item, history, codex_rows)
+        self.assertGreater(item["est_tokens_before"], worker.estimate_tokens(
+            cli_worker.text_rows_all(history["rows"]) + [{"role": "user", "content": history["resume"]},
+                                                          {"role": "assistant", "content": reply}]) + 1200)
         self.assertEqual(cycle["est_tokens_before_main"],
                          worker.estimate_tokens(cli_worker.text_rows_all(history["rows"])))
         self.assertTrue(cycle["compacted"])

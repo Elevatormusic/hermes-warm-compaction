@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 import urllib.parse
@@ -137,6 +138,16 @@ def plugin_state(plugin_root: Path) -> dict[str, Any]:
     return {"files_sha256": files, "settings_known": known, "commit": commit}
 
 
+def tracked_links(source: Path) -> list[str] | None:
+    """The symbolic links that Git tracks in the checkout (mode 120000). Git records only the link, so a change of
+    its target leaves the commit and the status the same, and the worker would import the changed target. None
+    when Git fails."""
+    listed = git_output(source, "ls-files", "-s", "-z")
+    if listed is None:
+        return None
+    return [entry.split("\t", 1)[1] for entry in listed.split("\0") if entry.startswith("120000 ") and "\t" in entry]
+
+
 def ignored_files(source: Path) -> list[str] | None:
     """The files that Git ignores in the checkout, apart from __pycache__ folders and virtual environments (a folder
     with pyvenv.cfg: its packages are in the runtime hash). The worker puts the checkout on sys.path, so such a file
@@ -153,13 +164,15 @@ def ignored_files(source: Path) -> list[str] | None:
 def hermes_state(source: Path) -> dict[str, Any]:
     """The commit and state of the Hermes checkout. A folder that is not the top folder of a Git checkout (no
     checkout, or a copy inside another checkout) has an unknown commit and is not clean. A changed, untracked, or
-    ignored file (ignored_files) makes the checkout not clean too: the commit would not describe the code."""
+    ignored file (ignored_files) or a tracked symbolic link (tracked_links) makes the checkout not clean too: the
+    commit would not describe the code."""
     if not checkout_root(source):
         return {"commit": None, "clean": False}
     status = git_output(source, "status", "--porcelain")
     ignored = ignored_files(source)
+    links = tracked_links(source)
     return {"commit": (git_output(source, "rev-parse", "HEAD") or "").strip() or None,
-            "clean": status is not None and not status.strip() and ignored == []}
+            "clean": status is not None and not status.strip() and ignored == [] and links == []}
 
 
 def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any] | None:
@@ -738,6 +751,37 @@ def cli_files_sha256(command: list[str] | None) -> str:
     return sha256_value(items)
 
 
+def runner_files_sha256() -> str:
+    """The identity of the files of the runner Python, which runs this runner and each CLI worker: the SHA-256
+    hash of its executable file, and the size and modification time of each file of its standard library, of its
+    DLLs folder, and of the top folder of its installation (the Python DLL on Windows). An upgrade in place with the
+    same path changes it. __pycache__ and site-packages folders are left out: bytecode caches change when modules
+    load, and the runner and the CLI worker import only the standard library and the harness files (which have
+    their own hashes)."""
+    def stat_pair(path) -> list:
+        try:
+            info = os.stat(path)
+        except OSError:
+            return [None, None]
+        return [info.st_size, info.st_mtime_ns]
+
+    rows: list[list] = [["executable", file_sha256(Path(os.path.realpath(sys.executable)))]]
+    base = Path(sys.base_prefix)
+    try:
+        top = sorted(item for item in base.iterdir() if item.is_file())
+    except OSError:
+        top = []
+    rows += [["base", item.name, *stat_pair(item)] for item in top]
+    folders = sorted({path for path in (sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib"),
+                                        str(base / "DLLs")) if path and os.path.isdir(path)})
+    for index, folder in enumerate(folders):
+        for current, dirs, names in os.walk(folder):
+            dirs[:] = sorted(item for item in dirs if item not in ("__pycache__", "site-packages", "dist-packages"))
+            rows += [[index, os.path.relpath(os.path.join(current, name), folder),
+                      *stat_pair(os.path.join(current, name))] for name in sorted(names)]
+    return sha256_value(rows)
+
+
 def runtime_state(config: dict) -> dict[str, Any]:
     """The runtime that runs the jobs: the host, the Python of the runner and of Hermes, and the argv and files of
     each CLI. "public" goes into meta.json and the report. "sha256" has hashes of private paths, the package list,
@@ -745,7 +789,8 @@ def runtime_state(config: dict) -> dict[str, Any]:
     the report does not get them."""
     public: dict[str, Any] = {"host": {"os": platform.system(), "machine": platform.machine(),
                                        "python": sys.version.split()[0]}}
-    digests = {"runner_python": sha256_value(os.path.realpath(sys.executable))}
+    digests = {"runner_python": sha256_value({"path": os.path.realpath(sys.executable),
+                                              "files": runner_files_sha256()})}
     if config.get("hermes_python"):
         try:
             done = subprocess.run([str(config["hermes_python"]), "-I", "-c", RUNTIME_PROBE], capture_output=True,

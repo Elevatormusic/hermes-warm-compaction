@@ -284,7 +284,7 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     if any(line.get("type") == "compacted" for line in lines):
         # Only the planned compaction step may compact.
         raise JobFailed("main_turn_compacted")
-    compaction_input(item, fixture, reply)
+    compaction_input(item, fixture, codex_added_rows(lines[seeded:], fixture["resume"]))
     # The manual compaction: the app server request thread/compact/start (what /compact sends). It starts a
     # compaction turn only; no model turn follows.
     compact = codex_app_server_compact([*job["cli_command"], "app-server", "-c",
@@ -536,7 +536,7 @@ def run_claude(job: dict, fixture: dict, work: Path, out: dict) -> None:
     if any(entry.get("type") == "system" and entry.get("subtype") == "compact_boundary" for entry in entries):
         # Only the planned compaction step may compact (Claude Code can compact on its own before a turn).
         raise JobFailed("main_turn_compacted")
-    compaction_input(item, fixture, reply)
+    compaction_input(item, fixture, claude_added_rows(entries[seeded:], fixture["resume"]))
     compact = run_cli(common + ["/compact"], cwd, env, timeout_s)
     if compact["login_prompt"]:
         raise LoginRequired()
@@ -571,12 +571,52 @@ class MainTurnFailed(Exception):
     the compaction: a compaction of an incomplete session is not comparable."""
 
 
-def compaction_input(item: dict, fixture: dict, reply: str) -> None:
-    """The size of the context that the compaction gets: the session rows, the main user row, and the main reply.
-    The size before the main turn stays in est_tokens_before_main."""
-    rows = text_rows_all(fixture["rows"]) + [{"role": "user", "content": fixture["resume"]}] + (
-        [{"role": "assistant", "content": reply}] if reply else [])
+def compaction_input(item: dict, fixture: dict, added: list[dict]) -> None:
+    """The size of the context that the compaction gets: the session rows, the main user row, and every row that
+    the main turn added to the session (codex_added_rows, claude_added_rows): the reply, and also reasoning,
+    thinking, tool calls, and tool results. The size before the main turn stays in est_tokens_before_main."""
+    rows = text_rows_all(fixture["rows"]) + [{"role": "user", "content": fixture["resume"]}] + added
     item.update(rows_before=len(rows), est_tokens_before=estimate_tokens(rows))
+
+
+# The kinds of Codex session items that codex_rows reads.
+CODEX_ITEM_KINDS = ("message", "function_call", "custom_tool_call", "local_shell_call", "web_search_call",
+                    "function_call_output", "custom_tool_call_output", "reasoning")
+
+
+def codex_added_rows(lines: list[dict], resume: str) -> list[dict]:
+    """The rows of the session items that the Codex main turn added (rollout response items), without the main user
+    message (compaction_input adds it). An item of another kind or role is counted as its JSON text, so that the
+    size does not leave it out. Encrypted reasoning has no text and adds only its summary text."""
+    items = []
+    for line in lines:
+        item = line.get("payload") if line.get("type") == "response_item" else None
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "message" and item.get("role") == "user" and codex_message_text(item) == resume:
+            continue
+        if item.get("type") not in CODEX_ITEM_KINDS or (
+                item.get("type") == "message" and item.get("role") not in ("user", "assistant", "developer", "system")):
+            item = {"type": "message", "role": "user",
+                    "content": [{"type": "input_text", "text": f"[{item.get('type')}] {codex_text(item)}"}]}
+        items.append(item)
+    return codex_rows(items)
+
+
+def claude_added_rows(entries: list[dict], resume: str) -> list[dict]:
+    """The rows of the transcript entries that the Claude Code main turn added, with thinking, tool calls, and tool
+    results, without the main user message (compaction_input adds it) and without command rows."""
+    rows = []
+    for entry in entries:
+        if entry.get("type") not in ("user", "assistant") or entry.get("isMeta"):
+            continue
+        message = entry.get("message") or {}
+        role = message.get("role") or entry["type"]
+        text = claude_text(message.get("content"), thinking=True)
+        if (role == "user" and text == resume) or "<command-name>" in text or "<local-command-stdout>" in text:
+            continue
+        rows.append({"role": role, "content": text})
+    return rows
 
 
 def codex_main_reply(lines: list[dict]) -> str:
