@@ -162,7 +162,11 @@ class ScoringTest(unittest.TestCase):
         for gold, answer, correct in ((beta, "v3.0.0-beta.2", True), (beta, "3.0.0-beta.2.", True),
                                       (beta, "3.0.0-beta.2.1", False), (beta, "3.0.0-beta.21", False),
                                       ("7.3.0", "7.3.0-beta", False), ("7.3.0", "7.3.0+build.5", False),
-                                      ("1.2.0+build.5", "v1.2.0+build.5", True), ("0.412", "0.412s", True)):
+                                      ("1.2.0+build.5", "v1.2.0+build.5", True), ("0.412", "0.412s", True),
+                                      ("v2.4.1", "v2.4.1", True), ("v2.4.1", "2.4.1", True),
+                                      ("v2.4.1", "v2.4.1-beta", False), ("v0.9.0", "v0.9.0.1", False),
+                                      ("v2.4.1", "xv2.4.1", False), ("v2.4.1", "vv2.4.1", False),
+                                      ("v2.4.1", "v12.4.1", False)):
             with self.subTest(gold=gold, answer=answer):
                 self.assertEqual(scoring.score(question("text", gold), answer), correct)
                 retained = scoring.retained({"kind": "text", "retention": [[gold], ["release"]]}, f"release {answer}")
@@ -843,6 +847,16 @@ class RunTest(unittest.TestCase):
                 record = run.run_job(job, config, out_dir, history_dir)
             self.assertEqual((record["status"], record["error"]), ("failed", "job_timeout"))
 
+            # The worker wrote an ok report, then exited with an error. The job fails.
+            def failed_exit(argv, timeout, **_kwargs):
+                fake_worker(argv, timeout)
+                return types.SimpleNamespace(returncode=1, stderr=b"")
+
+            with mock.patch.object(run, "run_tree", side_effect=failed_exit):
+                record = run.run_job(job, config, out_dir, history_dir)
+            self.assertEqual((record["status"], record["error"], record["exit_code"]),
+                             ("failed", "worker_exit_nonzero", 1))
+
             # A stop during the report write leaves partial JSON: a failed attempt with its own record.
             def partial_worker(argv, timeout, **_kwargs):
                 Path(argv[argv.index("--out") + 1]).write_text('{"status": "ok", "cyc', encoding="utf-8")
@@ -1424,6 +1438,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(run.merge_mismatches(base, changed(base, "hermes_python"), False), ["runtime hermes_python"])
         self.assertEqual(run.merge_mismatches(base, changed(cli, "hermes_packages"), False), [])
         self.assertEqual(run.merge_mismatches(base, changed(cli, "runner_python"), False), ["runtime runner_python"])
+        self.assertEqual(run.merge_mismatches(base, changed(cli, "runner_content"), False), ["runtime runner_content"])
         self.assertEqual(run.merge_mismatches(base, {**base, "runtime": {"hermes_python": {"version": "3.12.0"}}},
                                               False), ["runtime hermes_python version"])
         self.assertEqual(run.merge_mismatches(base, {**cli, "host": {"os": "Other"}}, False), ["runtime host"])

@@ -89,6 +89,7 @@ def loose(text: Any) -> str:
 # A dotted version ("7.3.0", "3.0.0-beta.2", "1.2.0+build.5") is one token. It can have a "v" before it ("v7.3.0"),
 # but not another letter, a digit, or a sign. Another version part, prerelease, or build suffix after it makes
 # another version ("7.3.0.1", "7.3.0-beta", "3.0.0-beta.2.1"). A one-dot number keeps the number edge after it.
+# A gold version with a "v" ("v2.4.1") is the same version: it matches with or without the "v", with the same edges.
 VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+(?:-[0-9a-z]+(?:\.[0-9a-z]+)*)?(?:\+[0-9a-z]+(?:\.[0-9a-z]+)*)?")
 VERSION_LEFT = r"(?<![a-uw-z0-9+-])(?<![a-z0-9]v)(?<![0-9][.,])"
 VERSION_RIGHT = r"(?![0-9a-z])(?![.+-][0-9a-z])"
@@ -101,6 +102,8 @@ def number_pattern(needle: str) -> str | None:
     version uses the version edges (VERSION). Another number has no letter, digit, decimal part, or sign before it
     ("-5" is not "5", unless the needle has the sign) and no digit or decimal part after it ("5.5" is not "5"); a
     unit such as "5s" or "5ms" can follow."""
+    if needle[:1] == "v" and VERSION.fullmatch(needle[1:]):
+        return r"(?<![a-z0-9+-])(?<![0-9][.,])v?" + re.escape(needle[1:]) + VERSION_RIGHT
     if VERSION.fullmatch(needle):
         # A one-dot number without a suffix ("0.412", "91.6") is a decimal: a unit can follow ("0.412s").
         decimal = needle.count(".") == 1 and not re.search(r"[+-]", needle)

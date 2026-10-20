@@ -510,6 +510,10 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
                 # The outer timeout stopped the process tree after the report: the job ran over job_timeout_s and
                 # child work could still run, so the job fails also when the report says ok.
                 record["status"], record["error"] = "failed", "job_timeout"
+            elif completed.returncode != 0 and record["status"] == "ok":
+                # The worker wrote an ok report and then exited with an error (for example a failed interpreter
+                # shutdown): the job fails, and the record keeps the exit code.
+                record["status"], record["error"] = "failed", "worker_exit_nonzero"
             if config.get("keep_text"):
                 raw = out_dir / "raw"
                 raw.mkdir(exist_ok=True)
@@ -928,12 +932,13 @@ def runtime_state(config: dict, content: bool = True) -> dict[str, Any]:
 
 def runtime_mismatches(meta: dict, other: dict, keys: list[str] | None = None) -> list[str]:
     """The runtime parts that differ between two run folders (meta.json form). keys=None compares all; else only
-    the runner, the host, and the given hash keys (a merge compares only what both folders use)."""
+    the runner (its files and their content), the host, and the given hash keys (a merge compares only what both
+    folders use)."""
     if meta.get("runtime_sha256") is None or other.get("runtime_sha256") is None:
         return ["runtime (not recorded)"]
     found = [] if meta.get("host") == other.get("host") else ["runtime host"]
     base, extra = meta["runtime_sha256"], other["runtime_sha256"]
-    names = sorted(set(base) | set(extra)) if keys is None else ["runner_python", *keys]
+    names = sorted(set(base) | set(extra)) if keys is None else ["runner_python", "runner_content", *keys]
     found += [f"runtime {name}" for name in names if base.get(name) != extra.get(name)]
     if (keys is None or "hermes_python" in keys) and (meta.get("runtime") or {}).get("hermes_python") != (
             other.get("runtime") or {}).get("hermes_python"):
