@@ -1315,6 +1315,35 @@ class RunTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "runtime probe"):
             run.runtime_state({"hermes_python": str(Path(tempfile.gettempdir()) / "no-such-python.exe")})
 
+    def test_cli_hash_covers_the_files_that_the_command_runs(self):
+        # A synthetic npm layout: a CLI package with a script and a hoisted dependency package (fake code).
+        with tempfile.TemporaryDirectory() as folder:
+            modules = Path(folder) / "node_modules"
+            cli, dep = modules / "@fake" / "cli", modules / "fake-dep"
+            for package, name, extra in ((cli, "@fake/cli", {"optionalDependencies": {"fake-dep": "1.0.0"}}),
+                                         (dep, "fake-dep", {})):
+                (package / "bin").mkdir(parents=True)
+                (package / "package.json").write_text(json.dumps({"name": name, "version": "1.0.0", **extra}),
+                                                      encoding="utf-8")
+            (cli / "bin" / "cli.js").write_text("console.log('1.0.0')\n", encoding="utf-8")
+            (dep / "bin" / "native.bin").write_bytes(b"fake-binary-1")
+            (Path(folder) / "unrelated.txt").write_text("a\n", encoding="utf-8")
+            command = [str(cli / "bin" / "cli.js")]
+            config = {"methods": ["codex_cli"], "cli": {"codex_cli": {"command": command}}}
+            first = run.runtime_state(config)["sha256"]["cli.codex_cli"]
+            # A file outside the packages does not count; the same argv with changed code does.
+            (Path(folder) / "unrelated.txt").write_text("b\n", encoding="utf-8")
+            self.assertEqual(run.runtime_state(config)["sha256"]["cli.codex_cli"], first)
+            for path, changed in ((cli / "bin" / "cli.js", b"console.log('1.0.0') // edited\n"),
+                                  (dep / "bin" / "native.bin", b"fake-binary-2")):
+                with self.subTest(path=path.name):
+                    before = run.runtime_state(config)["sha256"]["cli.codex_cli"]
+                    path.write_bytes(changed)
+                    self.assertNotEqual(run.runtime_state(config)["sha256"]["cli.codex_cli"], before)
+            # A CLI that the plan does not use keeps the argv hash only (no file read).
+            with mock.patch.object(run, "cli_files_sha256", side_effect=AssertionError("hashed")):
+                run.runtime_state({**config, "methods": ["stock_hermes"]})
+
     def test_server_check_reads_the_loaded_context_length(self):
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

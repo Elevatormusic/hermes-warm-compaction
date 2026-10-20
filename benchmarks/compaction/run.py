@@ -570,10 +570,88 @@ def sha256_value(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def file_sha256(path: Path) -> str:
+    """The SHA-256 hash of a file, read in blocks (a CLI binary can be large)."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def npm_package_root(path: Path) -> Path | None:
+    """The folder of the npm package that contains path: the nearest parent with package.json (None outside a
+    package)."""
+    for folder in path.parents:
+        if (folder / "package.json").is_file():
+            return folder
+        if folder.name == "node_modules":
+            return None
+    return None
+
+
+def npm_packages(root: Path) -> list[Path]:
+    """root and every package that its dependencies and optional dependencies resolve to (the Node resolution: the
+    node_modules folder of the package, then of each parent folder), also the dependencies of those packages."""
+    found: list[Path] = []
+    todo = [root]
+    while todo:
+        folder = todo.pop()
+        if folder in found:
+            continue
+        found.append(folder)
+        try:
+            spec = json.loads((folder / "package.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for name in sorted({**(spec.get("dependencies") or {}), **(spec.get("optionalDependencies") or {})}):
+            for base in (folder, *folder.parents):
+                if (base / "node_modules" / name / "package.json").is_file():
+                    todo.append(base / "node_modules" / name)
+                    break
+    return found
+
+
+def tree_sha256(folder: Path) -> list[list[str]]:
+    """The relative path and SHA-256 hash of every file of a package folder. A nested node_modules folder is left
+    out here: npm_packages adds each package that the dependencies resolve to."""
+    rows = []
+    for current, dirs, names in os.walk(folder):
+        dirs[:] = sorted(name for name in dirs if name != "node_modules")
+        for name in sorted(names):
+            path = Path(current) / name
+            if path.is_file():
+                rows.append([path.relative_to(folder).as_posix(), file_sha256(path)])
+    return rows
+
+
+def cli_files_sha256(command: list[str] | None) -> str:
+    """One SHA-256 hash of the files that a CLI command runs: each argv item that is a file (the first item also
+    when it is found on PATH), and for a file in an npm package, every file of that package and of its dependency
+    packages. A change of the code with the same argv and version output changes this hash. No path goes in."""
+    items: list[Any] = []
+    seen: set[Path] = set()
+    for index, arg in enumerate(command or []):
+        found = shutil.which(arg) if index == 0 else None
+        path = Path(found or arg)
+        if not path.is_file():
+            continue
+        package = npm_package_root(path.resolve())
+        if package is None:
+            items.append(["file", index, file_sha256(path)])
+            continue
+        for folder in npm_packages(package):
+            if folder not in seen:
+                seen.add(folder)
+                items.append(["package", folder.name, tree_sha256(folder)])
+    return sha256_value(items)
+
+
 def runtime_state(config: dict) -> dict[str, Any]:
-    """The runtime that runs the jobs: the host, the Python of the runner and of Hermes, and the argv of each CLI.
-    "public" goes into meta.json and the report. "sha256" has hashes of private paths, the package list, and the
-    CLI argv: meta.json keeps them for the resume and merge checks, and the report does not get them."""
+    """The runtime that runs the jobs: the host, the Python of the runner and of Hermes, and the argv and files of
+    each CLI. "public" goes into meta.json and the report. "sha256" has hashes of private paths, the package list,
+    and each CLI (its argv and the files that it runs): meta.json keeps them for the resume and merge checks, and
+    the report does not get them."""
     public: dict[str, Any] = {"host": {"os": platform.system(), "machine": platform.machine(),
                                        "python": sys.version.split()[0]}}
     digests = {"runner_python": sha256_value(os.path.realpath(sys.executable))}
@@ -587,8 +665,12 @@ def runtime_state(config: dict) -> dict[str, Any]:
         public["hermes_python"] = {"version": probe["version"], "implementation": probe["implementation"]}
         digests.update(hermes_python=sha256_value(probe["executable"]), hermes_prefix=sha256_value(probe["prefix"]),
                        hermes_packages=sha256_value(probe["packages"]))
+    used = {METHODS[name]["engine"] for name in config.get("methods") or [] if name in METHODS}
     for engine, spec in sorted((config.get("cli") or {}).items()):
-        digests[f"cli.{engine}"] = sha256_value((spec or {}).get("command"))
+        # The files of a CLI that the plan uses (hashing a large CLI package takes a few seconds).
+        command = (spec or {}).get("command")
+        files = cli_files_sha256(command) if engine in used else None
+        digests[f"cli.{engine}"] = sha256_value({"command": command, "files": files})
     return {"public": public, "sha256": digests}
 
 
