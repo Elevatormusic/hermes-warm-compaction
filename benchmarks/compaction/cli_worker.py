@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import traceback
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -237,11 +238,23 @@ def codex_context(lines: list[dict]) -> tuple[list[dict] | None, dict]:
     return rows, meta
 
 
+def codex_endpoint(endpoint: str) -> tuple[str, dict[str, str]]:
+    """The Codex base_url and query_params of an endpoint. Codex adds /responses to base_url, so the query (for
+    example an api-version) goes into query_params, which Codex puts after the path. A fragment is not sent over
+    HTTP and is left out. A repeated query key stops the job (query_params has one value per key)."""
+    parts = urllib.parse.urlsplit(endpoint)
+    pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    if len({key for key, _value in pairs}) != len(pairs):
+        raise ValueError("endpoint_query_repeated_key")
+    return urllib.parse.urlunsplit(parts._replace(query="", fragment="")), dict(pairs)
+
+
 def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
     home, cwd = work / "codex-home", work / "cwd"
     home.mkdir()
     cwd.mkdir()
     provider = "benchlocal"
+    base_url, query = codex_endpoint(job["endpoint"])
     (home / "config.toml").write_text("\n".join([
         f'model = {json.dumps(job["model"])}',
         f'model_provider = "{provider}"',
@@ -251,8 +264,10 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
         "",
         f"[model_providers.{provider}]",
         'name = "Local benchmark endpoint"',
-        f'base_url = {json.dumps(job["endpoint"])}',
+        f'base_url = {json.dumps(base_url)}',
         'wire_api = "responses"',
+        *(["query_params = {" + ", ".join(f"{json.dumps(key)} = {json.dumps(value)}" for key, value in query.items())
+           + "}"] if query else []),
         # The same route as the Hermes jobs and the questions: the key and the allowed extra headers.
         'env_key = "WC_BENCH_API_KEY"',
         "http_headers = {" + ", ".join(f"{json.dumps(key)} = {json.dumps(value)}"

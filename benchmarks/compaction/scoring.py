@@ -41,10 +41,12 @@ NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 # tested but completed" is done).
 # A contrastive "not only", "not merely", "not just", or "not simply" is not a negation ("not only completed but
 # verified" is done).
-# A failure or inability before "to" is a negation too: "failed to complete" and "unable to finish" are open.
+# A failure or inability before "to" is a negation too: "failed to complete" and "unable to finish" are open. A word
+# between can also be a number or a percentage ("not 100% complete", "not 50 percent complete").
 NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|hasnt|havent|hadnt|wont|dont|doesnt|"
             r"didnt|couldnt|(?:failed|fails|failing|unable) to)(?! (?:only|merely|just|simply)(?![a-z0-9]))"
-            r"(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? ")
+            r"(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))"
+            r"(?:[a-z]+|[0-9]+(?:[.,][0-9]+)?%?)){0,3}? ")
 # A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
 # done", "cannot be completed", "has not been finished yet".
 NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")

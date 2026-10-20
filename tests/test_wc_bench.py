@@ -262,6 +262,12 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
                 self.assertFalse(scoring.score(question("choice", "done"), answer))
+        # A number or a percentage between the negation and the completion word (synthetic answers).
+        for answer, gold in (("not 100% complete", "open"), ("Not 50 percent complete yet.", "open"),
+                             ("Blocked; not 100% complete", "blocked")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
+                self.assertFalse(scoring.score(question("choice", "done"), answer))
         # An explicit blocked label wins over the open class that a negated completion infers.
         for answer in ("Blocked; not completed yet", "Blocked, not finished: waiting on review."):
             with self.subTest(answer=answer):
@@ -2786,6 +2792,24 @@ class MainTurnFailureTest(unittest.TestCase):
             else:
                 self.assertEqual(seen["env"]["ANTHROPIC_API_KEY"], "fake-key")
                 self.assertEqual(seen["env"]["ANTHROPIC_CUSTOM_HEADERS"], "X-Gateway: synthetic")
+        # Codex adds /responses to base_url: an endpoint query goes into query_params (fake gateway URL).
+        seen = {}
+
+        def fake_codex(_command, _cwd, env, *_args):
+            seen["config"] = (Path(env["CODEX_HOME"]) / "config.toml").read_text(encoding="utf-8")
+            return {"elapsed_s": 1.0, "login_prompt": False, "exit_code": 1, "timeout": False, "text": ""}
+
+        history, _gold = fixtures.build(SCENARIOS[0])
+        query_job = {**route, "engine": "codex_cli", "cli_command": ["fake-cli"], "cli_version": "0.0.0", "model": "m",
+                     "endpoint": "https://gateway.invalid/v1?api-version=2026-01-01", "context_length": 131072,
+                     "cli_timeout_s": 5}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(cli_worker, "run_cli", fake_codex), \
+                self.assertRaises(cli_worker.MainTurnFailed):
+            cli_worker.run_codex(query_job, history, Path(folder), {"cycles": []})
+        self.assertIn('base_url = "https://gateway.invalid/v1"', seen["config"])
+        self.assertIn('query_params = {"api-version" = "2026-01-01"}', seen["config"])
+        with self.assertRaisesRegex(ValueError, "repeated_key"):
+            cli_worker.codex_endpoint("https://gateway.invalid/v1?a=1&a=2")
 
     def test_cli_questions_get_every_row_of_the_compacted_context(self):
         # A Codex context with an assistant row that has tool calls only, and the tool row of the call.
