@@ -5,7 +5,7 @@
   "hermes_python": "<hermes-venv-python>",
   "hermes_source": "<clean-hermes-checkout>",
   "plugin_source": "<folder that contains warm_compaction/>",
-  "plugin_commit": "<plugin commit, when plugin_source has no Git data>",
+  "plugin_commit": "<plugin commit, when plugin_source is not the top folder of a clean Git checkout; reported as not verified>",
   "context_length": 131072,
   "threshold": 0.95,
   "replicates": 5,

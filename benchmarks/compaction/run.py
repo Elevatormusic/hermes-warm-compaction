@@ -14,6 +14,7 @@ to <run folder>/raw/ for local checks; never publish that folder. All sessions a
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -70,9 +71,27 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def git_output(folder: Path, *args: str) -> str | None:
+    """The output of a Git command in folder, or None when Git fails (no checkout, no Git)."""
+    try:
+        done = subprocess.run(["git", "-C", str(folder), *args], capture_output=True, text=True, timeout=60)
+    except Exception:
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def checkout_root(folder: Path) -> bool:
+    """True when folder is the top folder of its Git checkout. A copied folder inside another checkout is not:
+    Git then reads the enclosing checkout, whose commit and state do not label the folder."""
+    top = git_output(folder, "rev-parse", "--show-toplevel")
+    return top is not None and bool(top.strip()) and os.path.normcase(os.path.realpath(top.strip())) == \
+        os.path.normcase(os.path.realpath(folder))
+
+
 def plugin_state(plugin_root: Path) -> dict[str, Any]:
     """Hashes of every file that a job copies and loads (the warm_compaction folder, plugin.yaml included) and the
-    settings that its engine knows."""
+    settings that its engine knows. The commit is known only when it labels these exact files: plugin_root is the
+    top folder of its checkout, Git tracks every hashed file, and the folder has no changed or untracked file."""
     package = plugin_root / "warm_compaction"
     files = {path.relative_to(package).as_posix(): sha256_file(path) for path in sorted(package.rglob("*"))
              if path.is_file() and "__pycache__" not in path.parts}
@@ -80,23 +99,22 @@ def plugin_state(plugin_root: Path) -> dict[str, Any]:
     known = [key for key in ("warm", "ledger", "fallback_format", "ledger_on_failure", "timeout_s")
              if f'"{key}"' in engine.split("THRESHOLD_RANGE", 1)[0]]
     commit = None
-    try:
-        commit = subprocess.run(["git", "-C", str(plugin_root), "rev-parse", "HEAD"], capture_output=True,
-                                text=True, timeout=30).stdout.strip() or None
-    except Exception:
-        pass
+    if checkout_root(plugin_root):
+        tracked = set((git_output(plugin_root, "ls-files", "-z", "--", "warm_compaction") or "").split("\0"))
+        status = git_output(plugin_root, "status", "--porcelain", "--untracked-files=all", "--", "warm_compaction")
+        if status is not None and not status.strip() and {f"warm_compaction/{name}" for name in files} <= tracked:
+            commit = (git_output(plugin_root, "rev-parse", "HEAD") or "").strip() or None
     return {"files_sha256": files, "settings_known": known, "commit": commit}
 
 
 def hermes_state(source: Path) -> dict[str, Any]:
-    def git(*args):
-        try:
-            done = subprocess.run(["git", "-C", str(source), *args], capture_output=True, text=True, timeout=60)
-        except Exception:
-            return None
-        # A folder that is not a Git checkout gives an error: its state is unknown, not clean.
-        return done.stdout.strip() if done.returncode == 0 else None
-    return {"commit": git("rev-parse", "HEAD"), "clean": git("status", "--porcelain") == ""}
+    """The commit and state of the Hermes checkout. A folder that is not the top folder of a Git checkout (no
+    checkout, or a copy inside another checkout) has an unknown commit and is not clean."""
+    if not checkout_root(source):
+        return {"commit": None, "clean": False}
+    status = git_output(source, "status", "--porcelain")
+    return {"commit": (git_output(source, "rev-parse", "HEAD") or "").strip() or None,
+            "clean": status is not None and not status.strip()}
 
 
 def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any] | None:
@@ -694,8 +712,10 @@ def command_run(args) -> int:
         # Results must come from a clean, known Hermes source.
         raise SystemExit("hermes_source is not a clean Git checkout; stop before any job runs")
     plugin = plugin_state(Path(config["plugin_source"]))
-    # A plugin folder made with git archive has no Git data: the config can name its commit.
-    plugin["commit"] = plugin["commit"] or config.get("plugin_commit")
+    # A plugin folder made with git archive has no Git data: the config can name its commit. The run cannot check
+    # it, so it is kept apart, as a configured (not verified) value; the verified commit stays unknown.
+    if not plugin["commit"] and config.get("plugin_commit"):
+        plugin["commit_configured"] = str(config["plugin_commit"])
     jobs, skipped = plan(config, plugin)
     cli = cli_state(config, list(config["methods"]))
     runtime = runtime_state(config)
@@ -1156,7 +1176,7 @@ def markdown(result: dict, meta: dict) -> str:
         "judge. Intervals are 95% Wilson intervals for rates and 95% t intervals for means. A rate pools all "
         "questions of all fixtures and replicates, so its interval does not include the variation between "
         "replicates; see the per-replicate means in the JSON file.", "",
-        f"- Plugin commit: `{(meta['plugin'].get('commit') or 'unknown')[:12]}`. Hermes commit: "
+        f"- Plugin commit: {plugin_commit_text(meta['plugin'])}. Hermes commit: "
         f"`{(meta['hermes'].get('commit') or 'unknown')[:12]}` (clean: {meta['hermes'].get('clean')}).",
         f"- Model: `{meta['config'].get('model')}`; context window setting {meta['config'].get('context_length')}; "
         f"threshold {meta['config'].get('threshold')}; {meta['config'].get('replicates')} replicates per cell.",
@@ -1367,6 +1387,15 @@ def refuse_stale(item: dict) -> None:
                          "report without --rescore (the report then warns).")
 
 
+def plugin_commit_text(plugin: dict) -> str:
+    """The plugin commit for the report: the verified commit, else unknown (with a configured value, if any)."""
+    if plugin.get("commit"):
+        return f"`{plugin['commit'][:12]}`"
+    if plugin.get("commit_configured"):
+        return f"unknown (configured, not verified: `{plugin['commit_configured'][:12]}`)"
+    return "unknown"
+
+
 def command_report(args) -> int:
     out_dir = Path(args.out)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
@@ -1379,13 +1408,19 @@ def command_report(args) -> int:
         raw_dirs = [Path(folder) for folder in args.raw_dir or []]
         rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs, meta)})
         refuse_stale(rescores[-1])
+    # The metadata of each accepted folder as it was read (the report changes meta below).
+    accepted = [(out_dir, copy.deepcopy(meta))]
     for extra in args.also or []:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
         extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
-        mismatches = merge_mismatches(meta, extra_meta, args.rescore)
-        if mismatches:
-            raise SystemExit(f"report refused: {extra_dir} differs from {out_dir} in {', '.join(mismatches)}")
+        # Each added folder must match every folder accepted so far (not only the first): two added folders can
+        # share an engine that the first folder does not run.
+        problems = [f"{folder} in {', '.join(found)}" for folder, item in accepted
+                    if (found := merge_mismatches(item, extra_meta, args.rescore))]
+        if problems:
+            raise SystemExit(f"report refused: {extra_dir} differs from {'; '.join(problems)}")
+        accepted.append((extra_dir, extra_meta))
         known = {run["job"] for run in runs}
         extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
         if args.rescore:

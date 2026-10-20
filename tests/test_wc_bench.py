@@ -1,7 +1,10 @@
 """Tests for the compaction benchmark harness (benchmarks/compaction). No model and no Hermes code run here."""
 
+import contextlib
 import hashlib
+import io
 import json
+import subprocess
 import sys
 import tempfile
 import types
@@ -821,6 +824,88 @@ class RunTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "config context_length"):
                 run.command_report(args)
             self.assertFalse((first / "r.json").exists())
+
+    def test_report_checks_each_added_folder_against_every_accepted_folder(self):
+        gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
+        config = {"model": "m", "context_length": 8, "threshold": 0.95}
+        # The first folder runs a CLI method only; the added folders run Hermes methods (synthetic metadata).
+        cli = {"schema": "s", "gold_sha256": gold, "hermes": {}, "plugin": {},
+               "config": {**config, "methods": ["codex_cli"]}, **FAKE_RUNTIME_META}
+        warm = {**cli, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
+                "config": {**config, "methods": ["warm_ledger"]}}
+        stock = {**cli, "hermes": {"commit": "b"}, "config": {**config, "methods": ["stock_hermes"]}}
+        # Each added folder alone matches the first folder.
+        self.assertEqual(run.merge_mismatches(cli, warm, False), [])
+        self.assertEqual(run.merge_mismatches(cli, stock, False), [])
+        other_plugin = {**warm, "plugin": {"files_sha256": {"x": "2"}}}
+        cases = ((stock, "Hermes commit"), (other_plugin, "plugin files"),
+                 ({**stock, "hermes": {"commit": "a"}}, None))
+        for second, refused in cases:
+            with self.subTest(refused=refused), tempfile.TemporaryDirectory() as folder:
+                paths = [Path(folder) / name for name in ("cli", "warm", "second")]
+                for path, meta in zip(paths, (cli, warm, second)):
+                    path.mkdir()
+                    (path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+                    (path / "runs.jsonl").write_text("", encoding="utf-8")
+                args = types.SimpleNamespace(out=str(paths[0]), json=str(paths[0] / "r.json"), md=None,
+                                             also=[str(paths[1]), str(paths[2])], rescore=False, raw_dir=None)
+                if refused:
+                    with self.assertRaisesRegex(SystemExit, f"differs from .*warm in {refused}"):
+                        run.command_report(args)
+                    self.assertFalse((paths[0] / "r.json").exists())
+                else:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        run.command_report(args)
+                    self.assertTrue((paths[0] / "r.json").exists())
+
+    def test_commits_label_only_the_exact_source_folder(self):
+        def git(folder, *args):
+            subprocess.run(["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                            *args], check=True, capture_output=True)
+
+        def plugin_files(folder: Path):
+            (folder / "warm_compaction").mkdir(parents=True)
+            (folder / "warm_compaction" / "engine.py").write_text("x = 1\n", encoding="utf-8")
+            (folder / "warm_compaction" / "plugin.yaml").write_text("name: synthetic\n", encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as folder:
+            outer = Path(folder) / "outer"
+            copy = outer / "plugin-copy"
+            plugin_files(copy)
+            git(outer, "init", "-q")
+            git(outer, "add", "-A")
+            git(outer, "commit", "-q", "-m", "synthetic")
+            # A copied folder inside another checkout: Git reads the enclosing checkout. Unknown, not clean.
+            self.assertIsNone(run.plugin_state(copy)["commit"])
+            self.assertEqual(run.hermes_state(copy), {"commit": None, "clean": False})
+            # The top folder of a clean checkout that tracks every hashed file: the commit is known.
+            head = subprocess.run(["git", "-C", str(outer), "rev-parse", "HEAD"], capture_output=True,
+                                  text=True, check=True).stdout.strip()
+            source = Path(folder) / "plugin"
+            plugin_files(source)
+            git(source, "init", "-q")
+            git(source, "add", "-A")
+            git(source, "commit", "-q", "-m", "synthetic")
+            commit = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"], capture_output=True,
+                                    text=True, check=True).stdout.strip()
+            self.assertEqual(run.plugin_state(source)["commit"], commit)
+            self.assertEqual(run.hermes_state(outer), {"commit": head, "clean": True})
+            # An untracked, an ignored, or a changed file in the hashed folder: the commit does not label it.
+            (source / "warm_compaction" / "extra.py").write_text("y = 2\n", encoding="utf-8")
+            self.assertIsNone(run.plugin_state(source)["commit"])
+            (source / ".gitignore").write_text("extra.py\n", encoding="utf-8")
+            git(source, "add", ".gitignore")
+            git(source, "commit", "-q", "-m", "ignore")
+            self.assertIsNone(run.plugin_state(source)["commit"])
+            (source / "warm_compaction" / "extra.py").unlink()
+            self.assertIsNotNone(run.plugin_state(source)["commit"])
+            (source / "warm_compaction" / "engine.py").write_text("x = 2\n", encoding="utf-8")
+            self.assertIsNone(run.plugin_state(source)["commit"])
+        # A configured commit is kept apart and shown as not verified.
+        self.assertEqual(run.plugin_commit_text({"commit": "f" * 40}), "`ffffffffffff`")
+        self.assertEqual(run.plugin_commit_text({"commit": None, "commit_configured": "abc123"}),
+                         "unknown (configured, not verified: `abc123`)")
+        self.assertEqual(run.plugin_commit_text({}), "unknown")
 
     def test_resume_refuses_a_changed_source(self):
         plugin = run.plugin_state(Path(run.__file__).parents[2])
