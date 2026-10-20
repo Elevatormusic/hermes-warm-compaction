@@ -770,7 +770,7 @@
    "kind": "keywords",
    "gold": [
     [
-     "soak"
+     "200"
     ]
    ],
    "evidence_rows": [
@@ -778,7 +778,7 @@
    ],
    "retention": [
     [
-     "soak"
+     "200"
     ]
    ]
   },

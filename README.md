@@ -358,7 +358,7 @@ Each job runs the real Hermes agent loop in a fresh process with a clean Hermes 
 4. Run it: `python -m benchmarks.compaction.run run --config .work/bench/config.json --out .work/bench/run`. A second call continues an interrupted run.
 5. Write the report: `python -m benchmarks.compaction.run report --out .work/bench/run --json evidence/<name>.json --md <report>.md`
 
-The full plan (8 methods, 6 sessions, 5 replicates, and 30 drift jobs) is 270 jobs. With a 4B model on one RTX 3090 it takes several hours. Use `"methods"`, `"fixtures"`, and `"replicates"` in the configuration for a smaller run. The results file has metadata and scores only. With `"keep_text": true`, the run folder also keeps the raw answers and compacted rows for local checks; do not publish that folder.
+The full plan (8 methods, 6 sessions, 5 replicates, and 30 drift jobs) is 270 jobs. With a 4B model on one RTX 3090 it takes several hours. Use `"methods"`, `"fixtures"`, and `"replicates"` in the configuration for a smaller run. The results file has metadata and scores only. With `"keep_text": true`, the run folder also keeps the raw answers and compacted rows for local checks; do not publish that folder. If the gold files change after a run, add `--rescore` to the `report` command: it scores the kept raw answers again with the current gold files and records this in the report. Add `--raw-dir <run folder>/raw` for jobs whose raw answers are in another run folder. Without `--rescore`, the report shows a warning.
 
 ### Other agent CLIs
 

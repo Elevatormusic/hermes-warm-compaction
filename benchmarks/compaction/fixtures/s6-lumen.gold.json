@@ -792,7 +792,8 @@
    "kind": "keywords",
    "gold": [
     [
-     "snapshot"
+     "datepicker",
+     "date picker"
     ]
    ],
    "evidence_rows": [
@@ -800,7 +801,8 @@
    ],
    "retention": [
     [
-     "snapshot"
+     "datepicker",
+     "date picker"
     ]
    ]
   },

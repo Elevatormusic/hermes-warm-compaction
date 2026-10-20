@@ -498,7 +498,7 @@ SCENARIOS = [
         "next": {
             "trigger": "the soak runner is free",
             "action": "run the 200-run soak with the soak profile",
-            "action_kw": [["soak"]],
+            "action_kw": [["200"]],
             "target": ".config/nextest.toml",
             "after": "write the postmortem for INC-7781",
             "after_kw": [["postmortem", "post-mortem"]],
@@ -746,7 +746,7 @@ SCENARIOS = [
         "next": {
             "trigger": "the snapshot diffs are reviewed",
             "action": "update the snapshots of the DatePicker suite only",
-            "action_kw": [["snapshot"]],
+            "action_kw": [["datepicker", "date picker"]],
             "target": "src/components/DatePicker/__snapshots__/DatePicker.test.tsx.snap",
             "after": "run the full visual regression suite in Chromatic",
             "after_kw": [["chromatic"]],

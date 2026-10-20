@@ -73,6 +73,12 @@ class FixtureTest(unittest.TestCase):
                 text = scoring.history_text([rows[index] for index in indexes])
                 self.assertTrue(scoring.retained(item, text), item["id"])
 
+    def test_an_echo_of_the_question_is_not_a_correct_answer(self):
+        # The gold keyword must come from the history, not from the question text.
+        for _history, gold in self.built.values():
+            for item in gold["questions"]:
+                self.assertFalse(scoring.score(item, item["question"]), item["id"])
+
     def test_questioned_facts_are_before_the_tail_guard(self):
         for history, gold in self.built.values():
             for item in gold["questions"]:
@@ -205,6 +211,27 @@ class RunTest(unittest.TestCase):
             records.append({"job": method, "fixture": SCENARIOS[0]["id"], "method": method, "rep": 1,
                             "cycles_requested": 1, "status": "ok", "cycles": [scored]})
         return records
+
+    def test_rescore_uses_the_current_gold_and_counts_missing_raw_output(self):
+        spec = next(item for item in SCENARIOS if item["id"] == "s4-orchard")
+        history, gold = fixtures.build(spec)
+        number = next(n for n, item in enumerate(gold["questions"], 1) if item["id"] == "s4-orchard:40")
+        # Synthetic raw output: answer 40 repeats the question text only.
+        cycle = {"cycle": 1, "compacted": True, "history": history["rows"][-4:],
+                 "qa": {"batches": [{"numbers": [number],
+                                     "text": json.dumps({str(number): gold["questions"][number - 1]["question"]})}]}}
+        stale = run.score_cycle(cycle, gold, history, "warm_ledger")
+        stale["marks"][number - 1] = "1" + stale["marks"][number - 1][1:]
+        records = [{"job": f"{spec['id']}|warm_ledger|r{rep}|c1", "fixture": spec["id"], "method": "warm_ledger",
+                    "cycles": [json.loads(json.dumps(stale))]} for rep in (1, 2)]
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "raw").mkdir()
+            (Path(folder) / "raw" / f"{spec['id']}__warm_ledger__r1__c1.json").write_text(
+                json.dumps({"cycles": [cycle]}), encoding="utf-8")
+            counts = run.rescore(Path(folder), records)
+        self.assertEqual(counts, {"jobs_rescored": 1, "jobs_without_raw": 1, "marks_changed": 1})
+        self.assertEqual(records[0]["cycles"][0]["marks"][number - 1][0], "0")
+        self.assertEqual(records[1]["cycles"][0]["marks"][number - 1][0], "1")
 
     def test_size_check_has_no_data_when_no_ledger_run_compacts(self):
         runs = self.synthetic_runs()

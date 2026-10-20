@@ -3,7 +3,7 @@
 Commands:
     python -m benchmarks.compaction.run fixtures [--work .work/bench-fixtures]
     python -m benchmarks.compaction.run run --config <config.json> --out <run folder> [--limit N] [--dry-run]
-    python -m benchmarks.compaction.run report --out <run folder> --json <results.json> --md <report.md>
+    python -m benchmarks.compaction.run report --out <run folder> --json <results.json> --md <report.md> [--rescore]
 
 Each job runs worker.py in a fresh process with the Python of a Hermes virtual environment, a clean Hermes
 checkout, and a new temporary Hermes home. The run folder (keep it in .work/, which Git ignores) gets runs.jsonl
@@ -425,7 +425,7 @@ def command_run(args) -> int:
                 "config": {key: value for key, value in config.items() if key not in PRIVATE_CONFIG_KEYS},
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": harness_hashes(),
-                "gold_sha256": {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))},
+                "gold_sha256": current_gold_sha256(),
                 "host": {"os": platform.system(), "machine": platform.machine(),
                          "python": sys.version.split()[0]},
                 "skipped_methods": skipped, "planned_jobs": len(jobs)}
@@ -811,7 +811,13 @@ def markdown(result: dict, meta: dict) -> str:
         f"threshold {meta['config'].get('threshold')}; {meta['config'].get('replicates')} replicates per cell.",
         f"- Skipped methods: {', '.join(item['method'] for item in meta.get('skipped_methods', [])) or 'none'}.",
         *(["- Other CLIs: " + ", ".join(f"{name} {item['version']}" for name, item in meta["cli"].items()) + "."]
-          if meta.get("cli") else []), "",
+          if meta.get("cli") else []),
+        *(["- Rescored with the current gold files: " + ", ".join(
+            f"{item['folder']} ({item['jobs_rescored']} jobs, {item['marks_changed']} marks changed, "
+            f"{item['jobs_without_raw']} without raw output)" for item in meta["rescore"]["folders"]) + "."]
+          if meta.get("rescore") else []),
+        *(["- Warning: the gold files changed after these runs and the marks were not rescored: "
+           + ", ".join(meta["gold_changed_after_run"]) + "."] if meta.get("gold_changed_after_run") else []), "",
         "## Compaction success", "",
         "A planned job that failed, timed out, or did not run counts as a failure. Attempts include the earlier "
         "attempts of a job that a resume ran again.", "",
@@ -906,23 +912,69 @@ def markdown(result: dict, meta: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def current_gold_sha256() -> dict[str, str]:
+    return {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
+
+
+def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = ()) -> dict[str, int]:
+    """Score the kept worker output (raw/) again with the current gold files. Only the marks change.
+    raw_dirs are more raw folders to search, for example of a run that gave reused jobs.
+    A job without a raw file keeps its marks; the result counts it."""
+    built = {spec["id"]: fixtures.build(spec)[0] for spec in fixtures.SCENARIOS}
+    counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0}
+    for run in runs:
+        if not run.get("cycles"):
+            continue
+        name = run["job"].replace("|", "__") + ".json"
+        raw = next((folder / name for folder in (out_dir / "raw", *raw_dirs) if (folder / name).exists()), None)
+        if raw is None:
+            counts["jobs_without_raw"] += 1
+            continue
+        out = json.loads(raw.read_text(encoding="utf-8"))
+        gold = json.loads((GOLD_DIR / f"{run['fixture']}.gold.json").read_text(encoding="utf-8"))
+        for cycle, raw_cycle in zip(run["cycles"], out.get("cycles", [])):
+            marks = score_cycle(raw_cycle, gold, built[run["fixture"]], run["method"])["marks"]
+            counts["marks_changed"] += sum(a != b for a, b in zip(cycle["marks"], marks))
+            cycle["marks"] = marks
+        counts["jobs_rescored"] += 1
+    return counts
+
+
 def command_report(args) -> int:
     out_dir = Path(args.out)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
     runs = load_runs(out_dir)
     attempts = load_attempts(out_dir)
     planned = planned_jobs(meta)
+    gold_now = current_gold_sha256()
+    rescores = []
+    if args.rescore:
+        raw_dirs = [Path(folder) for folder in args.raw_dir or []]
+        rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs)})
     for extra in args.also or []:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
         extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
         known = {run["job"] for run in runs}
-        runs += [run for run in load_runs(extra_dir) if run["job"] not in known]
+        extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
+        if args.rescore:
+            rescores.append({"folder": extra_dir.name, **rescore(extra_dir, extra_runs, raw_dirs)})
+        elif extra_meta.get("gold_sha256") != gold_now:
+            meta.setdefault("gold_changed_after_run", []).append(extra_dir.name)
+        runs += extra_runs
         attempts += [item for item in load_attempts(extra_dir) if item["job"] not in known]
         planned.update({job_id: job for job_id, job in planned_jobs(extra_meta).items() if job_id not in planned})
         meta.setdefault("merged_runs", []).append({key: extra_meta.get(key) for key in (
             "started_utc", "config", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs")})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
+    if rescores:
+        # The marks come from the current gold files, not from the gold files of the run.
+        meta["rescore"] = {"gold_sha256": gold_now, "folders": rescores}
+    elif meta.get("gold_sha256") != gold_now:
+        meta.setdefault("gold_changed_after_run", []).insert(0, out_dir.name)
+    if meta.get("gold_changed_after_run"):
+        print("warning: gold files changed after the run; use --rescore to score the raw answers again",
+              file=sys.stderr)
     result = aggregate(runs, meta, attempts, planned)
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
@@ -966,6 +1018,10 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--json", required=True)
     report.add_argument("--md")
     report.add_argument("--also", action="append", help="another run folder to include (repeat for more)")
+    report.add_argument("--rescore", action="store_true",
+                        help="score the kept raw answers (keep_text) again with the current gold files")
+    report.add_argument("--raw-dir", action="append",
+                        help="with --rescore: another raw folder to search, for example of a run that gave reused jobs")
     report.set_defaults(func=command_report)
     args = parser.parse_args(argv)
     return args.func(args)
