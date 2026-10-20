@@ -26,6 +26,9 @@
    "retention": [
     [
      "toml"
+    ],
+    [
+     "configuration"
     ]
    ]
   },
@@ -474,6 +477,9 @@
    "retention": [
     [
      "2.2.5"
+    ],
+    [
+     "pinned"
     ]
    ]
   },
@@ -489,6 +495,9 @@
    "retention": [
     [
      "1407"
+    ],
+    [
+     "discussion"
     ]
    ]
   },
@@ -519,6 +528,9 @@
    "retention": [
     [
      "4317"
+    ],
+    [
+     "server"
     ]
    ]
   },
@@ -534,6 +546,9 @@
    "retention": [
     [
      "41"
+    ],
+    [
+     "config"
     ]
    ]
   },
@@ -873,6 +888,9 @@
    "retention": [
     [
      "48"
+    ],
+    [
+     "passed"
     ]
    ]
   },

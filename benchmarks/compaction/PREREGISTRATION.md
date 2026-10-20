@@ -50,7 +50,9 @@ compaction.
   are counted.
 - Accuracy by category: the share of correct answers, over the runs that compacted. Rules are in `scoring.py`.
   No model judges an answer. The report also gives accuracy with each run that did not compact scored as wrong.
-- Retention (secondary, approximate): whether the fact text is still in the compacted history.
+- Retention (secondary, approximate): whether the fact text is still in the compacted history. A fact with
+  more than one part, or a short fact (under 6 characters, or only digits), must have all its parts, or the
+  fact and one context word from its source rows, in one 600-character window.
 - Size: estimated tokens before and after (JSON characters / 4), and the server prompt count of the first
   question request.
 - Time: wall time of the compress call (all runs) and of the main request, with per-run values.

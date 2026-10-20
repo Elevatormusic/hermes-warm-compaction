@@ -95,6 +95,9 @@
    "retention": [
     [
      "7.3.0"
+    ],
+    [
+     "release"
     ]
    ]
   },
@@ -511,6 +514,9 @@
    "retention": [
     [
      "2214"
+    ],
+    [
+     "issue"
     ]
    ]
   },
@@ -526,6 +532,9 @@
    "retention": [
     [
      "5"
+    ],
+    [
+     "violations"
     ]
    ]
   },
@@ -541,6 +550,9 @@
    "retention": [
     [
      "6011"
+    ],
+    [
+     "storybook"
     ]
    ]
   },
@@ -556,6 +568,9 @@
    "retention": [
     [
      "6.10.2"
+    ],
+    [
+     "eslint-plugin-jsx-a11y"
     ]
    ]
   },
@@ -856,6 +871,9 @@
    "retention": [
     [
      "ishii"
+    ],
+    [
+     "approve"
     ]
    ]
   },
@@ -890,6 +908,9 @@
    "retention": [
     [
      "312"
+    ],
+    [
+     "stories"
     ]
    ]
   },

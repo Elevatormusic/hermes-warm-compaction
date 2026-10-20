@@ -351,11 +351,20 @@ def build(spec: dict) -> tuple[dict, dict]:
 def gold_for(spec: dict, evidence: dict, history: dict) -> dict:
     goal, nxt = spec["goal"], spec["next"]
     questions: list[dict] = []
+    full_text = scoring.history_text(history["rows"])
 
     def add(category, key, text, kind, gold, retention=None, **extra):
-        questions.append({"id": f"{spec['id']}:{len(questions) + 1:02d}", "category": category, "question": text,
-                          "kind": kind, "gold": gold, "evidence_rows": sorted(set(evidence[key])),
-                          "retention": retention if retention is not None else retention_for(kind, gold), **extra})
+        question_id = f"{spec['id']}:{len(questions) + 1:02d}"
+        retention = retention if retention is not None else retention_for(kind, gold)
+        if kind != "verbatim" and len(retention) == 1 and short_group(retention[0]):
+            # A short fact alone ("5", "pdf") also matches unrelated text: it needs a word of the question near it.
+            source = scoring.history_text([history["rows"][row] for row in sorted(set(evidence[key]))])
+            anchor = context_anchor(text, retention[0], full_text, source)
+            if anchor is None:
+                raise ValueError(f"{question_id}: no context anchor for a short retention fact")
+            retention = [retention[0], [anchor]]
+        questions.append({"id": question_id, "category": category, "question": text, "kind": kind, "gold": gold,
+                          "evidence_rows": sorted(set(evidence[key])), "retention": retention, **extra})
 
     add("goal", "goal", "What is the main goal of this session? Answer in one sentence.", "keywords",
         goal["objective_kw"])
@@ -434,6 +443,39 @@ def retention_for(kind: str, gold) -> list[list[str]]:
     if kind == "keywords":
         return gold
     return [[gold]]
+
+
+# Question words that do not name the fact (they are in many questions).
+ANCHOR_SKIP = {"which", "what", "where", "there", "their", "these", "those", "about", "agent", "session", "answer",
+               "number", "change", "changed", "before", "after", "since", "would", "could", "should", "under", "other",
+               "first", "write"}
+
+
+def short_group(group: list[str]) -> bool:
+    """True when every alternative of a retention group is short (under 6 characters) or only digits and number
+    signs: such a fact alone also matches unrelated text."""
+    return all(len(scoring.normalize(alternative)) < 6
+               or re.fullmatch(r"[0-9.,:/ x%+-]+", scoring.normalize(alternative)) for alternative in group)
+
+
+def context_anchor(question: str, group: list[str], text: str, source: str) -> str | None:
+    """A word that the evidence rows (source) have in one retention window with the fact. The retention check then
+    needs the fact and this word together. First choice: the longest word of the question (5 or more characters, not in
+    ANCHOR_SKIP). Else a word near the fact in the evidence rows (source), the word with the fewest occurrences in
+    the history first."""
+    words = sorted({word.lower() for word in re.findall(r"[A-Za-z][A-Za-z0-9_-]{4,}", question)} - ANCHOR_SKIP,
+                   key=lambda word: (-len(word), word))
+    normal, near = scoring.normalize(text), set()
+    for alternative in group:
+        needle = scoring.normalize(alternative)
+        for match in re.finditer(re.escape(needle), scoring.normalize(source)) if needle else []:
+            window = scoring.normalize(source)[max(0, match.start() - 200):match.end() + 200]
+            near |= set(re.findall(r"[a-z][a-z0-9_-]{4,}", window)) - ANCHOR_SKIP
+    words += sorted(near - set(words), key=lambda word: (normal.count(word), -len(word), word))
+    for word in words:
+        if scoring.retained({"kind": "keywords", "retention": [group, [word]]}, source):
+            return word
+    return None
 
 
 def decision_anchor(question: str, statement: str) -> str | None:

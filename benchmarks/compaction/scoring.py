@@ -177,15 +177,24 @@ def parse_answers(text: str, numbers: list[int]) -> tuple[dict[str, str], bool]:
     """Return ({question number: answer}, parsed). Accept a JSON object, also inside a code fence or after
     thinking text; else accept lines of the form "N. answer" or "N: answer"."""
     text = re.sub(r"<think>.*?</think>", "", str(text or ""), flags=re.S)
-    for match in sorted(re.finditer(r"\{.*\}", text, re.S), key=lambda m: -len(m.group(0)))[:1]:
+    # Decode a JSON object at each "{" (a malformed brace span before the answer does not stop the scan). Keep the
+    # outer objects only, and use the last one that has a question number as a key (else the last object).
+    objects, position, decoder = [], 0, json.JSONDecoder()
+    while (start := text.find("{", position)) >= 0:
         try:
-            data = json.loads(match.group(0))
+            data, end = decoder.raw_decode(text, start)
         except ValueError:
-            break
+            position = start + 1
+            continue
         if isinstance(data, dict):
-            return {str(key).strip().rstrip("."): ("" if value is None else
-                                                     json.dumps(value) if isinstance(value, (dict, list))
-                                                     else str(value)) for key, value in data.items()}, True
+            objects.append(data)
+        position = end
+    keyed = [data for data in objects if {str(n) for n in numbers} & {str(key).strip().rstrip(".") for key in data}]
+    if keyed or objects:
+        data = (keyed or objects)[-1]
+        return {str(key).strip().rstrip("."): ("" if value is None else
+                                                 json.dumps(value) if isinstance(value, (dict, list))
+                                                 else str(value)) for key, value in data.items()}, True
     answers = {}
     for line in text.splitlines():
         match = re.match(r"\s*\"?(\d+)\"?\s*[.:)\-]\s*(.+)", line)

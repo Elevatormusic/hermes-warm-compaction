@@ -252,6 +252,20 @@ class ScoringTest(unittest.TestCase):
         # Another occurrence of a group can give the one span.
         self.assertTrue(scoring.retained(three, "gamma" + " x" * 400 + " beta alpha gamma"))
 
+    def test_short_retention_facts_need_a_context_anchor(self):
+        gold = json.loads((GOLD_DIR / "s6-lumen.gold.json").read_text(encoding="utf-8"))
+        item = next(q for q in gold["questions"] if q["id"] == "s6-lumen:27")
+        # An unrelated "5" in a summary does not keep the axe-scan fact (synthetic summary text).
+        self.assertFalse(scoring.retained(item, "Ran 5 jest suites; all passed."))
+        self.assertTrue(scoring.retained(item, "The first axe scan found 5 violations."))
+        # Every short single-group fact in the gold files has a second group: a context word.
+        for spec in SCENARIOS:
+            gold = json.loads((GOLD_DIR / f"{spec['id']}.gold.json").read_text(encoding="utf-8"))
+            for item in gold["questions"]:
+                if item["kind"] != "verbatim" and fixtures.short_group(item["retention"][0]):
+                    with self.subTest(question=item["id"]):
+                        self.assertGreaterEqual(len(item["retention"]), 2)
+
     def test_prompt_leaks_checks_the_full_batch_prompt(self):
         def item(id_, kind, gold, text):
             return {**question(kind, gold, text), "id": id_}
@@ -279,6 +293,12 @@ class ScoringTest(unittest.TestCase):
         answers, ok = scoring.parse_answers("<think>x</think>1. first\n2: second", [1, 2])
         self.assertEqual(answers, {"1": "first", "2": "second"})
         self.assertEqual(scoring.parse_answers("no answers", [1]), ({}, False))
+        # A brace span that is not JSON before the answer object does not stop the scan (synthetic replies).
+        for reply in ('Plan: {check each} then answer.\n{"1": "a", "2": "b"}',
+                      'I use {"draft": true} first.\n```json\n{"1": "a", "2": "b"}\n```'):
+            with self.subTest(reply=reply):
+                self.assertEqual(scoring.parse_answers(reply, [1, 2]), ({"1": "a", "2": "b"}, True))
+                self.assertEqual(scoring.missing_answers(reply, [1, 2]), [])
 
     def test_statistics(self):
         low, high = scoring.wilson(0, 12)
