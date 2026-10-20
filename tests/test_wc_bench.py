@@ -314,6 +314,60 @@ class RunTest(unittest.TestCase):
         self.assertEqual(sorted({job["method"] for job in planned.values()}), ["full_context", "stock_hermes"])
         self.assertEqual(len(planned), 6)
 
+    def test_meta_and_report_keep_no_override_values(self):
+        # FAKE values only: a route override with a key and a header, and a URL with a password and a query.
+        secret = "fake-secret-value-123"
+        config = {"model": "m", "threshold": 0.95, "endpoint": f"http://user:{secret}@127.0.0.1:9/v1?key={secret}",
+                  "hermes_config": {"model": {"api_key": secret, "headers": {"X-Token": secret}}},
+                  "qa_extra_body": {"token": secret}, "unknown_key": secret, "hermes_source": "/private"}
+        public = run.public_config(config)
+        self.assertNotIn(secret, json.dumps(public))
+        self.assertNotIn("hermes_source", public)
+        self.assertEqual(public["endpoint"], "http://127.0.0.1:9/v1")
+        self.assertEqual(public["hermes_config"]["types"], {"model.api_key": "str", "model.headers.X-Token": "str"})
+        self.assertEqual(run.public_config(public), public)
+        # A resume compares raw and redacted values; a changed value still changes the hash.
+        self.assertEqual(run.config_hash(config), run.config_hash(public))
+        changed = {**config, "hermes_config": {"model": {"api_key": "other", "headers": {"X-Token": secret}}}}
+        self.assertNotEqual(run.config_hash(changed), run.config_hash(public))
+        # A run folder made before the rule keeps raw values in meta.json: the report redacts them.
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            meta = {"schema": "s", "config": config, "plugin": {}, "hermes": {}}
+            (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            (out / "runs.jsonl").write_text("", encoding="utf-8")
+            args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=False,
+                                         raw_dir=None)
+            with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+                run.command_report(args)
+            self.assertNotIn(secret, (out / "r.json").read_text(encoding="utf-8"))
+
+    def test_report_refuses_an_incompatible_run_folder(self):
+        gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
+        base = {"schema": "s", "gold_sha256": gold, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
+                "config": {"model": "m", "context_length": 8, "threshold": 0.95, "methods": ["warm_ledger"]}}
+        cli = {**base, "hermes": {"commit": "b"}, "plugin": {},
+               "config": {**base["config"], "methods": ["codex_cli"]}}
+        self.assertEqual(run.merge_mismatches(base, cli, False), [])
+        self.assertEqual(run.merge_mismatches(base, {**cli, "config": {**cli["config"], "model": "other"}}, False),
+                         ["config model"])
+        self.assertEqual(run.merge_mismatches(base, {**base, "hermes": {"commit": "b"},
+                                                     "plugin": {"files_sha256": {"x": "2"}}}, False),
+                         ["Hermes commit", "plugin files"])
+        self.assertEqual(run.merge_mismatches(base, {**cli, "gold_sha256": {}}, False), ["gold files (use --rescore)"])
+        self.assertEqual(run.merge_mismatches(base, {**cli, "gold_sha256": {}}, True), [])
+        with tempfile.TemporaryDirectory() as folder:
+            first, second = Path(folder) / "a", Path(folder) / "b"
+            for path, meta in ((first, base), (second, {**cli, "config": {**cli["config"], "context_length": 9}})):
+                path.mkdir()
+                (path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+                (path / "runs.jsonl").write_text("", encoding="utf-8")
+            args = types.SimpleNamespace(out=str(first), json=str(first / "r.json"), md=None, also=[str(second)],
+                                         rescore=False, raw_dir=None)
+            with self.assertRaisesRegex(SystemExit, "config context_length"):
+                run.command_report(args)
+            self.assertFalse((first / "r.json").exists())
+
     def test_resume_refuses_a_changed_source(self):
         plugin = run.plugin_state(Path(run.__file__).parents[2])
         hermes = {"commit": "abc", "clean": True}

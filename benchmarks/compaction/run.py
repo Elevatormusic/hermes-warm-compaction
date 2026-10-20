@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
@@ -357,10 +358,89 @@ PRIVATE_CONFIG_KEYS = ("hermes_python", "hermes_source", "plugin_source", "histo
 PLAN_KEYS = ("methods", "fixtures", "replicates", "drift", "server_check")
 
 
+# Configuration keys that are safe to publish as they are: names, numbers, flags, and the job plan.
+PUBLIC_CONFIG_KEYS = ("model", "api_key_env", "context_length", "threshold", "replicates", "fixtures", "methods",
+                      "drift", "qa_batch", "qa_max_tokens", "main_max_tokens", "job_timeout_s", "cli_timeout_s",
+                      "keep_text", "server_check", "plugin_commit")
+URL_CONFIG_KEYS = ("endpoint", "anthropic_base_url")
+# Settings that change a job result. Runs that a report joins must have the same values (with these defaults).
+RESULT_CONFIG_DEFAULTS = {"model": None, "context_length": None, "threshold": None, "qa_batch": 12,
+                          "qa_max_tokens": 2048, "qa_extra_body": None, "main_max_tokens": 4096, "hermes_config": {}}
+
+
+def shape(value: Any, prefix: str = "") -> dict[str, str]:
+    """The key paths and value types of a nested value, without the values."""
+    if isinstance(value, dict):
+        found: dict[str, str] = {}
+        for key, item in value.items():
+            found.update(shape(item, f"{prefix}.{key}" if prefix else str(key)))
+        return found or {prefix: "dict"}
+    return {prefix: type(value).__name__}
+
+
+def public_url(url: Any) -> Any:
+    """The scheme, host, port, and path of a URL: no user name, password, query, or fragment."""
+    if not isinstance(url, str):
+        return url
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname or ""
+    return urllib.parse.urlunsplit((parts.scheme, f"{host}:{parts.port}" if parts.port else host, parts.path, "", ""))
+
+
+def public_config(config: dict) -> dict:
+    """The configuration as meta.json and the report keep it. Paths and CLI commands are left out. A value that can
+    hold a credential (hermes_config, qa_extra_body, or an unknown key) is replaced by its key paths, value types,
+    and a SHA-256 of the full value. A value that is already redacted stays the same."""
+    kept: dict[str, Any] = {}
+    for key, value in config.items():
+        if key in PRIVATE_CONFIG_KEYS:
+            continue
+        if key in PUBLIC_CONFIG_KEYS:
+            kept[key] = value
+        elif key in URL_CONFIG_KEYS:
+            kept[key] = public_url(value)
+        elif isinstance(value, dict) and value.get("redacted") is True:
+            kept[key] = value
+        elif value is None or value == {}:
+            kept[key] = value
+        else:
+            kept[key] = {"redacted": True, "types": shape(value),
+                         "sha256": hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()}
+    return kept
+
+
 def config_hash(config: dict) -> str:
-    """A hash of the settings that can change a job result: no private paths and no job selection keys."""
-    kept = {key: value for key, value in config.items() if key not in PRIVATE_CONFIG_KEYS + PLAN_KEYS}
+    """A hash of the settings that can change a job result: no private paths and no job selection keys. Raw and
+    redacted values (public_config) give the same hash."""
+    kept = {key: value for key, value in public_config(config).items() if key not in PLAN_KEYS}
     return hashlib.sha256(json.dumps(kept, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
+    """Why the run folder of `extra` cannot join the report of `meta` (empty when it can). The runs must use the
+    same model, result settings, and gold files (or --rescore). They must use the same Hermes commit when both run
+    Hermes methods, and the same plugin files when both run plugin methods."""
+    def result_settings(item: dict) -> dict:
+        config = public_config(item.get("config") or {})
+        return {key: config.get(key, default) for key, default in RESULT_CONFIG_DEFAULTS.items()}
+
+    def engines(item: dict) -> set[str]:
+        return {METHODS[name]["engine"] for name in (item.get("config") or {}).get("methods") or [] if name in METHODS}
+
+    found = []
+    if meta.get("schema") != extra.get("schema"):
+        found.append("schema")
+    base, other = result_settings(meta), result_settings(extra)
+    found += [f"config {key}" for key in RESULT_CONFIG_DEFAULTS if base[key] != other[key]]
+    if not rescore and meta.get("gold_sha256") != extra.get("gold_sha256"):
+        found.append("gold files (use --rescore)")
+    hermes_methods = [item - set(CLI_ENGINES) for item in (engines(meta), engines(extra))]
+    if all(hermes_methods) and (meta.get("hermes") or {}).get("commit") != (extra.get("hermes") or {}).get("commit"):
+        found.append("Hermes commit")
+    if all("warm_compaction" in item for item in (engines(meta), engines(extra))) and (
+            (meta.get("plugin") or {}).get("files_sha256") != (extra.get("plugin") or {}).get("files_sha256")):
+        found.append("plugin files")
+    return found
 
 
 def harness_hashes() -> dict[str, str]:
@@ -381,7 +461,7 @@ def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli:
         hard.append("Hermes commit")
     if meta.get("gold_sha256") != {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}:
         hard.append("gold files")
-    if config_hash(meta.get("config") or {}) != config_hash(config):
+    if config_hash(meta.get("config") or {}) != config_hash(config):  # both sides redacted the same way
         hard.append("config")
     if {name: item.get("version") for name, item in (meta.get("cli") or {}).items() if name in cli} != {
             name: item.get("version") for name, item in cli.items()} and cli:
@@ -433,7 +513,7 @@ def command_run(args) -> int:
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
                 "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "config": {key: value for key, value in config.items() if key not in PRIVATE_CONFIG_KEYS},
+                "config": public_config(config),
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": harness_hashes(),
                 "gold_sha256": current_gold_sha256(),
@@ -981,6 +1061,9 @@ def command_report(args) -> int:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
         extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
+        mismatches = merge_mismatches(meta, extra_meta, args.rescore)
+        if mismatches:
+            raise SystemExit(f"report refused: {extra_dir} differs from {out_dir} in {', '.join(mismatches)}")
         known = {run["job"] for run in runs}
         extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
         if args.rescore:
@@ -990,8 +1073,9 @@ def command_report(args) -> int:
         runs += extra_runs
         attempts += [item for item in load_attempts(extra_dir) if item["job"] not in known]
         planned.update({job_id: job for job_id, job in planned_jobs(extra_meta).items() if job_id not in planned})
-        meta.setdefault("merged_runs", []).append({key: extra_meta.get(key) for key in (
-            "started_utc", "config", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs")})
+        meta.setdefault("merged_runs", []).append({**{key: extra_meta.get(key) for key in (
+            "started_utc", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs")},
+            "config": public_config(extra_meta.get("config") or {})})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
     if rescores:
         # The marks come from the current gold files, not from the gold files of the run.
@@ -1002,6 +1086,8 @@ def command_report(args) -> int:
         print("warning: gold files changed after the run; use --rescore to score the raw answers again",
               file=sys.stderr)
     result = aggregate(runs, meta, attempts, planned)
+    # A run folder made before the redaction rule can have raw values in meta.json: redact them here too.
+    meta["config"] = public_config(meta.get("config") or {})
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
                        "text.", "meta": meta, "results": result,
