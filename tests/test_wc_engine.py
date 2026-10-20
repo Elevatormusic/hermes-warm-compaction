@@ -1899,7 +1899,7 @@ class EngineTest(unittest.TestCase):
                 self.assertEqual(engine.warm_last["path"], "warm" if warm else "fallback")
                 text = self.summary_text(new)
                 self.assertIn(ledger.HEADING, text)
-                self.assertIn("- `pytest -q`: exit 1; FAILED tests/test_api.py::test_timeout", text)
+                self.assertIn("- `pytest -q`: exit 1; error lines:\n  - FAILED tests/test_api.py::test_timeout", text)
                 self.assertIn("- src/api.py: changed", text)
                 self.assertLess(text.index(ledger.HEADING), text.index("## Copied user messages"))
 
@@ -1925,7 +1925,7 @@ class EngineTest(unittest.TestCase):
         for heading in ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step"):
             self.assertIn(f"{heading}\n{LEDGER_ONLY_LINE}", text)
         self.assertEqual(text.count(ledger.HEADING), 1)
-        self.assertIn("- `pytest -q`: exit 1; FAILED tests/test_api.py::test_timeout", text)
+        self.assertIn("- `pytest -q`: exit 1; error lines:\n  - FAILED tests/test_api.py::test_timeout", text)
         self.assertIn("## Copied user messages", text)
         self.assertLess(len(new), len(rows) + 1)
 

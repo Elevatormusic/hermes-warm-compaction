@@ -16,19 +16,26 @@ from .layout import COPY_HEADING, is_summary
 from .rows import attr, estimate_tokens, plain_text, tool_calls_of
 
 HEADING = "## Work ledger"
-NOTE = "Recorded by the plugin from tool calls and results before this point. Reference only; not new tasks."
+NOTE = ("Recorded by the plugin from tool calls and results before this point. Reference only; not new tasks. "
+        "An indented line is an exact copy of an output line or a changed line.")
 COMMANDS_HEADING = "### Commands"
 FILES_HEADING = "### Files changed"
+TASKS_HEADING = "### Task status"
 IDENTIFIERS_HEADING = "### Identifiers"
 REASONS_HEADING = "### Reasons"
+SECTIONS = (COMMANDS_HEADING, FILES_HEADING, TASKS_HEADING, IDENTIFIERS_HEADING, REASONS_HEADING)
 MAX_TOKENS = 1_500
+# An exact line under an entry: an output line of a command or a changed line of a file. It is a separate line, so
+# that a label of the ledger ("exit 1;") and the text of the line do not mix.
+SUB_LINE = "  - "
 # Exact identifiers from the rows: no model can paraphrase them. Each kind keeps its most frequent values
 # (the latest first for a tie), at most its cap.
 IDENTIFIER_KINDS = (
     ("names", re.compile(r"\b(?:[a-z][a-z0-9]*_[a-z0-9_]*[a-z0-9]|[A-Z][A-Z0-9]*_[A-Z0-9_]*[A-Z0-9]"
                          r"|[a-z]+[A-Z][A-Za-z0-9]*|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*)\b"), 40),
-    ("addresses", re.compile(r"https?://[^\s<>\"'`)\]]{4,120}|\b(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|[\w-]+(?:\.[\w-]+)+)"
-                             r":\d{2,5}\b"), 20),
+    # A host and port, not a file and line: no path before it ("src/mod.rs:198") and no column after it.
+    ("addresses", re.compile(r"https?://[^\s<>\"'`)\]]{4,120}|(?<![\w./\\-])(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
+                             r"|[\w-]+(?:\.[\w-]+)+):\d{2,5}\b(?!:\d)"), 20),
     ("references", re.compile(r"\b[A-Z][A-Z0-9]{1,9}-\d{1,6}\b|(?<![\w&])#\d{2,6}\b|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)"
                               r"[0-9a-f]{7,40}\b|\bv\d+\.\d+(?:\.\d+)?\b"), 30),
     ("errors", re.compile(r"\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b"), 15),
@@ -64,10 +71,24 @@ ERROR_LINE = re.compile(r"\b(error|errors|fail|failed|failure|exception|tracebac
 FILE_LINE = re.compile(r"[\w./\\-]+\.\w{1,8}:\d+(?::\d+)?:")
 # The error lines that a failed command keeps: a test failure can need its name and its message.
 MAX_ERROR_LINES = 3
+ERROR_MARK = "error lines:"
 # A successful command keeps a short note of its output (the built-in compressor keeps short outputs as they are).
 # The ledger cuts the oldest notes first when it is too large.
-OUTPUT_MARK = "output: "
+OUTPUT_MARK = "output:"
 NOTE_CHARS = 200
+# A changed file keeps its first added lines: a version, a setting, or a fix can be only in the edit.
+MAX_CHANGE_LINES = 2
+CHANGE_CHARS = 200
+# A task and its status in a progress list of the assistant ("- add the lock-order test: open (not started)", or
+# "- [x] update the docs"), or in a call of the Hermes todo tool. The latest status of each task is kept.
+STATUS_WORDS = (r"done|complete|completed|finished|fixed|open|pending|todo|to do|not started|in progress|in-progress"
+                r"|ongoing|blocked|skipped|cancelled|canceled|failed|failing")
+STATUS_LINE = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)])\s+(?:\[[ xX>~]\]\s+)?(?P<task>[^:\n]{3,120}?)\s*:\s*"
+                         rf"(?P<status>{STATUS_WORDS})\b(?P<rest>[^\n]*)$", re.I)
+CHECKBOX_LINE = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)])\s+\[(?P<box>[ xX])\]\s+(?P<task>[^\n]{3,160})$")
+TODO_STATUS = {"pending": "open", "in_progress": "in progress", "completed": "done", "cancelled": "cancelled"}
+TASK_CHARS = 200
+MAX_TASKS = 30
 # The exit code in plain text output ("exit code 2", "Exit status: 1").
 EXIT_TEXT = re.compile(r"\bexit(?:ed)?(?: with)?(?: code| status)?[:= ]+(-?\d+)\b", re.I)
 
@@ -90,9 +111,9 @@ def _arguments(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _first_error(text: str, count: int = 1) -> str:
-    """The first count distinct lines that report an error or a diagnostic, joined with " | ". A line of four
-    characters or less ("FAIL") is a summary, not a diagnostic."""
+def _first_error(text: str, count: int = 1) -> list[str]:
+    """The first count distinct lines that report an error or a diagnostic. A line of four characters or less
+    ("FAIL") is a summary, not a diagnostic."""
     found: list[str] = []
     for line in text.splitlines():
         if len(line.strip()) > 4 and (ERROR_LINE.search(line) or FILE_LINE.search(line)):
@@ -101,20 +122,23 @@ def _first_error(text: str, count: int = 1) -> str:
                 found.append(line)
             if len(found) >= count:
                 break
-    return " | ".join(found)
+    return found
 
 
-def _output_note(text: str) -> str:
+def _output_note(text: str) -> list[str]:
     """A short note of a successful output: all of it when it has at most two lines in NOTE_CHARS, else its last
     line (often the result count). Lines without a letter or a digit ("..", "---") are not counted."""
     lines = [" ".join(line.split()) for line in text.splitlines() if any(char.isalnum() for char in line)]
     if not lines:
-        return ""
-    if len(lines) <= 2 and len(" | ".join(lines)) <= NOTE_CHARS:
-        note = " | ".join(lines)
-    else:
-        note = _one_line(lines[-1], NOTE_CHARS)
-    return OUTPUT_MARK + note
+        return []
+    if len(lines) <= 2 and sum(len(line) for line in lines) <= NOTE_CHARS:
+        return lines
+    return [_one_line(lines[-1], NOTE_CHARS)]
+
+
+def _with_lines(head: str, mark: str, lines: list[str]) -> str:
+    """The head of an entry and its exact lines, each on its own indented line after the mark."""
+    return head + (f"; {mark}" + "".join(f"\n{SUB_LINE}{line}" for line in lines) if lines else "")
 
 
 def _outcome(result: str | None) -> tuple[str, bool]:
@@ -133,26 +157,68 @@ def _outcome(result: str | None) -> tuple[str, bool]:
         output = data.get("output")
         output = output if isinstance(output, str) else ""
         if isinstance(code, int) and not isinstance(code, bool):
-            detail = (_one_line(str(error), DETAIL_CHARS) if error
-                      else _first_error(output, MAX_ERROR_LINES) if code else _output_note(output))
-            return f"exit {code}" + (f"; {detail}" if detail else ""), code != 0
+            head = f"exit {code}"
+            if error:
+                return f"{head}; {_one_line(str(error), DETAIL_CHARS)}", code != 0
+            if code:
+                return _with_lines(head, ERROR_MARK, _first_error(output, MAX_ERROR_LINES)), True
+            return _with_lines(head, OUTPUT_MARK, _output_note(output)), False
         if error:
             return "error; " + _one_line(str(error), DETAIL_CHARS), True
         if data.get("success") is False:
             return "failed", True
-        detail = _first_error(output) or _output_note(output)
-        return ("exit unknown; " + detail if detail else "exit unknown"), False
+        errors = _first_error(output)
+        return (_with_lines("exit unknown", ERROR_MARK, errors) if errors
+                else _with_lines("exit unknown", OUTPUT_MARK, _output_note(output))), False
     match = EXIT_TEXT.search(result)
-    detail = _first_error(result)
     if match:
         code = int(match.group(1))
+        if code:
+            return _with_lines(f"exit {code}", ERROR_MARK, _first_error(result, MAX_ERROR_LINES)), True
         rest = "\n".join(line for line in result.splitlines() if not EXIT_TEXT.search(line))
-        detail = _first_error(result, MAX_ERROR_LINES) if code else _output_note(rest)
-        return f"exit {code}" + (f"; {detail}" if detail else ""), code != 0
+        return _with_lines(f"exit {code}", OUTPUT_MARK, _output_note(rest)), False
     if result.lstrip().lower().startswith("error"):
         return "error; " + _one_line(result.lstrip(), DETAIL_CHARS), True
-    detail = detail or _output_note(result)
-    return ("exit unknown; " + detail if detail else "exit unknown"), False
+    errors = _first_error(result)
+    return (_with_lines("exit unknown", ERROR_MARK, errors) if errors
+            else _with_lines("exit unknown", OUTPUT_MARK, _output_note(result))), False
+
+
+def _added(text: str, old: str = "") -> list[str]:
+    """The first MAX_CHANGE_LINES lines of text that are not lines of old and have a letter or a digit."""
+    before = {" ".join(line.split()) for line in old.splitlines()}
+    found: list[str] = []
+    for line in text.splitlines():
+        line = " ".join(line.split())
+        if line and line not in before and any(char.isalnum() for char in line) and line not in found:
+            found.append(_one_line(line, CHANGE_CHARS))
+            if len(found) >= MAX_CHANGE_LINES:
+                break
+    return found
+
+
+def _changes(arguments: dict[str, Any], paths: list[str]) -> dict[str, list[str]]:
+    """{path: first added lines} of an edit: the "+" lines of each file in a V4A patch, or the new lines of a
+    replacement (new_string against old_string)."""
+    changes: dict[str, list[str]] = {}
+    for value in arguments.values():
+        if not isinstance(value, str) or not PATCH_HEADER.search(value):
+            continue
+        current = None
+        for line in value.splitlines():
+            header = PATCH_HEADER.match(line)
+            if header:
+                current = header.group(2)
+                changes.setdefault(current, [])
+            elif current is not None and line.startswith("+") and not line.startswith("+++"):
+                lines = changes[current]
+                if len(lines) < MAX_CHANGE_LINES:
+                    lines.extend(_added(line[1:])[:1])
+    new = next((arguments[key] for key in ("new_string", "new_str") if isinstance(arguments.get(key), str)), None)
+    if new is not None and paths:
+        old = next((arguments[key] for key in ("old_string", "old_str") if isinstance(arguments.get(key), str)), "")
+        changes[paths[0]] = _added(new, old)
+    return changes
 
 
 def _file_action(name: str) -> str | None:
@@ -164,9 +230,9 @@ def _file_action(name: str) -> str | None:
 
 
 def _prior_lines(messages: list, prefixes: tuple[str, ...]) -> dict[str, list[str]]:
-    """The bullet lines of each ledger section of earlier summary rows, so that a later compaction keeps them."""
-    found: dict[str, list[str]] = {COMMANDS_HEADING: [], FILES_HEADING: [], IDENTIFIERS_HEADING: [],
-                                   REASONS_HEADING: []}
+    """The entries of each ledger section of earlier summary rows, so that a later compaction keeps them. An entry
+    is its bullet line and its indented exact lines."""
+    found: dict[str, list[str]] = {heading: [] for heading in SECTIONS}
     for row in messages:
         if not is_summary(row, prefixes):
             continue
@@ -181,18 +247,29 @@ def _prior_lines(messages: list, prefixes: tuple[str, ...]) -> dict[str, list[st
                 break
             elif line.startswith("- ") and section is not None:
                 found[section].append(line)
+            elif line.startswith(SUB_LINE) and section is not None and found[section]:
+                found[section][-1] += "\n" + line
     return found
 
 
+FILE_ENTRY = re.compile(r"^- (.+): (changed|written|deleted|moved)$")
+
+
 def _prior(messages: list, prefixes: tuple[str, ...]) -> tuple[list[str], dict[str, str]]:
-    """The command lines and the file changes of earlier summary rows."""
+    """The command entries and the file changes of earlier summary rows."""
     found = _prior_lines(messages, prefixes)
     files: dict[str, str] = {}
-    for line in found[FILES_HEADING]:
-        if ": " in line:
-            path, _, action = line[2:].rpartition(": ")
-            files.pop(path, None)
-            files[path] = action
+    for entry in found[FILES_HEADING]:
+        head, _, lines = entry.partition("\n")
+        match = FILE_ENTRY.match(head)
+        if match:
+            path, action = match.groups()
+        elif ": " in head:
+            path, _, action = head[2:].rpartition(": ")
+        else:
+            continue
+        files.pop(path, None)
+        files[path] = action + (f"\n{lines}" if lines else "")
     return found[COMMANDS_HEADING], files
 
 
@@ -302,24 +379,68 @@ def entries(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> tuple[list
             target = f" {_one_line(first, PATH_CHARS)}" if first else ""
             commands.append(f"- tool {_one_line(name, 60)}{target}: {outcome}")
             continue
+        changes = _changes(arguments, paths)
         for path, kind in touched:
+            lines = changes.get(path, []) if kind in ("changed", "written") else []
             path = _one_line(path, PATH_CHARS)
             if path:
                 files.pop(path, None)
-                files[path] = kind
+                files[path] = kind + "".join(f"\n{SUB_LINE}{line}" for line in lines)
     return commands, files
+
+
+def tasks(messages: Iterable[Any], prefixes: Iterable[str] = ()) -> list[str]:
+    """Return the latest status of each task, as "task: status" lines, the most recently changed last. The tasks
+    come from progress lists in the assistant text, calls of the todo tool, and earlier summary rows."""
+    messages = list(messages)
+    prefixes = tuple(prefixes)
+    status: dict[str, str] = {}
+
+    def put(task: str, state: str) -> None:
+        # ": " separates the task from its status, so a task does not keep one.
+        task = _one_line(task.replace(": ", " - "), 120).strip(" -*`")
+        if len(task) >= 3:
+            status.pop(task.casefold(), None)
+            status[task.casefold()] = _one_line(f"{task}: {state.strip()}", TASK_CHARS)
+
+    for entry in _prior_lines(messages, prefixes)[TASKS_HEADING]:
+        task, _, state = entry.partition("\n")[0][2:].partition(": ")
+        if state:
+            put(task, state)
+    for row in messages:
+        if is_summary(row, prefixes) or attr(row, "role") != "assistant":
+            continue
+        for line in plain_text(attr(row, "content")).splitlines():
+            match = STATUS_LINE.match(line)
+            if match:
+                put(match.group("task"), match.group("status").lower() + match.group("rest"))
+                continue
+            match = CHECKBOX_LINE.match(line)
+            if match:
+                put(match.group("task"), "open" if match.group("box") == " " else "done")
+        for _call_id, name, raw in tool_calls_of(row):
+            if "todo" not in str(name).lower():
+                continue
+            items = _arguments(raw).get("todos")
+            for item in items if isinstance(items, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("content"), str):
+                    state = str(item.get("status") or "pending").strip().lower()
+                    put(item["content"], TODO_STATUS.get(state, state))
+    return list(status.values())[-MAX_TASKS:]
 
 
 def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int = MAX_TOKENS,
           require_work: bool = False) -> str:
     """Return the ledger block, or "" when it is empty or does not fit in max_tokens. With require_work, a block
     without commands or file changes is "" too.
-    When the block is too large, the output notes of the oldest commands go first, then the oldest command lines,
-    then the oldest reasons, then the oldest files, then the identifier kinds from the last."""
+    When the block is too large, the output notes of the oldest commands go first, then the changed lines of the
+    oldest files, then the oldest command entries, then the oldest reasons, then the oldest files, then the oldest
+    tasks, then the identifier kinds from the last."""
     messages = list(messages)
     prefixes = tuple(prefixes)
     commands, files = entries(messages, prefixes)
     paths = list(files.items())
+    states = tasks(messages, prefixes)
     identifiers, reasons = notes(messages, prefixes)
     kinds: list[str] = []
     used = 0
@@ -338,6 +459,8 @@ def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int
             lines += [COMMANDS_HEADING, *commands]
         if paths:
             lines += [FILES_HEADING, *(f"- {path}: {action}" for path, action in paths)]
+        if states:
+            lines += [TASKS_HEADING, *(f"- {state}" for state in states)]
         if kinds:
             lines += [IDENTIFIERS_HEADING, *kinds]
         if reasons:
@@ -346,24 +469,30 @@ def build(messages: Iterable[Any], prefixes: Iterable[str] = (), max_tokens: int
 
     if require_work and not commands and not paths:
         return ""
-    if not (commands or paths or kinds or reasons):
+    if not (commands or paths or states or kinds or reasons):
         return ""
     text = render()
     while estimate_tokens(text) > max_tokens:
         noted = next((index for index, line in enumerate(commands) if "; " + OUTPUT_MARK in line), None)
+        changed = next((index for index, (_path, action) in enumerate(paths) if "\n" in action), None)
         if noted is not None:
             commands[noted] = commands[noted].split("; " + OUTPUT_MARK, 1)[0]
+        elif changed is not None:
+            path, action = paths[changed]
+            paths[changed] = (path, action.split("\n", 1)[0])
         elif commands:
             commands.pop(0)
         elif reasons:
             reasons.pop(0)
         elif paths:
             paths.pop(0)
+        elif states:
+            states.pop(0)
         elif kinds:
             kinds.pop()
         else:
             return ""
-        if not (commands or paths or kinds or reasons):
+        if not (commands or paths or states or kinds or reasons):
             return ""
         text = render()
     return text
