@@ -268,6 +268,12 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
                 self.assertFalse(scoring.score(question("choice", "done"), answer))
+        # A future or scheduled completion is not done (synthetic answers).
+        for answer, gold in (("will be completed tomorrow", "open"), ("scheduled to be finished after review", "open"),
+                             ("Blocked; will be completed after review", "blocked")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
+                self.assertFalse(scoring.score(question("choice", "done"), answer))
         # An explicit blocked label wins over the open class that a negated completion infers.
         for answer in ("Blocked; not completed yet", "Blocked, not finished: waiting on review."):
             with self.subTest(answer=answer):
@@ -313,6 +319,12 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assertFalse(scoring.retained(item, f"The first axe scan found {changed} violations."))
         self.assertTrue(scoring.retained(item, "Axe scan: 5, violations listed."))
+        # A status word inside a longer word does not keep a status fact (synthetic summary text).
+        status = {"kind": "choice", "retention": [["update the docs"], ["complete", "finished", "blocked"]]}
+        for text, kept in (("update the docs: complete", True), ("update the docs: incomplete", False),
+                           ("update the docs: unfinished", False), ("update the docs: unblocked", False)):
+            with self.subTest(text=text):
+                self.assertEqual(scoring.retained(status, text), kept)
         # A sign before the number changes the value (synthetic summary text).
         for signed in ("-5", "+5"):
             with self.subTest(signed=signed):
@@ -2010,17 +2022,60 @@ class RunTest(unittest.TestCase):
                     mock.patch.object(run, "server_model", return_value=model), \
                     mock.patch.object(run, "run_job", stop_job), \
                     contextlib.redirect_stdout(io.StringIO()), \
-                    self.assertRaisesRegex(SystemExit, "content of the Hermes runtime files changed"):
+                    self.assertRaisesRegex(SystemExit, "content of the runtime files changed"):
                 run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
             self.assertTrue(json.loads((out / "meta.json").read_text(encoding="utf-8"))["runtime_content_changed"])
             # A check that does not complete marks the folder as not verified; the report refuses it.
             meta = {"config": {}}
             with mock.patch.object(run, "runtime_state", side_effect=SystemExit("probe failed")), \
                     self.assertRaises(SystemExit):
-                run.verify_runtime_content({}, "a", meta, out / "meta.json")
+                run.verify_runtime_content({}, {"hermes_content": "a"}, meta, out / "meta.json")
             self.assertTrue(meta["runtime_content_unverified"])
             with self.assertRaisesRegex(SystemExit, "not checked after the last job"):
                 run.refuse_runtime(meta, out)
+
+    def test_runner_content_finds_an_edit_that_keeps_size_and_time(self):
+        # A synthetic standard library folder: one file changes, and its size and modification time stay the same.
+        with tempfile.TemporaryDirectory() as folder:
+            module = Path(folder) / "synthetic_module.py"
+            module.write_text("VALUE = 1\n", encoding="utf-8")
+            info = module.stat()
+            with mock.patch.object(run.sysconfig, "get_path", return_value=folder):
+                before = (run.runner_files_sha256(), run.runner_files_sha256(content=True))
+                module.write_text("VALUE = 2\n", encoding="utf-8")
+                os.utime(module, ns=(info.st_atime_ns, info.st_mtime_ns))
+                after = (run.runner_files_sha256(), run.runner_files_sha256(content=True))
+        self.assertEqual(before[0], after[0])
+        self.assertNotEqual(before[1], after[1])
+        self.assertIn("runner_content", run.runtime_state({}, content=True)["sha256"])
+        self.assertNotIn("runner_content", run.runtime_state({}, content=False)["sha256"])
+
+    def test_unverified_runtime_is_checked_when_no_job_remains(self):
+        # A synthetic run folder: every job is done, and meta.json is not verified. A resume checks the content.
+        model = {key: f"synthetic-{key}" for key in run.SERVER_MODEL_KEYS}
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            out.mkdir()
+            (out / "meta.json").write_text(json.dumps({"server_model": model, "config": {},
+                                                       "runtime_content_unverified": True}), encoding="utf-8")
+            (out / "runs.jsonl").write_text(json.dumps({"job": "s1-ledgerline|stock_hermes|r1|c1",
+                                                        "status": "ok"}) + "\n", encoding="utf-8")
+            config = {"hermes_source": "h", "plugin_source": "p", "history_dir": str(Path(folder) / "fixtures"),
+                      "threshold": 0.95, "methods": ["stock_hermes"], "fixtures": ["s1-ledgerline"],
+                      "replicates": 1, "endpoint": "http://127.0.0.1:9/v1", "model": "m", "context_length": 8}
+            (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+            runtime = {**FAKE_RUNTIME, "sha256": {**FAKE_RUNTIME["sha256"], "hermes_content": "a"}}
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                    mock.patch.object(run, "plugin_state", return_value={"commit": "p", "files_sha256": {},
+                                                                          "settings_known": []}), \
+                    mock.patch.object(run, "runtime_state", return_value=runtime), \
+                    mock.patch.object(run, "server_model", return_value=model), \
+                    mock.patch.object(run, "resume_mismatches", return_value=([], [])), \
+                    mock.patch.object(run, "load_runs", return_value=[{"job": "s1-ledgerline|stock_hermes|r1|c1",
+                                                                        "status": "ok"}]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
+            self.assertNotIn("runtime_content_unverified", json.loads((out / "meta.json").read_text(encoding="utf-8")))
 
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}

@@ -50,9 +50,11 @@ NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|h
 # A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
 # done", "cannot be completed", "has not been finished yet".
 NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")
-# A pending completion ("still needs to be completed", "yet to be done", "waiting to complete") is not done: the
+# A pending or future completion ("still needs to be completed", "yet to be done", "waiting to complete", "will be
+# completed tomorrow", "scheduled to be finished") is not done: the
 # completion word is removed, and the answer infers the open class (an explicit blocked label wins over it).
-PENDING_DONE = re.compile(r"(?<![a-z0-9])((?:needs?|has|have|remains?|yet|waiting|still) to(?: be)?) "
+PENDING_DONE = re.compile(r"(?<![a-z0-9])((?:(?:needs?|has|have|remains?|yet|waiting|still|scheduled|planned|plans?|"
+                          r"going|expected|due) to|will|shall)(?: be)?) "
                           r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")
 # A negated open or blocked label names no class: "still open, not blocked" is open, and "not open" alone is no
 # class. ("not started" and "not done" are open phrases: the label after the negation is not in this list.)
@@ -207,11 +209,12 @@ def short_text(normal: str) -> bool:
 def fact_positions(needle: str, normal: str) -> list[int]:
     """The start positions of a normalized fact text in normalized text. A numeric fact matches only as a whole
     number: "5" does not match in "15", "50", or "5.5" (a unit such as "5s" or "5ms" can follow). Another short
-    fact matches only at the start of a word, as a word stem ("doc" in "docs", not in "undocumented")."""
+    fact matches only at the start of a word, as a word stem ("doc" in "docs", not in "undocumented"). Any other
+    fact also starts at a word start: "complete" does not match in "incomplete", and "blocked" not in "unblocked"."""
     if not needle:
         return []
     pattern = number_pattern(needle) or re.escape(needle)
-    if pattern == re.escape(needle) and short_text(needle):
+    if pattern == re.escape(needle) and (short_text(needle) or needle[0].isalnum()):
         pattern = r"(?<![a-z0-9])" + pattern
     return [match.start() for match in re.finditer(pattern, normal)]
 

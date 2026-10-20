@@ -544,20 +544,25 @@ def anthropic_base_url(config: dict) -> str:
     return urllib.parse.urlunsplit(parts._replace(path=path[:-3] if path.endswith("/v1") else path))
 
 
-def verify_runtime_content(config: dict, expected: str, meta: dict, meta_path: Path) -> None:
-    """Compare the content hash of the Hermes runtime files with the hash of the run start. A change sets
-    runtime_content_changed in meta.json; a check that does not complete (a failed probe or an interrupt) sets
+# The content hashes of the runtime files (the Hermes environment and the runner standard library). The run takes
+# them at its start and after its last job; the check before and after each job uses sizes and times.
+CONTENT_KEYS = ("hermes_content", "runner_content")
+
+
+def verify_runtime_content(config: dict, expected: dict[str, str], meta: dict, meta_path: Path) -> None:
+    """Compare the content hashes of the runtime files (CONTENT_KEYS) with the hashes of the run start. A change
+    sets runtime_content_changed in meta.json; a check that does not complete (a failed probe or an interrupt) sets
     runtime_content_unverified, which a later complete check removes. The report refuses a folder with either."""
     try:
-        now = runtime_state(config)["sha256"].get("hermes_content")
+        now = runtime_state(config)["sha256"]
     except BaseException:
         meta["runtime_content_unverified"] = True
         write_meta(meta_path, meta)
         raise
-    if now != expected:
+    if any(now.get(key) != value for key, value in expected.items()):
         meta["runtime_content_changed"] = True
         write_meta(meta_path, meta)
-        raise SystemExit("the content of the Hermes runtime files changed during the run (the sizes and times "
+        raise SystemExit("the content of the runtime files changed during the run (the sizes and times "
                          "stayed the same); the report refuses this run folder")
     if meta.pop("runtime_content_unverified", None):
         write_meta(meta_path, meta)
@@ -849,19 +854,25 @@ def cli_files_sha256(command: list[str] | None) -> str:
     return sha256_value(items)
 
 
-def runner_files_sha256() -> str:
+def runner_files_sha256(content: bool = False) -> str:
     """The identity of the files of the runner Python, which runs this runner and each CLI worker: the SHA-256
     hash of its executable file, and the size and modification time of each file of its standard library, of its
     DLLs folder, and of the top folder of its installation (the Python DLL on Windows). An upgrade in place with the
     same path changes it. __pycache__ and site-packages folders are left out: bytecode caches change when modules
     load, and the runner and the CLI worker import only the standard library and the harness files (which have
-    their own hashes)."""
+    their own hashes). content=True also hashes the content of each of these files (an edit that keeps the size and
+    the modification time changes it)."""
     def stat_pair(path) -> list:
         try:
             info = os.stat(path)
         except OSError:
             return [None, None]
-        return [info.st_size, info.st_mtime_ns]
+        if not content:
+            return [info.st_size, info.st_mtime_ns]
+        try:
+            return [info.st_size, info.st_mtime_ns, file_sha256(Path(path))]
+        except OSError:
+            return [info.st_size, info.st_mtime_ns, None]
 
     rows: list[list] = [["executable", file_sha256(Path(os.path.realpath(sys.executable)))]]
     base = Path(sys.base_prefix)
@@ -885,11 +896,14 @@ def runtime_state(config: dict, content: bool = True) -> dict[str, Any]:
     each CLI. "public" goes into meta.json and the report. "sha256" has hashes of private paths, the package list,
     and each CLI (its argv and the files that it runs): meta.json keeps them for the resume and merge checks, and
     the report does not get them. content=True also hashes the content of the Hermes runtime files
-    ("hermes_content"); the check before and after each job uses content=False (sizes and times only)."""
+    ("hermes_content") and of the runner standard library ("runner_content"); the check before and after each job
+    uses content=False (sizes and times only)."""
     public: dict[str, Any] = {"host": {"os": platform.system(), "machine": platform.machine(),
                                        "python": sys.version.split()[0]}}
     digests = {"runner_python": sha256_value({"path": os.path.realpath(sys.executable),
                                               "files": runner_files_sha256()})}
+    if content:
+        digests["runner_content"] = runner_files_sha256(content=True)
     if config.get("hermes_python"):
         try:
             done = subprocess.run([str(config["hermes_python"]), "-I", "-c", RUNTIME_PROBE,
@@ -1317,7 +1331,7 @@ def command_run(args) -> int:
     # files, the generated session files, a CLI, or the runtime stops the run before the next job.
     start = {"harness": harness_hashes(), "plugin": plugin["files_sha256"], "hermes": hermes,
              "gold": current_gold_sha256(), "history": history_hashes(config), "cli": cli,
-             "runtime": {key: value for key, value in runtime["sha256"].items() if key != "hermes_content"}}
+             "runtime": {key: value for key, value in runtime["sha256"].items() if key not in CONTENT_KEYS}}
 
     def changed_sources() -> list[str]:
         now = source_snapshot(config)
@@ -1367,10 +1381,12 @@ def command_run(args) -> int:
                 # The benchmark never signs in: stop and report.
                 raise SystemExit(f"{job['method']} asked for a login; stop the run")
     finally:
-        if started_jobs and runtime["sha256"].get("hermes_content") is not None:
+        expected = {key: runtime["sha256"][key] for key in CONTENT_KEYS if runtime["sha256"].get(key) is not None}
+        if expected and (started_jobs or meta.get("runtime_content_unverified")):
             # The check before and after each job compares sizes and times. The content hash after the last job
-            # (also after a stop in the loop) finds an edit that kept them.
-            verify_runtime_content(config, runtime["sha256"]["hermes_content"], meta, meta_path)
+            # (also after a stop in the loop) finds an edit that kept them. A folder that is not verified gets the
+            # check also when no job remains.
+            verify_runtime_content(config, expected, meta, meta_path)
     return 0
 
 
