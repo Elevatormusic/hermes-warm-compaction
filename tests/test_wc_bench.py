@@ -352,6 +352,34 @@ class RunTest(unittest.TestCase):
                             "harness": run.harness_id(FAKE_HARNESS), "sources": dict(FAKE_SOURCES)})
         return records
 
+    def test_hermes_and_cli_times_are_in_separate_columns(self):
+        runs = self.synthetic_runs()
+        # A synthetic CLI record: its main time is the wall time of the CLI command, its compaction time comes from
+        # the session file. These are other intervals than the Hermes times.
+        codex = json.loads(json.dumps(runs[-1]))
+        codex.update(job="codex_cli", method="codex_cli")
+        codex["cycles"][0].update(main_s=30.0, compress_s=4.0)
+        result = run.aggregate(runs + [codex], {"config": {}, "plugin": {}, "hermes": {}})
+        self.assertEqual(result["methods"]["codex_cli"]["latency_s"]["scope"], "cli")
+        self.assertEqual(result["methods"]["warm_ledger"]["latency_s"]["scope"], "hermes")
+        text = run.markdown(result, {"config": {}, "plugin": {}, "hermes": {}})
+        self.assertIn("| Hermes main request s | CLI compaction s (all runs) | CLI main command s |", text)
+        rows = {line.split(" | ")[0][2:]: line.rstrip(" |").split(" | ")[-4:] for line in text.splitlines()
+                if line.startswith("| ") and line.count(" | ") == 8}
+        def time(name, key):
+            return run.num(result["methods"][name]["latency_s"][key])
+
+        self.assertEqual(rows[run.METHODS["codex_cli"]["label"]],
+                         ["-", "-", time("codex_cli", "compress"), time("codex_cli", "main_request")])
+        self.assertIn("30.0", rows[run.METHODS["codex_cli"]["label"]][3])
+        self.assertEqual(rows[run.METHODS["warm_ledger"]["label"]],
+                         [time("warm_ledger", "compress"), time("warm_ledger", "main_request"), "-", "-"])
+        self.assertIn(run.TIME_SCOPES["cli"]["main_request"], text)
+        # A merged run folder ran at another time: the report states the limit.
+        self.assertNotIn(run.MERGED_LIMIT, text)
+        self.assertIn(run.MERGED_LIMIT, run.markdown(result, {"config": {}, "plugin": {}, "hermes": {},
+                                                              "merged_runs": [{}]}))
+
     def test_rescore_uses_the_current_gold_and_counts_missing_raw_output(self):
         spec = next(item for item in SCENARIOS if item["id"] == "s4-orchard")
         history, gold = fixtures.build(spec)
@@ -1146,10 +1174,26 @@ class RunTest(unittest.TestCase):
                 "hermes": hermes, "gold_sha256": gold, "harness_sha256": run.harness_hashes(), **FAKE_RUNTIME_META}
         runtime = FAKE_RUNTIME
         self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}, runtime), ([], []))
-        # Job selection keys can change on a resume; result settings, plugin, and Hermes cannot.
-        self.assertEqual(run.resume_mismatches(meta, {**config, "methods": ["full_context"]}, plugin, hermes, {},
-                                               runtime),
+        # A resume runs the jobs of the first plan in the same order: an added, removed, or reordered method,
+        # fixture, replicate, or drift job is refused (the new jobs would run alone at the end, after time drift).
+        # The server check is not part of the plan.
+        for changed_plan in ({"methods": ["stock_hermes", "full_context"]}, {"methods": ["full_context"]},
+                             {"fixtures": ["s1-ledgerline"]}, {"replicates": 6},
+                             {"drift": {"fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"], "cycles": 2}}):
+            with self.subTest(changed_plan=changed_plan):
+                self.assertEqual(run.resume_mismatches(meta, {**config, **changed_plan}, plugin, hermes, {},
+                                                       runtime), (["job plan"], []))
+        two = {**config, "methods": ["stock_hermes", "full_context"]}
+        two_meta = {**meta, "config": {k: v for k, v in two.items() if k != "plugin_source"}}
+        self.assertEqual(run.resume_mismatches(two_meta, two, plugin, hermes, {}, runtime), ([], []))
+        self.assertEqual(run.resume_mismatches(two_meta, {**two, "methods": ["full_context", "stock_hermes"]},
+                                               plugin, hermes, {}, runtime), (["job plan"], []))
+        self.assertEqual(run.resume_mismatches(meta, {**config, "replicates": 5}, plugin, hermes, {}, runtime),
                          ([], []))
+        # A folder in which an earlier resume (of an earlier harness) changed the plan cannot resume again.
+        self.assertEqual(run.resume_mismatches({**meta, "resumes": [{"plan": {"methods": ["full_context"]}}]},
+                                               config, plugin, hermes, {}, runtime), (["job plan"], []))
+        # Result settings, plugin, and Hermes cannot change either.
         changed = {**plugin, "files_sha256": {**plugin["files_sha256"], "engine.py": "0"}}
         self.assertEqual(run.resume_mismatches(meta, config, changed, hermes, {}, runtime)[0], ["plugin files"])
         self.assertEqual(run.resume_mismatches(meta, config, plugin, {"commit": "def"}, {}, runtime)[0],

@@ -704,10 +704,33 @@ def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli:
     if {name: item.get("version") for name, item in (meta.get("cli") or {}).items() if name in cli} != {
             name: item.get("version") for name, item in cli.items()} and cli:
         hard.append("CLI versions")
+    # A resume runs the jobs of the first plan, in the same order. A changed plan (an added, removed, or reordered
+    # method, fixture, replicate, or drift job) would run the new jobs alone at the end, so time drift (warm-up,
+    # throttling) would be confounded with them. A new method goes in a new run folder (join it with --also).
+    first = first_plan(meta, config)
+    first_ids = plan_ids(first, plugin)
+    plans = [config] + [{**first, **item["plan"]} for item in meta.get("resumes") or [] if item.get("plan")]
+    if first_ids is None or any(plan_ids(item, plugin) != first_ids for item in plans):
+        hard.append("job plan")
     latest = (meta.get("resumes") or [{}])[-1].get("harness_sha256") or meta.get("harness_sha256")
     harness = sorted(name for name in set(latest or {}) | set(harness_hashes())
                      if (latest or {}).get(name) != harness_hashes().get(name))
     return hard, harness
+
+
+def first_plan(meta: dict, config: dict) -> dict:
+    """The configuration with the job plan of the first run (the plan keys of meta.json) in place of its own."""
+    first = {key: value for key, value in config.items() if key not in PLAN_KEYS}
+    first.update({key: value for key, value in (meta.get("config") or {}).items() if key in PLAN_KEYS})
+    return first
+
+
+def plan_ids(config: dict, plugin: dict) -> list[str] | None:
+    """The job IDs of a plan, in run order (None when the plan cannot be made)."""
+    try:
+        return [job["id"] for job in plan(config, plugin)[0]]
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 SERVER_MODEL_KEYS = ("id", "type", "publisher", "arch", "compatibility_type", "quantization", "max_context_length")
@@ -903,7 +926,8 @@ def load_runs(out_dir: Path) -> list[dict]:
 
 def planned_jobs(meta: dict) -> dict[str, dict]:
     """The jobs that the run folder plans, by job id (empty when the plan cannot be made): the jobs of the first
-    configuration and of each resume. A resume can add jobs; a job that an earlier plan had stays planned."""
+    configuration and of each resume. A resume cannot change the plan now; a folder of an earlier harness can have a
+    resume that added jobs, and a job that an earlier plan had stays planned."""
     found: dict[str, dict] = {}
     configs = [meta.get("config") or {}] + [
         {**(meta.get("config") or {}), **item["plan"]} for item in meta.get("resumes") or [] if item.get("plan")]
@@ -1128,7 +1152,9 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "main_request": scoring.mean_interval([c["main_s"] for c in timed if c.get("main_s") is not None
                                                    and not c.get("preflight") and not c.get("main_failed")]),
             "questions": scoring.mean_interval([c["qa_s"] for c in values if c.get("qa_s") is not None]),
-            "timed_attempts": len(timed)}
+            "timed_attempts": len(timed),
+            # The compaction and main request times of a CLI method measure other intervals (TIME_SCOPES).
+            "scope": "cli" if METHODS[name]["engine"] in CLI_ENGINES else "hermes"}
         scored_jobs_now = {run["job"] for run, _cycle in cycles}
         entry["per_run_failed"] = [{**item_identity(run), "fixture": run["fixture"], "rep": run["rep"],
                                     "path": cycle["path"],
@@ -1333,6 +1359,20 @@ def num(item: dict | None, digits: int = 1) -> str:
     return f"{item['mean']:.{digits}f} [{item['low']:.{digits}f}, {item['high']:.{digits}f}]"
 
 
+# What the compaction and main request times measure. The question time is the same for every method: the harness
+# sends the same question requests.
+TIME_SCOPES = {
+    "hermes": {"compress": "wall time of the Hermes manual compress call",
+               "main_request": "wall time of AIAgent.run_conversation() for the main turn, in the running process"},
+    "cli": {"compress": "the compaction duration that the CLI session file records (Codex: from turn start to the "
+                        "compacted item; Claude Code: compactMetadata.durationMs, else from the queued /compact to "
+                        "the compact boundary)",
+            "main_request": "wall time of the CLI main command: process start, configuration, session resume, and "
+                            "the main turn"}}
+MERGED_LIMIT = ("The jobs of a run folder added with --also ran at another time than the jobs of the first folder: "
+                "the method order rotates only inside each folder, so a time difference between methods of "
+                "different folders can include time drift (warm-up, throttling, server load).")
+
 CLI_LIMITS = [
     "The Codex CLI and Claude Code methods write the synthetic history into the session file format of the pinned "
     "CLI version. These formats are internal to those versions and can change.",
@@ -1344,6 +1384,9 @@ CLI_LIMITS = [
     "in all methods.",
     "Their compaction time is the duration that each CLI records (Codex: from turn start to the compacted item; "
     "Claude Code: compactMetadata.durationMs), not the Hermes compress call time.",
+    "Their main request time is the wall time of the CLI main command, with process start, configuration, and "
+    "session resume; the Hermes main request time covers only AIAgent.run_conversation(). The report shows these "
+    "times in separate columns: do not compare them with the Hermes times.",
     "The Codex CLI compaction uses the app server request thread/compact/start, which is marked experimental in the "
     "pinned version; the Claude Code compaction uses /compact in print mode.",
     "The CLI methods were added after the pre-registration; the pre-registered decision rule does not use them.",
@@ -1429,15 +1472,23 @@ def markdown(result: dict, meta: dict) -> str:
     lines += ["", "## Size and time", "",
               "Estimated tokens are JSON characters / 4 of the history rows (the same estimate for all methods). "
               "The question prompt tokens are the server count of the first question request, with the system row and "
-              "about 400 tokens of questions. Compaction time is the wall time of the Hermes manual compress call.", "",
-              "| Method | Est. tokens before | Est. tokens after | After / before | Question prompt tokens | "
-              "Compaction s (all runs) | Main request s |", "| --- | --- | --- | --- | --- | --- | --- |"]
+              "about 400 tokens of questions. The Hermes and the CLI times measure different intervals, so they are "
+              "in separate columns. Hermes compaction: " + TIME_SCOPES["hermes"]["compress"] + ". Hermes main "
+              "request: " + TIME_SCOPES["hermes"]["main_request"] + ". CLI compaction: "
+              + TIME_SCOPES["cli"]["compress"] + ". CLI main command: " + TIME_SCOPES["cli"]["main_request"] + ".",
+              "", "| Method | Est. tokens before | Est. tokens after | After / before | Question prompt tokens | "
+              "Hermes compaction s (all runs) | Hermes main request s | CLI compaction s (all runs) | "
+              "CLI main command s |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for name in names:
         entry = methods[name]
+        latency = entry["latency_s"]
+        times = [num(latency.get("compress")), num(latency.get("main_request"))]
+        times = ["-", "-"] + times if METHODS[name]["engine"] in CLI_ENGINES else times + ["-", "-"]
         lines.append(f"| {entry['label']} | {num(entry['tokens']['est_before'], 0)} | "
                      f"{num(entry['tokens']['est_after'], 0)} | {num(entry['tokens']['ratio_after_before'], 3)} | "
-                     f"{num(entry['tokens']['qa_prompt_tokens'], 0)} | {num(entry['latency_s']['compress'])} | "
-                     f"{num(entry['latency_s']['main_request'])} |")
+                     f"{num(entry['tokens']['qa_prompt_tokens'], 0)} | " + " | ".join(times) + " |")
+    if meta.get("merged_runs"):
+        lines += ["", MERGED_LIMIT]
     lines += ["", "Per-run times and token counts are in the JSON file (`per_run`).", "",
               "## Paired comparisons (McNemar, same fixture, replicate, and question)", "",
               "| First | Second | Category | Pairs | Difference (first - second) | p |",
@@ -1653,7 +1704,8 @@ def command_report(args) -> int:
                        "Rule-based scoring can miss a correct paraphrase; the full-history control shows the ceiling.",
                        "Cache reuse is unknown when the server does not report cached tokens."]
                       + (CLI_LIMITS if any(name in result["methods"] for name in ("codex_cli", "claude_code_cli"))
-                         else [])}
+                         else []) + ([MERGED_LIMIT] if meta.get("merged_runs") else []),
+            "time_scopes": TIME_SCOPES}
     Path(args.json).parent.mkdir(parents=True, exist_ok=True)
     Path(args.json).write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
     if args.md:
