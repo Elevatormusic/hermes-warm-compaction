@@ -146,7 +146,12 @@ def base_config(job: dict) -> dict:
 
 
 def write_config(home: Path, job: dict) -> None:
-    """Write base_config with the allowed hermes_config additions. An override of a benchmark setting fails."""
+    """Write base_config with the allowed hermes_config additions. An override of a benchmark setting fails before
+    any other step."""
+    config = base_config(job)
+    conflicts = override_conflicts(config, job.get("hermes_config") or {})
+    if conflicts:
+        raise JobFailed(f"hermes_config_protected:{','.join(conflicts)}")
     try:
         import yaml
 
@@ -163,10 +168,6 @@ def write_config(home: Path, job: dict) -> None:
             stream = StringIO()
             writer.dump(data, stream)
             return stream.getvalue()
-    config = base_config(job)
-    conflicts = override_conflicts(config, job.get("hermes_config") or {})
-    if conflicts:
-        raise JobFailed(f"hermes_config_protected:{','.join(conflicts)}")
     merge(config, job.get("hermes_config") or {})
     (home / "config.yaml").write_text(dump(config), encoding="utf-8")
     # A local model catalogue: host discovery makes no request for it.
