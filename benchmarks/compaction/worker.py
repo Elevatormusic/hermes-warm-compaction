@@ -68,15 +68,17 @@ HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 def header_conflicts(headers) -> list[str]:
     """The problems of model.headers: not a mapping, a name that is not an HTTP token (HEADER_NAME), a value that
-    is not a string or has a control character (a tab is allowed), a reserved name (RESERVED_HEADERS), or two
-    names that differ only in case. Names are compared without case."""
+    is not a string or has a character other than visible ASCII, a space, or a tab, a reserved name
+    (RESERVED_HEADERS), or two names that differ only in case. Names are compared without case. A non-ASCII value
+    is refused because the clients of the run encode it differently (urllib, which sends the questions, encodes
+    header values as Latin-1 and fails on other characters after the main turn and the compaction)."""
     if not isinstance(headers, dict):
         return ["model.headers"]
     found, seen = [], set()
     for key, value in headers.items():
         name = str(key)
         if not isinstance(key, str) or not HEADER_NAME.fullmatch(key) or not isinstance(value, str) or any(
-                (ord(char) < 32 and char != "\t") or ord(char) == 127 for char in value):
+                not (32 <= ord(char) <= 126 or char == "\t") for char in value):
             found.append(f"model.headers.{name}")
         elif name.strip().lower() in RESERVED_HEADERS or name.strip().lower() in seen:
             found.append(f"model.headers.{name}")

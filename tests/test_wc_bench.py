@@ -1095,9 +1095,11 @@ class RunTest(unittest.TestCase):
                    {" Content-Type ": "x"}, {"X-Api-Key": "x"}, {"anthropic-version": "x"}, {"Host": "x"},
                    {"Content-Length": "1"}, {"X-Gateway": "a", "x-gateway": "b"}, {"X-Gateway": 1},
                    {"X-Gateway": "a\r\nAuthorization: b"}, {"": "x"}, {1: "x"}, ["X-Gateway"],
-                   # Names that are not HTTP tokens, and a value with a control character.
+                   # Names that are not HTTP tokens, a value with a control character, and non-ASCII values (urllib
+                   # cannot send a value outside Latin-1; other clients encode non-ASCII values differently).
                    {"Bad Header": "x"}, {"X:Y": "x"}, {"X-Gatéway": "x"}, {"X-Gateway ": "x"},
-                   {"X-Gateway": "a\x01b"}, {"X-Gateway": "a\x7fb"})
+                   {"X-Gateway": "a\x01b"}, {"X-Gateway": "a\x7fb"}, {"X-Gateway": "a\u20acb"},
+                   {"X-Gateway": "a\U0001f600b"}, {"X-Gateway": "caf\u00e9"})
         for headers in refused:
             with self.subTest(headers=headers):
                 self.assertTrue(worker.override_conflicts({"model": {"headers": headers}}))
