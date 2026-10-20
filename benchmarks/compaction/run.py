@@ -284,11 +284,19 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
                  str(target)], cwd=work, env=worker_environment(home), capture_output=True,
                 timeout=float(config.get("job_timeout_s", 3600)))
             record["exit_code"] = completed.returncode
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as error:
             record["error"] = "job_timeout"
+            completed = error
         out = json.loads(target.read_text(encoding="utf-8")) if target.exists() else None
         if out is None:
             record["error"] = record["error"] or "worker_no_report"
+            # The end of the worker error output, for local diagnosis only (the run folder stays in .work/).
+            stderr = completed.stderr or b""
+            folder = out_dir / "worker-stderr"
+            folder.mkdir(exist_ok=True)
+            name = job["id"].replace("|", "__") + f"-{int(time.time())}.txt"
+            (folder / name).write_bytes(stderr[-16000:] if isinstance(stderr, bytes) else stderr[-16000:].encode())
+            record["stderr_file"] = f"worker-stderr/{name}"
         else:
             record["status"], record["error"] = out.get("status"), out.get("error")
             record["worker_python"] = out.get("python")
@@ -450,6 +458,7 @@ def command_run(args) -> int:
         for job in todo:
             print(job["id"], json.dumps(job["settings"]))
         return 0
+    worker_failures = 0
     for number, job in enumerate(todo, 1):
         problem = server_state(config)
         if problem:
@@ -468,6 +477,10 @@ def command_run(args) -> int:
                     for c in record.get("cycles", [])]
         print(f"[{number}/{len(todo)}] {job['id']} status={record['status']} error={record['error']} "
               f"paths={paths} accuracy={accuracy} elapsed={record['elapsed_s']}s", flush=True)
+        worker_failures = worker_failures + 1 if record["error"] == "worker_no_report" else 0
+        if worker_failures >= 2:
+            raise SystemExit(f"2 workers in a row gave no report (last: {job['id']}); stop. See "
+                             f"{out_dir / record.get('stderr_file', 'worker-stderr')}")
         if record["error"] == "login_required":
             # The benchmark never signs in: stop and report.
             raise SystemExit(f"{job['method']} asked for a login; stop the run")
