@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -54,11 +55,58 @@ def cli_environment(home: Path, extra: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def is_link(path: Path) -> bool:
+    """True for a symbolic link or a Windows junction."""
+    return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+
+
+def group_options() -> dict:
+    """Popen options that start a command in its own process group, so kill_tree can stop its descendants."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def kill_tree(process: subprocess.Popen) -> None:
+    """Stop the process and every descendant. A CLI can start a child (node starts the Codex binary), and a
+    descendant that runs on would keep using the one-slot server during the next job."""
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
+def run_tree(command: list[str], timeout: float, **options) -> subprocess.CompletedProcess:
+    """subprocess.run with captured output, where a timeout stops the whole process tree (kill_tree), not only the
+    first process. On a timeout it raises subprocess.TimeoutExpired with the output read so far."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **group_options(), **options)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            stdout = stderr = None
+        raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr) from None
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 def run_cli(command: list[str], cwd: Path, env: dict[str, str], timeout_s: float) -> dict:
     started = time.monotonic()
     try:
-        done = subprocess.run(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True,
-                              encoding="utf-8", errors="replace", timeout=timeout_s)
+        done = run_tree(command, timeout_s, cwd=cwd, env=env, stdin=subprocess.DEVNULL, encoding="utf-8",
+                        errors="replace")
         text = (done.stdout or "") + "\n" + (done.stderr or "")
         result = {"exit_code": done.returncode, "timeout": False, "text": text}
     except subprocess.TimeoutExpired as error:
@@ -256,7 +304,7 @@ def codex_app_server_compact(command: list[str], thread_id: str, cwd: Path, env:
     turn/completed notification. Return the time, the turn status, and safe error fields; no message text."""
     started = time.monotonic()
     process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, encoding="utf-8", errors="replace")
+                               stderr=subprocess.PIPE, encoding="utf-8", errors="replace", **group_options())
     messages: list[dict] = []
     stderr: list[str] = []
     ready = threading.Condition()
@@ -324,7 +372,7 @@ def codex_app_server_compact(command: list[str], thread_id: str, cwd: Path, env:
         try:
             process.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            process.kill()
+            kill_tree(process)
             process.wait(timeout=15)
         result["exit_code"] = process.returncode
     errors = " ".join(str((item.get("params") or {}).get("message") or "") for item in messages

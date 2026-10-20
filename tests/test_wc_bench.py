@@ -8,8 +8,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest import mock
 
@@ -568,7 +570,7 @@ class RunTest(unittest.TestCase):
             out_dir = Path(folder) / "out"
             out_dir.mkdir()
 
-            def fake_worker(argv, **_kwargs):
+            def fake_worker(argv, _timeout, **_kwargs):
                 # A fake worker report (synthetic): one job without cycles.
                 Path(argv[argv.index("--out") + 1]).write_text(
                     json.dumps({"status": "ok", "error": None, "cycles": []}), encoding="utf-8")
@@ -579,7 +581,7 @@ class RunTest(unittest.TestCase):
             config = {"hermes_python": "fake-python", "hermes_source": "h", "plugin_source": "p",
                       "endpoint": "http://127.0.0.1:9/v1", "model": "m", "context_length": 8, "threshold": 0.95,
                       "keep_text": True}
-            with mock.patch.object(run.subprocess, "run", side_effect=fake_worker):
+            with mock.patch.object(run, "run_tree", side_effect=fake_worker):
                 record = run.run_job(job, config, out_dir, history_dir)
             raw = out_dir / "raw" / f"{spec['id']}__stock_hermes__r1__c1.json"
             self.assertEqual(record["raw_sha256"], run.sha256_file(raw))
@@ -1351,6 +1353,78 @@ class RunTest(unittest.TestCase):
         self.assertEqual(run.public_url(example["endpoint"]), "http://localhost:1234")
         jobs, skipped = run.plan(example, {"settings_known": ["warm", "ledger", "fallback_format"]})
         self.assertEqual((len(jobs), skipped), (270, []))
+
+    def test_method_order_is_balanced_over_all_blocks(self):
+        for count in (2, 3, 4, 5, 8):
+            items = list(range(count))
+            rows = count if count % 2 == 0 else 2 * count
+            orders = [run.balanced_order(items, block) for block in range(rows)]
+            with self.subTest(count=count):
+                self.assertTrue(all(sorted(order) == items for order in orders))
+                # Each item runs once in each position per set of rows (twice for an odd count).
+                for position in range(count):
+                    self.assertEqual(sorted(order[position] for order in orders), sorted(items * (rows // count)))
+                # Each item runs directly after each other item equally often.
+                pairs = Counter((order[i], order[i + 1]) for order in orders for i in range(count - 1))
+                self.assertEqual((len(pairs), set(pairs.values())), (count * (count - 1), {rows // count}))
+        # The block number counts over all fixtures: with 4 methods and 2 replicates, the second fixture continues
+        # the design, so each method starts one block.
+        config = {"threshold": 0.95, "replicates": 2, "fixtures": ["s1-ledgerline", "s2-tidepool"],
+                  "methods": ["full_context", "stock_hermes", "warm_ledger", "fallback_relaxed_ledger"]}
+        jobs, _skipped = run.plan(config, {"settings_known": ["warm", "ledger", "fallback_format"]})
+        self.assertEqual(sorted(jobs[index]["method"] for index in range(0, len(jobs), 4)), sorted(config["methods"]))
+
+    def test_cli_timeout_stops_the_whole_process_tree(self):
+        with tempfile.TemporaryDirectory() as folder:
+            beat = Path(folder) / "beat.txt"
+            # A synthetic CLI that starts a child; the child writes a heartbeat for about 40 seconds and holds the
+            # output pipes of its parent.
+            child = ("import sys, time\n"
+                     "for _ in range(400):\n"
+                     "    open(sys.argv[1], 'a').write('x')\n"
+                     "    time.sleep(0.1)\n")
+            parent = ("import subprocess, sys, time\n"
+                      f"subprocess.Popen([sys.executable, '-c', {child!r}, {str(beat)!r}])\n"
+                      "time.sleep(60)\n")
+            started = time.monotonic()
+            result = cli_worker.run_cli([sys.executable, "-c", parent], Path(folder), dict(os.environ), 3)
+            self.assertTrue(result["timeout"])
+            self.assertLess(time.monotonic() - started, 20)
+            self.assertTrue(beat.exists())
+            time.sleep(1)
+            size = beat.stat().st_size
+            time.sleep(1.5)
+            # The child stopped with its parent: no request of this job runs on during the next job.
+            self.assertEqual(beat.stat().st_size, size)
+
+    def test_cli_hash_records_and_follows_folder_links(self):
+        def link(target: Path, path: Path) -> None:
+            try:
+                os.symlink(target, path, target_is_directory=True)
+            except OSError:
+                if os.name != "nt":
+                    raise
+                import _winapi  # A junction needs no symlink privilege on Windows.
+                _winapi.CreateJunction(str(target), str(path))
+
+        with tempfile.TemporaryDirectory() as folder:
+            cli, generated = Path(folder) / "node_modules" / "fake-cli", Path(folder) / "generated"
+            (cli / "bin").mkdir(parents=True)
+            generated.mkdir()
+            (cli / "package.json").write_text(json.dumps({"name": "fake-cli", "version": "1.0.0"}), encoding="utf-8")
+            (cli / "bin" / "cli.js").write_text("require('../dist/main.js')\n", encoding="utf-8")
+            (generated / "main.js").write_text("// fake generated code 1\n", encoding="utf-8")
+            command = [str(cli / "bin" / "cli.js")]
+            before = run.cli_files_sha256(command)
+            # A linked dist/ folder is recorded (with its target) and read through the link.
+            link(generated, cli / "dist")
+            linked = run.cli_files_sha256(command)
+            self.assertNotEqual(linked, before)
+            (generated / "main.js").write_text("// fake generated code 2\n", encoding="utf-8")
+            self.assertNotEqual(run.cli_files_sha256(command), linked)
+            # A link loop ends: each real folder is read once.
+            link(cli, generated / "loop")
+            run.cli_files_sha256(command)
 
     def test_server_check_reads_the_loaded_context_length(self):
         import threading

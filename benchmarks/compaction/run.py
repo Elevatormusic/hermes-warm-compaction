@@ -33,6 +33,7 @@ from typing import Any
 
 from . import fixtures, scoring
 from . import worker as job_worker
+from .cli_worker import is_link, run_tree
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -90,11 +91,6 @@ def checkout_root(folder: Path) -> bool:
 
 # The value of a symbolic link or junction in files_sha256: the link is recorded, its target is not read.
 SYMLINK = "symlink"
-
-
-def is_link(path: Path) -> bool:
-    """True for a symbolic link or a Windows junction."""
-    return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
 
 
 def plugin_files(package: Path) -> dict[str, str]:
@@ -172,15 +168,32 @@ def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any]
     return settings
 
 
-def rotated(items: list, rep: int) -> list:
-    """The items in the order of replicate rep (0-based): replicate rep starts at item rep (modulo the count), so no
-    method always runs first. Every job loop (main and drift) uses it; a resume plans its jobs with plan()."""
-    shift = rep % max(len(items), 1)
-    return items[shift:] + items[:shift]
+def balanced_order(items: list, block: int) -> list:
+    """The items in the order of block (0-based), from a Williams design: in each set of n consecutive blocks (2n
+    when the count n is odd) every item runs once in each position, and each item runs directly after each other
+    item equally often. The block counts over all fixtures and replicates (it does not start again for each
+    fixture), so a time trend (warm-up, throttling) does not follow one method. Every job loop (main and drift)
+    uses it; a resume plans its jobs with plan()."""
+    count = len(items)
+    if count < 2:
+        return list(items)
+    base, low, high = [0], 1, count - 1
+    while len(base) < count:
+        base.append(low)
+        low += 1
+        if len(base) < count:
+            base.append(high)
+            high -= 1
+    row = block % (count if count % 2 == 0 else 2 * count)
+    order = [(index + row) % count for index in base]
+    if row >= count:
+        # An odd count needs the reversed rows too for the balance of the item that runs before.
+        order.reverse()
+    return [items[index] for index in order]
 
 
 def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
-    """Return (jobs, skipped methods). Methods rotate between replicates so no method always runs first. Each
+    """Return (jobs, skipped methods). The method order is balanced over all blocks (balanced_order). Each
     method name of the configuration gets jobs or is listed as skipped; a drift method that could get no job (not
     in "methods", or the no-compaction control) is refused."""
     names = [spec["id"] for spec in fixtures.SCENARIOS]
@@ -219,18 +232,19 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
             skipped.append({"method": name, "reason": "plugin_setting_missing"})
         else:
             usable.append((name, settings))
-    for fixture in chosen:
-        for rep in range(reps):
-            for name, settings in rotated(usable, rep):
-                jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c1", "fixture": fixture, "method": name,
-                             "rep": rep + 1, "cycles": 1, "settings": settings})
+    # One block is one fixture and replicate: the block number counts over the whole plan.
+    blocks = [(fixture, rep) for fixture in chosen for rep in range(reps)]
+    for block, (fixture, rep) in enumerate(blocks):
+        for name, settings in balanced_order(usable, block):
+            jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c1", "fixture": fixture, "method": name,
+                         "rep": rep + 1, "cycles": 1, "settings": settings})
     # A drift method that the plugin cannot run is already in skipped (it is a main method too).
     drift_usable = [(name, settings) for name, settings in usable if name in drift.get("methods", [])]
-    for fixture in drift.get("fixtures", []):
-        for rep in range(reps):
-            for name, settings in rotated(drift_usable, rep):
-                jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c{drift['cycles']}", "fixture": fixture,
-                             "method": name, "rep": rep + 1, "cycles": int(drift["cycles"]), "settings": settings})
+    drift_blocks = [(fixture, rep) for fixture in drift.get("fixtures", []) for rep in range(reps)]
+    for block, (fixture, rep) in enumerate(drift_blocks):
+        for name, settings in balanced_order(drift_usable, block):
+            jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c{drift['cycles']}", "fixture": fixture,
+                         "method": name, "rep": rep + 1, "cycles": int(drift["cycles"]), "settings": settings})
     # Every job ID is unique: load_runs keeps one record per ID, and every number counts each job once.
     if len({job["id"] for job in jobs}) != len(jobs):
         raise ValueError("the plan has repeated job IDs")
@@ -391,10 +405,11 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
         target = work / "out.json"
         try:
             python, worker = (sys.executable, CLI_WORKER) if cli else (config["hermes_python"], WORKER)
-            completed = subprocess.run(
+            # A timeout stops the whole process tree (also a CLI that the worker started), so no request of this
+            # job runs on while the next job starts.
+            completed = run_tree(
                 [python, "-I", "-B", str(worker), "--job", str(work / "job.json"), "--out",
-                 str(target)], cwd=work, env=worker_environment(home), capture_output=True,
-                timeout=float(config.get("job_timeout_s", 3600)))
+                 str(target)], float(config.get("job_timeout_s", 3600)), cwd=work, env=worker_environment(home))
             record["exit_code"] = completed.returncode
         except subprocess.TimeoutExpired as error:
             record["error"] = "job_timeout"
@@ -612,14 +627,29 @@ def npm_packages(root: Path) -> list[Path]:
     return found
 
 
-def tree_sha256(folder: Path) -> list[list[str]]:
-    """The relative path and SHA-256 hash of every file of a package folder. A nested node_modules folder is left
-    out here: npm_packages adds each package that the dependencies resolve to."""
-    rows = []
-    for current, dirs, names in os.walk(folder):
+def tree_sha256(folder: Path) -> list[list[Any]]:
+    """The relative path and SHA-256 hash of every file of a package folder. A symbolic link or junction is recorded
+    with its target, and a linked folder is read through the link (each real folder once, so a link loop ends). A
+    nested node_modules folder is left out here: npm_packages adds each package that the dependencies resolve to."""
+    rows: list[list[Any]] = []
+    seen: set[str] = set()
+    for current, dirs, names in os.walk(folder, followlinks=True):
+        base = Path(current)
+        real = os.path.normcase(os.path.realpath(base))
+        if real in seen:
+            dirs[:] = []
+            continue
+        seen.add(real)
+        for name in sorted(dirs + names):
+            if is_link(base / name):
+                try:
+                    target = os.readlink(base / name)
+                except OSError:
+                    target = None
+                rows.append([(base / name).relative_to(folder).as_posix(), "link", target])
         dirs[:] = sorted(name for name in dirs if name != "node_modules")
         for name in sorted(names):
-            path = Path(current) / name
+            path = base / name
             if path.is_file():
                 rows.append([path.relative_to(folder).as_posix(), file_sha256(path)])
     return rows
@@ -1489,7 +1519,7 @@ TIME_SCOPES = {
             "main_request": "wall time of the CLI main command: process start, configuration, session resume, and "
                             "the main turn"}}
 MERGED_LIMIT = ("The jobs of a run folder added with --also ran at another time than the jobs of the first folder: "
-                "the method order rotates only inside each folder, so a time difference between methods of "
+                "the method order is balanced only inside each folder, so a time difference between methods of "
                 "different folders can include time drift (warm-up, throttling, server load).")
 
 CLI_LIMITS = [
