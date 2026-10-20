@@ -149,6 +149,13 @@ class ScoringTest(unittest.TestCase):
                 self.assertFalse(scoring.score(item, answer))
         self.assertTrue(scoring.score(question("text", "37"), "37 (not stated elsewhere)"))
 
+    def test_text_numbers_need_whole_numbers(self):
+        item = question("text", "5", "How many violations did the first axe scan find?")
+        for answer, correct in (("5", True), ("5 violations", True), ("5ms", True), ("-5", False), ("+5", False),
+                                ("5.5", False), ("15", False), ("2.5", False)):
+            with self.subTest(answer=answer):
+                self.assertEqual(scoring.score(item, answer), correct)
+
     def test_text_versions_need_whole_versions(self):
         item = question("text", "7.3.0")
         for answer, correct in (("v7.3.0", True), ("7.3.0", True), ("release 7.3.0.", True), ("7.3.0.1", False),
@@ -209,7 +216,8 @@ class ScoringTest(unittest.TestCase):
         for answer in ("not completed", "Not complete yet.", "not finished", "It isn't finished.", "incomplete",
                        "unfinished", "It has not been completed.", "not yet done", "not fully completed",
                        "not actually done", "It cannot be completed yet.", "has not been fully finished",
-                       "The task can't be marked complete."):
+                       "The task can't be marked complete.", "failed to complete", "Unable to finish it.",
+                       "It fails to complete."):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", "open"), answer))
                 self.assertFalse(scoring.score(question("choice", "done"), answer))

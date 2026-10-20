@@ -41,12 +41,13 @@ NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 # tested but completed" is done).
 # A contrastive "not only", "not merely", "not just", or "not simply" is not a negation ("not only completed but
 # verified" is done).
+# A failure or inability before "to" is a negation too: "failed to complete" and "unable to finish" are open.
 NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|hasnt|havent|hadnt|wont|dont|doesnt|"
-            r"didnt|couldnt)(?! (?:only|merely|just|simply)(?![a-z0-9]))"
+            r"didnt|couldnt|(?:failed|fails|failing|unable) to)(?! (?:only|merely|just|simply)(?![a-z0-9]))"
             r"(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? ")
 # A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
 # done", "cannot be completed", "has not been finished yet".
-NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished)(?![a-z0-9])")
+NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")
 # A negated open or blocked label names no class: "still open, not blocked" is open, and "not open" alone is no
 # class. ("not started" and "not done" are open phrases: the label after the negation is not in this list.)
 NEGATED_LABEL = re.compile(NEGATION + r"(?:blocked|waiting|open|pending|in progress|todo|to do)(?![a-z0-9])")
@@ -82,15 +83,30 @@ def loose(text: Any) -> str:
 VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+")
 VERSION_LEFT = r"(?<![a-uw-z0-9+-])(?<![a-z0-9]v)(?<![0-9][.,])"
 NUMBER_RIGHT = r"(?![0-9])(?![.,][0-9])"
+NUMERIC = re.compile(r"[0-9.,:/ x%+-]+")
+
+
+def number_pattern(needle: str) -> str | None:
+    """The regular expression of a numeric needle as a complete number, or None for another needle. A dotted
+    version uses the version edges (VERSION). Another number has no letter, digit, decimal part, or sign before it
+    ("-5" is not "5", unless the needle has the sign) and no digit or decimal part after it ("5.5" is not "5"); a
+    unit such as "5s" or "5ms" can follow."""
+    if VERSION.fullmatch(needle):
+        return VERSION_LEFT + re.escape(needle) + NUMBER_RIGHT
+    if NUMERIC.fullmatch(needle) and any(char.isdigit() for char in needle):
+        sign = "" if needle[0] in "+-" else r"(?<![+-])"
+        return r"(?<![a-z0-9])(?<![0-9][.,])" + sign + re.escape(needle) + NUMBER_RIGHT
+    return None
 
 
 def contains(haystack: str, needle: str) -> bool:
-    """needle occurs in haystack, and an edge that is a letter or digit is not part of a longer word. A dotted
-    version needle uses the version edges (VERSION)."""
+    """needle occurs in haystack, and an edge that is a letter or digit is not part of a longer word. A numeric
+    needle matches only as a complete number (number_pattern)."""
     if not needle:
         return False
-    if VERSION.fullmatch(needle):
-        return re.search(VERSION_LEFT + re.escape(needle) + NUMBER_RIGHT, haystack) is not None
+    numeric = number_pattern(needle)
+    if numeric:
+        return re.search(numeric, haystack) is not None
     left = r"(?<![a-z0-9])" if needle[0].isalnum() else ""
     right = r"(?![a-z0-9])" if needle[-1].isalnum() else ""
     return re.search(left + re.escape(needle) + right, haystack) is not None
@@ -180,14 +196,8 @@ def fact_positions(needle: str, normal: str) -> list[int]:
     fact matches only at the start of a word, as a word stem ("doc" in "docs", not in "undocumented")."""
     if not needle:
         return []
-    pattern = re.escape(needle)
-    if VERSION.fullmatch(needle):
-        pattern = VERSION_LEFT + pattern + NUMBER_RIGHT
-    elif re.fullmatch(r"[0-9.,:/ x%+-]+", needle):
-        # A sign before the number changes the value ("-5" is not "5"), unless the fact has the sign.
-        sign = "" if needle[0] in "+-" else r"(?<![+-])"
-        pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + sign + pattern + NUMBER_RIGHT
-    elif short_text(needle):
+    pattern = number_pattern(needle) or re.escape(needle)
+    if pattern == re.escape(needle) and short_text(needle):
         pattern = r"(?<![a-z0-9])" + pattern
     return [match.start() for match in re.finditer(pattern, normal)]
 
