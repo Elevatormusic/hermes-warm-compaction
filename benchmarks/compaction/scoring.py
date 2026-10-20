@@ -36,14 +36,17 @@ STATUS_CLASSES = {"done": ("done", "completed", "complete", "finished"),
                            "unfinished"),
                   "blocked": ("blocked", "waiting")}
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-# A negated completion phrase on normalized text (normalize removes apostrophes: "isn't" becomes "isnt"): a negation,
-# then at most three words, then a completion word. Examples: "not completed", "not fully completed", "not actually
-# done", "cannot be completed", "has not been finished yet". The words between are letters only (a comma or a full
-# stop ends the phrase), and a conjunction ends it too ("not tested but completed" is done). It names the open class.
-NEGATED_DONE = re.compile(
-    r"(?<![a-z0-9])(?:not|never|cannot|cant|isnt|arent|wasnt|werent|hasnt|havent|hadnt|wont|dont|doesnt|didnt|"
-    r"couldnt)(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? "
-    r"(?:done|completed|complete|finished)(?![a-z0-9])")
+# A negation on normalized text (normalize removes apostrophes: "isn't" becomes "isnt"), then at most three words.
+# The words between are letters only (a comma or a full stop ends the phrase), and a conjunction ends it too ("not
+# tested but completed" is done).
+NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|hasnt|havent|hadnt|wont|dont|doesnt|"
+            r"didnt|couldnt)(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? ")
+# A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
+# done", "cannot be completed", "has not been finished yet".
+NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished)(?![a-z0-9])")
+# A negated open or blocked label names no class: "still open, not blocked" is open, and "not open" alone is no
+# class. ("not started" and "not done" are open phrases: the label after the negation is not in this list.)
+NEGATED_LABEL = re.compile(NEGATION + r"(?:blocked|waiting|open|pending|in progress|todo|to do)(?![a-z0-9])")
 
 
 def normalize(text: Any) -> str:
@@ -81,10 +84,11 @@ def keyword_in(text: str, keyword: str) -> bool:
 
 def status_class(answer: str) -> str | None:
     """The one status class that the answer names, or None for no class or more than one. A negated completion
-    phrase (NEGATED_DONE) names the open class, and its completion word does not name the done class."""
+    phrase (NEGATED_DONE) names the open class, and its completion word does not name the done class. A negated
+    open or blocked label (NEGATED_LABEL) names no class."""
     text = normalize(answer)
     negated = NEGATED_DONE.search(text) is not None
-    text = NEGATED_DONE.sub(" ", text)
+    text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", text))
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
     if negated:
         found.add("open")

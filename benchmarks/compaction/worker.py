@@ -19,6 +19,7 @@ import re
 import sys
 import time
 import traceback
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -97,9 +98,16 @@ def route_headers(job: dict) -> dict[str, str]:
     return dict(headers)
 
 
+def chat_url(endpoint: str) -> str:
+    """The chat completions URL of an endpoint: the path gets /chat/completions, and the query (for example an
+    api-version) and the fragment stay after it."""
+    parts = urllib.parse.urlsplit(endpoint)
+    return urllib.parse.urlunsplit(parts._replace(path=parts.path.rstrip("/") + "/chat/completions"))
+
+
 def post_chat(endpoint: str, api_key: str, body: dict, timeout_s: float, headers: dict | None = None) -> dict:
     data = json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(endpoint.rstrip("/") + "/chat/completions", data=data, headers={
+    request = urllib.request.Request(chat_url(endpoint), data=data, headers={
         **(headers or {}), "Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
     with urllib.request.urlopen(request, timeout=timeout_s) as response:
         return json.loads(response.read().decode("utf-8"))

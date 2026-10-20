@@ -162,6 +162,30 @@ class ScoringTest(unittest.TestCase):
         self.assertTrue(scoring.score(item, "\"do not edit anything under vendor\""))
         self.assertFalse(scoring.score(item, "Do not edit vendor."))
 
+    def test_qa_url_keeps_the_endpoint_query(self):
+        seen = []
+
+        class Reply:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake_urlopen(request, timeout=None):
+            seen.append(request.full_url)
+            return Reply()
+
+        with mock.patch.object(worker.urllib.request, "urlopen", fake_urlopen):
+            for endpoint, url in (("https://gateway.invalid/v1?api-version=2026-01-01",
+                                   "https://gateway.invalid/v1/chat/completions?api-version=2026-01-01"),
+                                  ("http://127.0.0.1:1234/v1/", "http://127.0.0.1:1234/v1/chat/completions")):
+                worker.post_chat(endpoint, "fake-key", {}, 1.0)
+                self.assertEqual(seen[-1], url)
+
     def test_choice_needs_one_class(self):
         item = question("choice", "blocked")
         self.assertTrue(scoring.score(item, "Blocked (waiting for rates)"))
@@ -180,6 +204,14 @@ class ScoringTest(unittest.TestCase):
         # A negated phrase does not hide another class: two classes are no answer.
         self.assertFalse(scoring.score(question("choice", "open"), "not completed, blocked"))
         self.assertTrue(scoring.score(question("choice", "done"), "Finished and complete."))
+        # A negated open or blocked label names no class (synthetic answers).
+        for answer, gold in (("still open, not blocked", "open"), ("In progress; not waiting on anyone.", "open"),
+                             ("no longer blocked; in progress", "open"), ("Blocked, not open.", "blocked"),
+                             ("not started, not blocked", "open")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
+        self.assertFalse(scoring.score(question("choice", "open"), "not open"))
+        self.assertFalse(scoring.score(question("choice", "blocked"), "not blocked"))
         # A conjunction or a comma ends the negated phrase: the completion word names the done class.
         for answer in ("not tested but completed", "Not reviewed, completed."):
             with self.subTest(answer=answer):
