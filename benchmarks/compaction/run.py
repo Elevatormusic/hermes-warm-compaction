@@ -798,8 +798,12 @@ def command_run(args) -> int:
 # Report.
 
 def load_attempts(out_dir: Path) -> list[dict]:
-    """Every record of runs.jsonl, also the earlier attempts of a job that a resume ran again."""
-    return [json.loads(line) for line in (out_dir / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+    """Every record of runs.jsonl, also the earlier attempts of a job that a resume ran again. A run folder
+    without runs.jsonl (every method skipped, or a stop before the first record) has no records."""
+    path = out_dir / "runs.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip()]
 
 
@@ -821,6 +825,40 @@ def planned_jobs(meta: dict) -> dict[str, dict]:
             continue
         found.update({job["id"]: job for job in jobs if job["id"] not in found})
     return found
+
+
+# The population of each number in the report (every aggregate uses these helpers):
+# - Job failures, the success-rate denominator, and the "failures as wrong" accuracy: every planned job (a recorded
+#   job, or a planned job that did not run).
+# - Success, paths, and failure reasons: every completed compaction (completed_cycle), also of a job that failed in
+#   a later step (for example in the questions). A failed or empty compaction is a completed compaction too.
+# - Times: every completed step of every attempt (timed_cycle), also of a job that failed later and of an earlier
+#   attempt that a resume ran again.
+# - Accuracy, sizes, paired comparisons, and drift accuracy: every scored cycle (scored_cycle).
+# No population has an attempt that the server check marked invalid.
+def completed_cycle(run: dict, index: int) -> dict | None:
+    """The cycle at index when its compaction step ended (it has rows_after: a compaction that succeeded, failed,
+    or changed nothing, or a control cycle), else None (a failed main turn, a stop during the compaction)."""
+    cycles = run.get("cycles") or []
+    if run.get("status") == "invalid" or index >= len(cycles):
+        return None
+    return cycles[index] if cycles[index].get("rows_after") is not None else None
+
+
+def scored_cycle(run: dict, index: int) -> dict | None:
+    """The completed cycle at index when it has scored answers: a job with status ok, and a cycle that compacted
+    (or a control cycle). A cycle that did not compact asked no questions."""
+    cycle = completed_cycle(run, index) if run.get("status") == "ok" else None
+    if cycle is None:
+        return None
+    return cycle if cycle.get("compacted") or METHODS[run["method"]]["engine"] == "none" else None
+
+
+def timed_cycle(run: dict, index: int) -> dict | None:
+    """The cycle at index of an attempt, for its completed steps (each time field is set only when its step
+    ended)."""
+    cycles = run.get("cycles") or []
+    return cycles[index] if run.get("status") != "invalid" and index < len(cycles) else None
 
 
 def rate(successes: int, total: int) -> dict[str, Any]:
@@ -854,10 +892,10 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         items = [run for run in main if run["method"] == name]
         not_run = [job for job_id, job in planned.items()
                    if job["method"] == name and job["cycles"] == 1 and job_id not in recorded]
-        # A failed job (status not ok) has no scored compaction, also when the worker sent a partial cycle.
-        every = [(run, run["cycles"][0]) for run in items if run.get("status") == "ok" and run.get("cycles")]
-        # Accuracy uses the runs that compacted: an aborted run keeps the full history and asks no questions.
-        cycles = [(run, cycle) for run, cycle in every if cycle["compacted"] or METHODS[name]["engine"] == "none"]
+        # Success and paths: every completed compaction, also of a job that failed later (in the questions).
+        every = [(run, cycle) for run in items if (cycle := completed_cycle(run, 0)) is not None]
+        # Accuracy: the scored cycles (a job with status ok that compacted). An aborted run asks no questions.
+        cycles = [(run, cycle) for run in items if (cycle := scored_cycle(run, 0)) is not None]
         paths = defaultdict(int)
         reasons = defaultdict(int)
         for _run, cycle in every:
@@ -871,9 +909,11 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                 reasons[f"{warm_code}/{outcome.get('fallback_reason') or '-'}"] += 1
             elif cycle["path"] not in ACCEPTED_PATHS + ("none",):
                 reasons[cycle["path"]] += 1
-        # A job without cycles (a timeout, a worker error) and a planned job without a record are failures too.
+        # A job without a completed compaction (a timeout, a worker error, a failed main turn) and a planned job
+        # without a record are failures of the method too. A job that failed after its compaction (in the
+        # questions) is a job failure, not a compaction failure.
         for run in items:
-            if run.get("status") != "ok" or not run.get("cycles"):
+            if completed_cycle(run, 0) is None:
                 reasons[f"job:{run.get('error') or run.get('status')}"] += 1
         if not_run:
             reasons["not_run"] += len(not_run)
@@ -954,8 +994,7 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         # Time: every completed step of every attempt, also of a job that failed later (for example in the
         # questions) and of an earlier attempt that a resume ran again. Accuracy above uses the scored runs only.
         # An attempt that the server check marked invalid ran on a changed server: it is left out.
-        timed = [item["cycles"][0] for item in method_attempts
-                 if item.get("cycles") and item.get("status") != "invalid"]
+        timed = [cycle for item in method_attempts if (cycle := timed_cycle(item, 0)) is not None]
         entry["latency_s"] = {
             "compress": scoring.mean_interval([c["compress_s"] for c in timed if c.get("compress_s") is not None]),
             "compress_compacted": scoring.mean_interval([c["compress_s"] for c in timed if c.get("compacted")
@@ -965,9 +1004,11 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                                                    and not c.get("preflight") and not c.get("main_failed")]),
             "questions": scoring.mean_interval([c["qa_s"] for c in values if c.get("qa_s") is not None]),
             "timed_attempts": len(timed)}
+        scored_jobs_now = {run["job"] for run, _cycle in cycles}
         entry["per_run_failed"] = [{"fixture": run["fixture"], "rep": run["rep"], "path": cycle["path"],
-                                    "compress_s": cycle["compress_s"], "main_s": cycle["main_s"]}
-                                   for run, cycle in every if (run, cycle) not in cycles]
+                                    "compress_s": cycle["compress_s"], "main_s": cycle["main_s"],
+                                    "status": run.get("status"), "error": run.get("error")}
+                                   for run, cycle in every if run["job"] not in scored_jobs_now]
         result["methods"][name] = entry
     for first, second in PAIRED:
         if first not in methods or second not in methods:
@@ -994,27 +1035,26 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         recorded_drift = [run for run in drift if run["method"] == name]
         items = [run for run in recorded_drift if run.get("status") == "ok" and run.get("cycles")]
         per_cycle = []
-        control = METHODS[name]["engine"] == "none"
 
-        def scored(run: dict, index: int, control: bool = control) -> dict | None:
+        def scored(run: dict, index: int) -> dict | None:
             # A cycle that did not compact asked no questions: it is left out, not scored as wrong.
-            if index >= len(run["cycles"]):
-                return None
-            cycle = run["cycles"][index]
-            return cycle if cycle.get("compacted") or control else None
+            return scored_cycle(run, index)
 
         def hits(run: dict, cycle: dict) -> tuple[int, int]:
             marks = [mark for question, mark in zip(gold[run["fixture"]], cycle["marks"])
                      if question["category"] != "recent"]
             return sum(mark[0] == "1" for mark in marks), len(marks)
 
-        for index in range(max(len(run["cycles"]) for run in items) if items else 0):
+        for index in range(max((len(run.get("cycles") or []) for run in recorded_drift), default=0)):
             right = total = 0
             paths = defaultdict(int)
             kept = []
+            # Paths: every completed compaction of the cycle, also of a job that failed later.
+            for run in recorded_drift:
+                completed = completed_cycle(run, index)
+                if completed is not None:
+                    paths[completed["path"]] += 1
             for run in items:
-                if index < len(run["cycles"]):
-                    paths[run["cycles"][index]["path"]] += 1
                 cycle = scored(run, index)
                 if cycle is None:
                     continue
@@ -1302,7 +1342,7 @@ def raw_sources(out_dir: Path, meta: dict | None, raw_dirs: list[Path] | tuple) 
     sources: list[tuple[Path, set | None]] = [(out_dir / "raw", None)]
     for folder in raw_dirs:
         parent = Path(folder).parent
-        if Path(folder).name != "raw" or not (parent / "meta.json").exists() or not (parent / "runs.jsonl").exists():
+        if Path(folder).name != "raw" or not (parent / "meta.json").exists():
             raise SystemExit(f"report refused: --raw-dir {folder} is not the raw folder of a run folder")
         other = json.loads((parent / "meta.json").read_text(encoding="utf-8"))
         mismatches = merge_mismatches(meta or {}, other, True)

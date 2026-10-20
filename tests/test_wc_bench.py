@@ -531,10 +531,71 @@ class RunTest(unittest.TestCase):
 
     def test_failed_job_with_a_partial_cycle_is_not_scored(self):
         runs = self.synthetic_runs()
-        runs[0].update(status="failed", error="main_turn_failed")
+        # A failed main turn: the worker sends the partial cycle (no compaction step, no rows_after).
+        partial = {**runs[0]["cycles"][0], "main_failed": True, "path": "main_failed", "compacted": False,
+                   "rows_after": None, "est_tokens_after": None}
+        runs[0].update(status="failed", error="main_turn_failed:empty_reply", cycles=[partial])
         entry = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})["methods"]["warm_ledger"]
         self.assertEqual((entry["success"]["k"], entry["compacted_runs"]), (0, 0))
-        self.assertEqual(entry["failure_reasons"], {"job:main_turn_failed": 1})
+        self.assertEqual(entry["failure_reasons"], {"job:main_turn_failed:empty_reply": 1})
+        self.assertEqual(entry["paths"], {})
+
+    def test_a_good_compaction_counts_when_a_later_step_fails(self):
+        # The compaction completed (path warm); the questions then failed the job. Success and paths count the
+        # compaction; accuracy leaves the cycle out; the job is still a job failure.
+        runs = self.synthetic_runs()
+        runs[0].update(status="failed", error="qa_request:TimeoutError")
+        entry = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})["methods"]["warm_ledger"]
+        self.assertEqual((entry["success"]["k"], entry["success"]["n"]), (1, 1))
+        self.assertEqual(entry["paths"], {"warm": 1})
+        self.assertEqual(entry["failure_reasons"], {})
+        self.assertEqual((entry["compacted_runs"], entry["overall"]["n"], entry["job_failures"]), (0, 0, 1))
+        self.assertEqual(entry["per_run_failed"][0]["error"], "qa_request:TimeoutError")
+        # The same rule in the drift section: cycle 3 completed, its questions failed.
+        cycle = self.synthetic_runs()[0]["cycles"][0]
+        drift = {"job": "d1", "fixture": SCENARIOS[0]["id"], "method": "warm_ledger", "rep": 1,
+                 "cycles_requested": 3, "status": "failed", "error": "qa_request:TimeoutError",
+                 "cycles": [cycle, cycle, cycle]}
+        result = run.aggregate([drift], {"config": {}, "plugin": {}, "hermes": {}})
+        cycles = result["drift"]["warm_ledger"]["cycles"]
+        self.assertEqual([item["paths"] for item in cycles], [{"warm": 1}] * 3)
+        self.assertEqual([item["scored_runs"] for item in cycles], [0, 0, 0])
+        # An invalid attempt (changed server) is in no population.
+        runs = self.synthetic_runs()
+        runs[0].update(status="invalid")
+        entry = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}})["methods"]["warm_ledger"]
+        self.assertEqual((entry["success"]["k"], entry["paths"], entry["latency_s"]["timed_attempts"]), (0, {}, 0))
+
+    def test_report_works_on_a_run_folder_with_zero_records(self):
+        plugin = run.plugin_state(Path(run.__file__).parents[2])
+        meta = {"schema": "s", "plugin": plugin, "hermes": {"commit": None, "clean": True}, "started_utc": "2026",
+                "config": {"model": "m", "context_length": 8, "threshold": 0.95, "replicates": 1,
+                           "fixtures": [SCENARIOS[0]["id"]], "methods": ["stock_hermes", "warm_ledger"],
+                           "drift": {"fixtures": [SCENARIOS[0]["id"]], "methods": ["warm_ledger"], "cycles": 3}},
+                "gold_sha256": run.current_gold_sha256(), **FAKE_RUNTIME_META}
+        with tempfile.TemporaryDirectory() as folder:
+            first, raw_run = Path(folder) / "a", Path(folder) / "b"
+            for path in (first, raw_run):
+                path.mkdir()
+                (path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            (raw_run / "raw").mkdir()
+            # No runs.jsonl in either folder: a stop before the first record.
+            self.assertEqual(run.load_attempts(first), [])
+            args = types.SimpleNamespace(out=str(first), json=str(first / "r.json"), md=str(first / "r.md"),
+                                         also=[str(raw_run)], rescore=False, raw_dir=None)
+            with contextlib.redirect_stdout(io.StringIO()):
+                run.command_report(args)
+            result = json.loads((first / "r.json").read_text(encoding="utf-8"))["results"]
+            self.assertEqual(result["methods"]["warm_ledger"]["not_run"], 1)
+            self.assertEqual(result["methods"]["warm_ledger"]["success"]["k"], 0)
+            self.assertEqual(result["drift"]["warm_ledger"]["runs"], 0)
+            self.assertIn("unavailable", (first / "r.md").read_text(encoding="utf-8"))
+            # --rescore with a --raw-dir of a run folder without records.
+            args = types.SimpleNamespace(out=str(first), json=str(first / "r2.json"), md=None, also=None,
+                                         rescore=True, raw_dir=[str(raw_run / "raw")])
+            with contextlib.redirect_stdout(io.StringIO()):
+                run.command_report(args)
+            self.assertTrue((first / "r2.json").exists())
 
     def test_planned_jobs_include_the_plan_of_each_resume(self):
         config = {"threshold": 0.95, "replicates": 1, "fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"]}
