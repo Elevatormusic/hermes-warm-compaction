@@ -355,6 +355,30 @@ class RunTest(unittest.TestCase):
                             "harness": run.harness_id(FAKE_HARNESS), "sources": dict(FAKE_SOURCES)})
         return records
 
+    def test_report_names_the_sources_of_each_run_folder(self):
+        # Synthetic metadata: a stock-only first folder, a warm-only folder and a CLI-only folder added with --also.
+        harness = {"run.py": "0" * 64}
+        meta = {"config": {"model": "m", "methods": ["stock_hermes"]}, "plugin": {"commit": "a" * 40},
+                "hermes": {"commit": "1" * 40, "clean": True}, "harness_sha256": harness,
+                "merged_runs": [
+                    {"config": {"methods": ["warm_ledger"]}, "plugin": {"commit": "b" * 40},
+                     "hermes": {"commit": "1" * 40, "clean": True}, "harness_sha256": harness},
+                    {"config": {"methods": ["codex_cli"]}, "plugin": {"commit": "c" * 40},
+                     "hermes": {"commit": "2" * 40, "clean": True}, "harness_sha256": harness}]}
+        lines = run.source_lines(meta)
+        self.assertEqual(len(lines), 3)
+        self.assertIn("methods stock_hermes;", lines[0])
+        self.assertIn("plugin commit not used; Hermes commit `111111111111`", lines[0])
+        self.assertIn("plugin commit `bbbbbbbbbbbb`; Hermes commit `111111111111`", lines[1])
+        self.assertIn("plugin commit not used; Hermes commit not used", lines[2])
+        self.assertIn(f"harness `{run.harness_id(harness)}`", lines[2])
+        # The report header never labels a method with the commit of a folder that did not run it.
+        text = run.markdown(run.aggregate(self.synthetic_runs(), meta), meta)
+        for line in lines:
+            self.assertIn(line, text)
+        for unused in ("a" * 12, "c" * 12, "2" * 12):
+            self.assertNotIn(unused, text)
+
     def test_hermes_and_cli_times_are_in_separate_columns(self):
         runs = self.synthetic_runs()
         # A synthetic CLI record: its main time is the wall time of the CLI command, its compaction time comes from

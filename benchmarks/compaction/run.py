@@ -1551,8 +1551,7 @@ def markdown(result: dict, meta: dict) -> str:
         "judge. Intervals are 95% Wilson intervals for rates and 95% t intervals for means. A rate pools all "
         "questions of all fixtures and replicates, so its interval does not include the variation between "
         "replicates; see the per-replicate means in the JSON file.", "",
-        f"- Plugin commit: {plugin_commit_text(meta['plugin'])}. Hermes commit: "
-        f"`{(meta['hermes'].get('commit') or 'unknown')[:12]}` (clean: {meta['hermes'].get('clean')}).",
+        *source_lines(meta),
         f"- Model: `{meta['config'].get('model')}`; context window setting {meta['config'].get('context_length')}; "
         f"threshold {meta['config'].get('threshold')}; {meta['config'].get('replicates')} replicates per cell.",
         f"- Skipped methods: {', '.join(item['method'] for item in meta.get('skipped_methods', [])) or 'none'}.",
@@ -1768,6 +1767,26 @@ def refuse_stale(item: dict) -> None:
                          "without a verified raw output (keep_text was off, or no raw file has the hash or the "
                          "attempt of the record); their marks use the old gold files. Add --raw-dir for them, or "
                          "report without --rescore (the report then warns).")
+
+
+def source_lines(meta: dict) -> list[str]:
+    """One line for each run folder of the report (the first folder and each --also folder): its methods, harness
+    IDs, and the plugin and Hermes commits that its methods used. A folder whose methods do not use the plugin (or
+    Hermes) shows "not used", so a merged report never labels a method with the commit of another folder."""
+    folders = [meta] + list(meta.get("merged_runs") or [])
+    lines = []
+    for number, folder in enumerate(folders, 1):
+        methods = sorted(plan_methods(folder), key=list(METHODS).index)
+        engines = {METHODS[name]["engine"] for name in methods}
+        plugin = plugin_commit_text(folder.get("plugin") or {}) if "warm_compaction" in engines else "not used"
+        hermes = folder.get("hermes") or {}
+        hermes_text = (f"`{(hermes.get('commit') or 'unknown')[:12]}` (clean: {hermes.get('clean')})"
+                       if engines - set(CLI_ENGINES) else "not used")
+        harness = ", ".join(f"`{item}`" for item in sorted(harness_ids(folder))) or "unknown"
+        role = "first folder" if number == 1 else "added with --also"
+        lines.append(f"- Run folder {number} ({role}): methods {', '.join(methods) or 'none'}; harness {harness}; "
+                     f"plugin commit {plugin}; Hermes commit {hermes_text}.")
+    return lines
 
 
 def plugin_commit_text(plugin: dict) -> str:
