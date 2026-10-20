@@ -35,10 +35,14 @@ STATUS_CLASSES = {"done": ("done", "completed", "complete", "finished"),
                            "unfinished"),
                   "blocked": ("blocked", "waiting")}
 NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-# A negated completion phrase on normalized text (normalize removes apostrophes: "isn't" becomes "isnt"), for example
-# "not completed", "not yet finished", "has not been done", "isnt complete". It names the open class.
-NEGATED_DONE = re.compile(r"(?<![a-z0-9])(?:not|never|isnt|arent|wasnt|werent|hasnt|havent|hadnt)"
-                          r"(?: yet)?(?: been)?(?: yet)? (?:done|completed|complete|finished)(?![a-z0-9])")
+# A negated completion phrase on normalized text (normalize removes apostrophes: "isn't" becomes "isnt"): a negation,
+# then at most three words, then a completion word. Examples: "not completed", "not fully completed", "not actually
+# done", "cannot be completed", "has not been finished yet". The words between are letters only (a comma or a full
+# stop ends the phrase), and a conjunction ends it too ("not tested but completed" is done). It names the open class.
+NEGATED_DONE = re.compile(
+    r"(?<![a-z0-9])(?:not|never|cannot|cant|isnt|arent|wasnt|werent|hasnt|havent|hadnt|wont|dont|doesnt|didnt|"
+    r"couldnt)(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? "
+    r"(?:done|completed|complete|finished)(?![a-z0-9])")
 
 
 def normalize(text: Any) -> str:

@@ -170,13 +170,19 @@ class ScoringTest(unittest.TestCase):
         self.assertTrue(scoring.score(question("choice", "done"), "Completed"))
         # A negated completion phrase names the open class (synthetic answers).
         for answer in ("not completed", "Not complete yet.", "not finished", "It isn't finished.", "incomplete",
-                       "unfinished", "It has not been completed.", "not yet done"):
+                       "unfinished", "It has not been completed.", "not yet done", "not fully completed",
+                       "not actually done", "It cannot be completed yet.", "has not been fully finished",
+                       "The task can't be marked complete."):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", "open"), answer))
                 self.assertFalse(scoring.score(question("choice", "done"), answer))
         # A negated phrase does not hide another class: two classes are no answer.
         self.assertFalse(scoring.score(question("choice", "open"), "not completed, blocked"))
         self.assertTrue(scoring.score(question("choice", "done"), "Finished and complete."))
+        # A conjunction or a comma ends the negated phrase: the completion word names the done class.
+        for answer in ("not tested but completed", "Not reviewed, completed."):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", "done"), answer))
 
     def test_keywords_match_word_starts_and_short_words(self):
         self.assertTrue(scoring.score(question("keywords", [["round"], ["cent"]]), "Fix rounding by one-cent"))
