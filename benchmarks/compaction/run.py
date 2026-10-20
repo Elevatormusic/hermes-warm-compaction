@@ -215,7 +215,8 @@ def balanced_order(items: list, block: int) -> list:
 def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
     """Return (jobs, skipped methods). The method order is balanced over all blocks (balanced_order). Each
     method name of the configuration gets jobs or is listed as skipped; a drift method that could get no job (not
-    in "methods", or the no-compaction control) is refused."""
+    in "methods", or the no-compaction control) or no valid job (a CLI method: the CLI worker runs one compaction
+    cycle only) is refused."""
     names = [spec["id"] for spec in fixtures.SCENARIOS]
     chosen = names if config.get("fixtures", "all") == "all" else list(config["fixtures"])
     methods = list(config["methods"])
@@ -226,9 +227,11 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
     if unknown:
         raise ValueError(f"unknown fixture or method names in the configuration: {len(unknown)}")
     no_drift_job = [name for name in drift.get("methods", [])
-                    if name not in methods or METHODS[name]["engine"] == "none"]
+                    if name not in methods or METHODS[name]["engine"] == "none" or METHODS[name]["engine"]
+                    in CLI_ENGINES]
     if no_drift_job:
-        raise ValueError(f"drift methods without a drift job (not in methods, or the control): {len(no_drift_job)}")
+        raise ValueError("drift methods without a drift job (not in methods, the control, or a CLI method): "
+                         f"{len(no_drift_job)}")
     # Each list names each item once: a repeated name would plan the same job ID twice.
     repeated = [key for key, items in (("fixtures", chosen), ("methods", methods),
                                        ("drift.fixtures", drift.get("fixtures", [])),
@@ -1092,6 +1095,10 @@ def command_run(args) -> int:
                 "plan": public_config({key: config[key] for key in PLAN_KEYS if key in config})})
             meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
+    if not args.dry_run and repair_runs(out_dir):
+        # A stop during the append of the last record left a partial line. Its job has no record and runs again.
+        print("runs.jsonl: removed a partial last line (a stop during a record write); its job runs again",
+              flush=True)
     # A job is done when its latest record is ok: a later "invalid" or failed record makes it run again.
     done = {run["job"] for run in load_runs(out_dir) if run.get("status") == "ok"} if runs_path.exists() else set()
     todo = [job for job in jobs if job["id"] not in done]
@@ -1154,14 +1161,54 @@ def command_run(args) -> int:
 
 # Report.
 
+def split_runs(path: Path) -> tuple[bytes, int | None]:
+    """The complete lines of runs.jsonl, and the byte offset of a partial last line (None when there is none).
+    The runner writes each record and its newline in one append, so only a last line without a newline can be
+    the part of a record that a stop interrupted."""
+    data = path.read_bytes()
+    if not data or data.endswith(b"\n"):
+        return data, None
+    cut = data.rfind(b"\n") + 1
+    return data[:cut], cut
+
+
+def repair_runs(out_dir: Path) -> bool:
+    """Remove a partial last line of runs.jsonl (split_runs) before a resume appends to the file. Without this,
+    the next record would continue the partial line and make a bad line in the middle of the file. Return True
+    when a line was removed."""
+    path = out_dir / "runs.jsonl"
+    if not path.exists():
+        return False
+    _, cut = split_runs(path)
+    if cut is None:
+        return False
+    with path.open("r+b") as handle:
+        handle.truncate(cut)
+    return True
+
+
 def load_attempts(out_dir: Path) -> list[dict]:
     """Every record of runs.jsonl, also the earlier attempts of a job that a resume ran again. A run folder
-    without runs.jsonl (every method skipped, or a stop before the first record) has no records."""
+    without runs.jsonl (every method skipped, or a stop before the first record) has no records. A partial last
+    line (split_runs) is not a record: its job has no result. A complete line that is not a JSON object is a
+    damaged file: stop."""
     path = out_dir / "runs.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()]
+    complete, _ = split_runs(path)
+    records = []
+    for number, line in enumerate(complete.decode("utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if not isinstance(record, dict):
+            raise SystemExit(f"{path}: line {number} is not a JSON record; the file is damaged before its last "
+                             "line; stop")
+        records.append(record)
+    return records
 
 
 def load_runs(out_dir: Path) -> list[dict]:

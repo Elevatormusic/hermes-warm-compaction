@@ -299,6 +299,13 @@ class RunTest(unittest.TestCase):
         for methods in (["warm_ledger", "fallback_relaxed_ledger"], ["warm_ledger", "full_context"]):
             with self.subTest(methods=methods), self.assertRaisesRegex(ValueError, "drift methods without a drift job"):
                 run.plan({**config, "drift": {**config["drift"], "methods": methods}}, {"settings_known": ["warm"]})
+        # A CLI method in "methods" cannot be a drift method: the CLI worker refuses a job of more than one cycle.
+        for cli in ("codex_cli", "claude_code_cli"):
+            with self.subTest(cli=cli), self.assertRaisesRegex(ValueError, "drift methods without a drift job"):
+                run.plan({**config, "methods": [*config["methods"], cli],
+                          "drift": {**config["drift"], "methods": ["warm_ledger", cli]}}, {"settings_known": ["warm"]})
+        self.assertTrue(run.plan({**config, "methods": [*config["methods"], "codex_cli"]},
+                                 {"settings_known": ["warm", "ledger"]})[0])
         # A drift method that the plugin cannot run is listed as skipped (it is a main method too).
         jobs, skipped = run.plan({**config, "methods": ["stock_hermes", "warm_ledger"]}, {"settings_known": []})
         self.assertEqual(skipped, [{"method": "warm_ledger", "reason": "plugin_setting_missing"}])
@@ -714,6 +721,29 @@ class RunTest(unittest.TestCase):
                 run.command_report(types.SimpleNamespace(**{**vars(args), "json": str(first / "r4.json"),
                                                             "same_credential": True}))
             self.assertTrue((first / "r4.json").exists())
+
+    def test_partial_last_record_is_recovered_and_earlier_damage_stops(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp)
+            path = out / "runs.jsonl"
+            first = json.dumps({"job": "a", "status": "ok"}) + "\n"
+            # A stop during the append of the second record: a partial line without a newline (synthetic records).
+            path.write_bytes((first + '{"job": "b", "sta').encode("utf-8"))
+            self.assertEqual(run.load_runs(out), [{"job": "a", "status": "ok"}])
+            self.assertTrue(run.repair_runs(out))
+            self.assertEqual(path.read_text(encoding="utf-8"), first)
+            self.assertFalse(run.repair_runs(out))
+            # The next append starts on a new line, so the file stays readable.
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"job": "b", "status": "ok"}) + "\n")
+            self.assertEqual([item["job"] for item in run.load_attempts(out)], ["a", "b"])
+            # A complete line that is not a JSON record is damage before the last line: stop, change nothing.
+            for bad in ('{"job": "b", "sta\n', "[1]\n"):
+                with self.subTest(bad=bad):
+                    path.write_text(first + bad + first, encoding="utf-8")
+                    with self.assertRaisesRegex(SystemExit, "line 2 is not a JSON record"):
+                        run.load_attempts(out)
+                    self.assertFalse(run.repair_runs(out))
 
     def test_planned_jobs_include_the_plan_of_each_resume(self):
         config = {"threshold": 0.95, "replicates": 1, "fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"]}
@@ -2200,6 +2230,34 @@ class MainTurnFailureTest(unittest.TestCase):
         self.assertEqual(expected[1]["tool_calls"][0]["function"]["name"], "shell")
         self.assertEqual(expected[2]["tool_call_id"], "c1")
         self.assertEqual((item["rows_after"], item["est_tokens_after"]), (4, worker.estimate_tokens(expected)))
+
+    def test_codex_app_server_wait_uses_one_deadline(self):
+        class FakeServer:
+            """A synthetic app server that answers the given request IDs, then stalls (it never exits)."""
+
+            def __init__(self, answers):
+                self.stdin = mock.Mock()
+                self.stdout = iter([json.dumps({"id": number, "result": {}}) + "\n" for number in answers])
+                self.stderr = iter([])
+                self.returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                self.returncode = 0
+                return 0
+
+        # Initialize stalls; or initialize answers and resume stalls; or both answer and the compaction stalls.
+        for answers, error in (([], "initialize_failed"), ([1], "resume_failed"), ([1, 2], "no_turn_completed")):
+            with self.subTest(error=error), mock.patch.object(
+                    cli_worker.subprocess, "Popen", lambda *_a, answers=answers, **_k: FakeServer(answers)):
+                started = time.monotonic()
+                result = cli_worker.codex_app_server_compact(["codex"], "thread", Path("."), {}, 0.5)
+                self.assertLess(time.monotonic() - started, 10)
+                self.assertEqual(result["error"], error)
+                self.assertTrue(result["timeout"])
+                self.assertEqual(cli_worker.compaction_failure({}, result, "codex"), "cli_timeout")
 
     def test_failed_cli_compaction_command_is_not_accepted(self):
         rows = [{"role": "user", "content": "synthetic summary"}]

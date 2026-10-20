@@ -301,8 +301,10 @@ def run_codex(job: dict, fixture: dict, work: Path, out: dict) -> None:
 def codex_app_server_compact(command: list[str], thread_id: str, cwd: Path, env: dict[str, str],
                              timeout_s: float) -> dict:
     """Resume the thread in a Codex app server (JSON lines on stdio) and send thread/compact/start. Wait for the
-    turn/completed notification. Return the time, the turn status, and safe error fields; no message text."""
+    turn/completed notification. One deadline (timeout_s from the start) covers initialize, resume, and the
+    compaction turn. Return the time, the turn status, and safe error fields; no message text."""
     started = time.monotonic()
+    deadline = started + timeout_s
     process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, encoding="utf-8", errors="replace", **group_options())
     messages: list[dict] = []
@@ -330,33 +332,38 @@ def codex_app_server_compact(command: list[str], thread_id: str, cwd: Path, env:
         process.stdin.write(json.dumps(item) + "\n")
         process.stdin.flush()
 
-    def wait(predicate, seconds: float) -> dict | None:
-        end = time.monotonic() + seconds
+    def wait(predicate) -> dict | None:
+        """The first message that matches, or None at the deadline or when the app server stopped."""
         with ready:
             while True:
                 found = next((item for item in messages if predicate(item)), None)
-                left = end - time.monotonic()
+                left = deadline - time.monotonic()
                 if found is not None or left <= 0 or process.poll() is not None:
                     return found
                 ready.wait(min(left, 1.0))
 
+    def stalled() -> bool:
+        """True when the app server still runs at the deadline (a timeout, not a stop)."""
+        return process.poll() is None and time.monotonic() >= deadline
+
     result = {"status": None, "timeout": False, "exit_code": None, "error": None}
     try:
         send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "wc-bench", "version": "1"}}})
-        if wait(lambda item: item.get("id") == 1, 120) is None:
+        if wait(lambda item: item.get("id") == 1) is None:
+            result["timeout"] = stalled()
             result["error"] = "initialize_failed"
         else:
             send({"method": "initialized"})
             send({"id": 2, "method": "thread/resume", "params": {"threadId": thread_id, "cwd": str(cwd)}})
-            resumed = wait(lambda item: item.get("id") == 2, 120)
+            resumed = wait(lambda item: item.get("id") == 2)
             if resumed is None or "error" in resumed:
+                result["timeout"] = resumed is None and stalled()
                 result["error"] = "resume_failed"
             else:
                 send({"id": 3, "method": "thread/compact/start", "params": {"threadId": thread_id}})
-                left = timeout_s - (time.monotonic() - started)
-                done = wait(lambda item: item.get("method") == "turn/completed", max(left, 1))
+                done = wait(lambda item: item.get("method") == "turn/completed")
                 if done is None:
-                    result["timeout"] = process.poll() is None
+                    result["timeout"] = stalled()
                     result["error"] = "no_turn_completed"
                 else:
                     turn = (done.get("params") or {}).get("turn") or {}
