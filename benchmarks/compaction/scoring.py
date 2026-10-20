@@ -48,6 +48,10 @@ NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|h
 # A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
 # done", "cannot be completed", "has not been finished yet".
 NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")
+# A pending completion ("still needs to be completed", "yet to be done", "waiting to complete") is not done: the
+# completion word is removed, and the answer infers the open class (an explicit blocked label wins over it).
+PENDING_DONE = re.compile(r"(?<![a-z0-9])((?:needs?|has|have|remains?|yet|waiting|still) to(?: be)?) "
+                          r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")
 # A negated open or blocked label names no class: "still open, not blocked" is open, and "not open" alone is no
 # class. ("not started" and "not done" are open phrases: the label after the negation is not in this list.)
 NEGATED_LABEL = re.compile(NEGATION + r"(?:blocked|waiting|open|pending|in progress|todo|to do)(?![a-z0-9])")
@@ -131,7 +135,9 @@ def status_class(answer: str) -> str | None:
     text = normalize(answer)
     if UNCERTAIN.search(text):
         return None
-    negated = NEGATED_DONE.search(text) is not None
+    pending = PENDING_DONE.search(text) is not None
+    text = PENDING_DONE.sub(r"\1", text)
+    negated = pending or NEGATED_DONE.search(text) is not None
     text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", text))
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
     if negated and found != {"blocked"}:

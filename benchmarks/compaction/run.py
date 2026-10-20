@@ -544,6 +544,25 @@ def anthropic_base_url(config: dict) -> str:
     return urllib.parse.urlunsplit(parts._replace(path=path[:-3] if path.endswith("/v1") else path))
 
 
+def verify_runtime_content(config: dict, expected: str, meta: dict, meta_path: Path) -> None:
+    """Compare the content hash of the Hermes runtime files with the hash of the run start. A change sets
+    runtime_content_changed in meta.json; a check that does not complete (a failed probe or an interrupt) sets
+    runtime_content_unverified, which a later complete check removes. The report refuses a folder with either."""
+    try:
+        now = runtime_state(config)["sha256"].get("hermes_content")
+    except BaseException:
+        meta["runtime_content_unverified"] = True
+        write_meta(meta_path, meta)
+        raise
+    if now != expected:
+        meta["runtime_content_changed"] = True
+        write_meta(meta_path, meta)
+        raise SystemExit("the content of the Hermes runtime files changed during the run (the sizes and times "
+                         "stayed the same); the report refuses this run folder")
+    if meta.pop("runtime_content_unverified", None):
+        write_meta(meta_path, meta)
+
+
 def write_meta(path: Path, meta: dict) -> None:
     """Write meta.json to a temporary file, then replace the old file in one step. A stop during the write leaves
     the old meta.json complete: the records of the run stay usable."""
@@ -1309,49 +1328,49 @@ def command_run(args) -> int:
     # turns "server_check" off.
     expected_model = meta.get("server_model")
     checked = {**config, "server_check": True} if config.get("server_check") or expected_model else config
-    for number, job in enumerate(todo, 1):
-        problem = server_state(checked, expected_model)
-        if problem:
-            raise SystemExit(f"server check failed before {job['id']}: {problem}; stop (no record written)")
-        changed = changed_sources()
-        if changed:
-            raise SystemExit(f"sources changed before {job['id']}: {', '.join(changed)}; stop (no record written)")
-        record = run_job(job, config, out_dir, history_dir)
-        record["sources"] = record_sources(start)
-        problem = server_state(checked, expected_model)
-        changed = changed_sources()
-        if changed:
-            # A source changed during the job: the job may have read other files. Mark it invalid (a resume runs
-            # it again on the new sources, after the resume checks).
-            problem = f"sources_changed:{','.join(changed)}"
-        if problem:
-            # The server changed during the job: keep the record, mark it invalid so a resume runs it again.
-            record["status"], record["error"] = "invalid", (problem if problem.startswith("sources_changed")
-                                                            else f"server_state_changed:{problem}")
-        with runs_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record) + "\n")
-        if problem:
-            raise SystemExit(f"check failed after {job['id']}: {problem}; the job is marked invalid")
-        paths = [cycle["path"] for cycle in record.get("cycles", [])]
-        accuracy = [round(sum(m[0] == "1" for m in c["marks"]) / max(len(c["marks"]), 1), 2)
-                    for c in record.get("cycles", [])]
-        print(f"[{number}/{len(todo)}] {job['id']} status={record['status']} error={record['error']} "
-              f"paths={paths} accuracy={accuracy} elapsed={record['elapsed_s']}s", flush=True)
-        worker_failures = worker_failures + 1 if record["error"] == "worker_no_report" else 0
-        if worker_failures >= 2:
-            raise SystemExit(f"2 workers in a row gave no report (last: {job['id']}); stop. See "
-                             f"{out_dir / record.get('stderr_file', 'worker-stderr')}")
-        if record["error"] == "login_required":
-            # The benchmark never signs in: stop and report.
-            raise SystemExit(f"{job['method']} asked for a login; stop the run")
-    if todo and runtime["sha256"].get("hermes_content") is not None:
-        # The check before and after each job compares sizes and times. The content hash after the last job finds
-        # an edit that kept them.
-        if runtime_state(config)["sha256"].get("hermes_content") != runtime["sha256"]["hermes_content"]:
-            meta["runtime_content_changed"] = True
-            write_meta(meta_path, meta)
-            raise SystemExit("the content of the Hermes runtime files changed during the run (the sizes and times "
-                             "stayed the same); the report refuses this run folder")
+    started_jobs = False
+    try:
+        for number, job in enumerate(todo, 1):
+            problem = server_state(checked, expected_model)
+            if problem:
+                raise SystemExit(f"server check failed before {job['id']}: {problem}; stop (no record written)")
+            changed = changed_sources()
+            if changed:
+                raise SystemExit(f"sources changed before {job['id']}: {', '.join(changed)}; stop (no record written)")
+            started_jobs = True
+            record = run_job(job, config, out_dir, history_dir)
+            record["sources"] = record_sources(start)
+            problem = server_state(checked, expected_model)
+            changed = changed_sources()
+            if changed:
+                # A source changed during the job: the job may have read other files. Mark it invalid (a resume runs
+                # it again on the new sources, after the resume checks).
+                problem = f"sources_changed:{','.join(changed)}"
+            if problem:
+                # The server changed during the job: keep the record, mark it invalid so a resume runs it again.
+                record["status"], record["error"] = "invalid", (problem if problem.startswith("sources_changed")
+                                                                else f"server_state_changed:{problem}")
+            with runs_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record) + "\n")
+            if problem:
+                raise SystemExit(f"check failed after {job['id']}: {problem}; the job is marked invalid")
+            paths = [cycle["path"] for cycle in record.get("cycles", [])]
+            accuracy = [round(sum(m[0] == "1" for m in c["marks"]) / max(len(c["marks"]), 1), 2)
+                        for c in record.get("cycles", [])]
+            print(f"[{number}/{len(todo)}] {job['id']} status={record['status']} error={record['error']} "
+                  f"paths={paths} accuracy={accuracy} elapsed={record['elapsed_s']}s", flush=True)
+            worker_failures = worker_failures + 1 if record["error"] == "worker_no_report" else 0
+            if worker_failures >= 2:
+                raise SystemExit(f"2 workers in a row gave no report (last: {job['id']}); stop. See "
+                                 f"{out_dir / record.get('stderr_file', 'worker-stderr')}")
+            if record["error"] == "login_required":
+                # The benchmark never signs in: stop and report.
+                raise SystemExit(f"{job['method']} asked for a login; stop the run")
+    finally:
+        if started_jobs and runtime["sha256"].get("hermes_content") is not None:
+            # The check before and after each job compares sizes and times. The content hash after the last job
+            # (also after a stop in the loop) finds an edit that kept them.
+            verify_runtime_content(config, runtime["sha256"]["hermes_content"], meta, meta_path)
     return 0
 
 
@@ -2145,6 +2164,16 @@ def plugin_commit_text(plugin: dict) -> str:
     return "unknown"
 
 
+def refuse_runtime(meta: dict, folder: Path) -> None:
+    """Stop the report for a run folder whose Hermes runtime content changed during the run or was not checked
+    after its last job."""
+    if meta.get("runtime_content_changed"):
+        raise SystemExit(f"report refused: the Hermes runtime files of {folder} changed during the run")
+    if meta.get("runtime_content_unverified"):
+        raise SystemExit(f"report refused: the Hermes runtime files of {folder} were not checked after the last "
+                         "job; resume the run to check them")
+
+
 def command_report(args) -> int:
     out_dir = Path(args.out)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
@@ -2152,8 +2181,7 @@ def command_report(args) -> int:
     attempts = load_attempts(out_dir)
     planned = planned_jobs(meta)
     gold_now = current_gold_sha256()
-    if meta.get("runtime_content_changed"):
-        raise SystemExit(f"report refused: the Hermes runtime files of {out_dir} changed during the run")
+    refuse_runtime(meta, out_dir)
     stray = record_mismatches(meta, attempts)
     if stray:
         raise SystemExit(f"report refused: {len(stray)} records in {out_dir} were made with sources that "
@@ -2170,8 +2198,7 @@ def command_report(args) -> int:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
         extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
-        if extra_meta.get("runtime_content_changed"):
-            raise SystemExit(f"report refused: the Hermes runtime files of {extra_dir} changed during the run")
+        refuse_runtime(extra_meta, extra_dir)
         # Each added folder must match every folder accepted so far (not only the first): two added folders can
         # share an engine that the first folder does not run.
         problems = [f"{folder} in {', '.join(found)}" for folder, item in accepted

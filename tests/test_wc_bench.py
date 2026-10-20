@@ -255,6 +255,13 @@ class ScoringTest(unittest.TestCase):
                              ("Done; unsure which test ran last.", "done")):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
+        # A pending completion is not done (synthetic answers).
+        for answer, gold in (("still needs to be completed", "open"), ("It is yet to be done.", "open"),
+                             ("The step remains to be finished.", "open"),
+                             ("waiting to complete the migration", "blocked")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
+                self.assertFalse(scoring.score(question("choice", "done"), answer))
         # An explicit blocked label wins over the open class that a negated completion infers.
         for answer in ("Blocked; not completed yet", "Blocked, not finished: waiting on review."):
             with self.subTest(answer=answer):
@@ -1966,6 +1973,48 @@ class RunTest(unittest.TestCase):
                 run.command_report(types.SimpleNamespace(out=str(out), json=str(site / "r.json"), md=None,
                                                          also=[str(added)], same_credential=False, rescore=False,
                                                          raw_dir=[]))
+
+    def test_runtime_content_is_checked_on_every_exit(self):
+        # A synthetic run folder: the runtime content changes during the first job, and the loop then stops early.
+        model = {key: f"synthetic-{key}" for key in run.SERVER_MODEL_KEYS}
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            config = {"hermes_source": "h", "plugin_source": "p", "history_dir": str(Path(folder) / "fixtures"),
+                      "threshold": 0.95, "methods": ["stock_hermes"], "fixtures": ["s1-ledgerline"],
+                      "replicates": 2, "endpoint": "http://127.0.0.1:9/v1", "model": "m", "context_length": 8}
+            (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+            contents = iter(["a", "b"])
+            runtime = {**FAKE_RUNTIME, "sha256": {**FAKE_RUNTIME["sha256"], "hermes_content": "a"}}
+
+            def runtime_state(_config, content=True):
+                if not content:
+                    return FAKE_RUNTIME
+                return {**runtime, "sha256": {**runtime["sha256"], "hermes_content": next(contents)}}
+
+            def stop_job(*_args):
+                raise KeyboardInterrupt("synthetic stop in the job loop")
+
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                    mock.patch.object(run, "plugin_state", return_value={"commit": "p", "files_sha256": {},
+                                                                          "settings_known": []}), \
+                    mock.patch.object(run, "runtime_state", runtime_state), \
+                    mock.patch.object(run, "source_snapshot", return_value=dict.fromkeys(
+                        ("harness", "plugin", "hermes", "gold", "history", "cli", "runtime"), mock.ANY)), \
+                    mock.patch.object(run, "server_state", return_value=None), \
+                    mock.patch.object(run, "server_model", return_value=model), \
+                    mock.patch.object(run, "run_job", stop_job), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(SystemExit, "content of the Hermes runtime files changed"):
+                run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
+            self.assertTrue(json.loads((out / "meta.json").read_text(encoding="utf-8"))["runtime_content_changed"])
+            # A check that does not complete marks the folder as not verified; the report refuses it.
+            meta = {"config": {}}
+            with mock.patch.object(run, "runtime_state", side_effect=SystemExit("probe failed")), \
+                    self.assertRaises(SystemExit):
+                run.verify_runtime_content({}, "a", meta, out / "meta.json")
+            self.assertTrue(meta["runtime_content_unverified"])
+            with self.assertRaisesRegex(SystemExit, "not checked after the last job"):
+                run.refuse_runtime(meta, out)
 
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}
