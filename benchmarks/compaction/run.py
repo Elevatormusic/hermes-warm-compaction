@@ -1039,10 +1039,11 @@ def skipped_methods(meta: dict) -> list[dict]:
     return list(found.values())
 
 
-def server_state(config: dict) -> str | None:
+def server_state(config: dict, expected: dict | None = None) -> str | None:
     """With "server_check": true, None when the LM Studio REST API reports the model loaded with the configured
-    context length, else a short reason. A changed server (for example a reload with other settings) makes the
-    results of a job invalid."""
+    context length and, when expected is given (the server_model of meta.json), the same model fields
+    (SERVER_MODEL_KEYS), else a short reason. A changed server (for example a reload of another model file or
+    quantization under the same ID) makes the results of a job invalid."""
     if not config.get("server_check"):
         return None
     root = str(config["endpoint"]).rstrip("/")
@@ -1056,6 +1057,10 @@ def server_state(config: dict) -> str | None:
         return f"model_state:{data.get('state')}"
     if data.get("loaded_context_length") != int(config["context_length"]):
         return f"loaded_context_length:{data.get('loaded_context_length')}"
+    if expected is not None:
+        changed = [key for key in SERVER_MODEL_KEYS if data.get(key) != expected.get(key)]
+        if changed:
+            return f"server_model:{','.join(changed)}"
     return None
 
 
@@ -1166,8 +1171,10 @@ def command_run(args) -> int:
         now = source_snapshot(config)
         return [key for key in start if now[key] != start[key]]
 
+    # The model of the run: the fields that meta.json recorded at the start (a resume checked them already).
+    expected_model = meta.get("server_model") if config.get("server_check") else None
     for number, job in enumerate(todo, 1):
-        problem = server_state(config)
+        problem = server_state(config, expected_model)
         if problem:
             raise SystemExit(f"server check failed before {job['id']}: {problem}; stop (no record written)")
         changed = changed_sources()
@@ -1175,7 +1182,7 @@ def command_run(args) -> int:
             raise SystemExit(f"sources changed before {job['id']}: {', '.join(changed)}; stop (no record written)")
         record = run_job(job, config, out_dir, history_dir)
         record["sources"] = record_sources(start)
-        problem = server_state(config)
+        problem = server_state(config, expected_model)
         changed = changed_sources()
         if changed:
             # A source changed during the job: the job may have read other files. Mark it invalid (a resume runs

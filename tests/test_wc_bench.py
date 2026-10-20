@@ -1721,7 +1721,9 @@ class RunTest(unittest.TestCase):
     def test_server_check_reads_the_loaded_context_length(self):
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-        state = {"state": "loaded", "loaded_context_length": 131072}
+        # Synthetic LM Studio model fields.
+        state = {"state": "loaded", "loaded_context_length": 131072, "id": "m", "type": "llm", "publisher": "p",
+                 "arch": "qwen", "compatibility_type": "gguf", "quantization": "Q4_K_M", "max_context_length": 262144}
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
@@ -1740,6 +1742,13 @@ class RunTest(unittest.TestCase):
             config = {"server_check": True, "endpoint": f"http://127.0.0.1:{server.server_port}/v1", "model": "m",
                       "context_length": 131072}
             self.assertIsNone(run.server_state(config))
+            # A reload of another quantization or format under the same ID and context length is a changed server.
+            recorded = run.server_model(config)
+            self.assertIsNone(run.server_state(config, recorded))
+            state.update(quantization="Q8_0", compatibility_type="mlx")
+            self.assertEqual(run.server_state(config, recorded), "server_model:compatibility_type,quantization")
+            self.assertIsNone(run.server_state(config))
+            state.update(quantization="Q4_K_M", compatibility_type="gguf")
             state["loaded_context_length"] = 8192
             self.assertEqual(run.server_state(config), "loaded_context_length:8192")
             state["state"] = "not-loaded"
