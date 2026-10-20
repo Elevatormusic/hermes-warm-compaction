@@ -557,6 +557,42 @@ def runtime_mismatches(meta: dict, other: dict, keys: list[str] | None = None) -
     return found
 
 
+def digest_id(value: Any) -> str:
+    """A short SHA-256 digest of a JSON value (for example a dict of file hashes)."""
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def source_snapshot(config: dict) -> dict[str, Any]:
+    """The identity of every source that a job reads: the harness files, the plugin files, the Hermes commit and
+    state, the gold files, the CLI versions, and the runtime hashes. The run compares it before and after each job
+    with the snapshot of its start, so every record of one run comes from the same files."""
+    return {"harness": harness_hashes(), "plugin": plugin_state(Path(config["plugin_source"]))["files_sha256"],
+            "hermes": hermes_state(Path(config["hermes_source"])), "gold": current_gold_sha256(),
+            "cli": cli_state(config, list(config["methods"])), "runtime": runtime_state(config)["sha256"]}
+
+
+def record_sources(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """The source identity that each record carries (digests and the Hermes commit only, no paths)."""
+    return {"plugin_files": digest_id(snapshot["plugin"]), "hermes_commit": snapshot["hermes"]["commit"],
+            "gold": digest_id(snapshot["gold"])}
+
+
+def record_mismatches(meta: dict, records: list[dict]) -> list[str]:
+    """The records that meta.json does not account for: a harness ID that is not the harness of the first run or
+    of a resume, or a source identity (plugin files, Hermes commit, gold files) that differs from meta.json."""
+    harness = harness_ids(meta)
+    expected = {"plugin_files": digest_id((meta.get("plugin") or {}).get("files_sha256")),
+                "hermes_commit": (meta.get("hermes") or {}).get("commit"), "gold": digest_id(meta.get("gold_sha256"))}
+    found = []
+    for record in records:
+        if record.get("harness") not in harness:
+            found.append(f"{record.get('job')}: harness {record.get('harness')}")
+        for key, value in (record.get("sources") or {}).items():
+            if key in expected and value != expected[key]:
+                found.append(f"{record.get('job')}: {key}")
+    return found
+
+
 def harness_ids(meta: dict) -> set[str]:
     """The harness versions that made the records of a run folder: the first run and each resume."""
     return {harness_id(item) for item in [meta.get("harness_sha256")] + [
@@ -779,19 +815,38 @@ def command_run(args) -> int:
             print(job["id"], json.dumps(job["settings"]))
         return 0
     worker_failures = 0
+    # Every job of this run uses the sources of its start: a change of the harness, the plugin, Hermes, the gold
+    # files, a CLI, or the runtime stops the run before the next job.
+    start = {"harness": harness_hashes(), "plugin": plugin["files_sha256"], "hermes": hermes,
+             "gold": current_gold_sha256(), "cli": cli, "runtime": runtime["sha256"]}
+
+    def changed_sources() -> list[str]:
+        now = source_snapshot(config)
+        return [key for key in start if now[key] != start[key]]
+
     for number, job in enumerate(todo, 1):
         problem = server_state(config)
         if problem:
             raise SystemExit(f"server check failed before {job['id']}: {problem}; stop (no record written)")
+        changed = changed_sources()
+        if changed:
+            raise SystemExit(f"sources changed before {job['id']}: {', '.join(changed)}; stop (no record written)")
         record = run_job(job, config, out_dir, history_dir)
+        record["sources"] = record_sources(start)
         problem = server_state(config)
+        changed = changed_sources()
+        if changed:
+            # A source changed during the job: the job may have read other files. Mark it invalid (a resume runs
+            # it again on the new sources, after the resume checks).
+            problem = f"sources_changed:{','.join(changed)}"
         if problem:
             # The server changed during the job: keep the record, mark it invalid so a resume runs it again.
-            record["status"], record["error"] = "invalid", f"server_state_changed:{problem}"
+            record["status"], record["error"] = "invalid", (problem if problem.startswith("sources_changed")
+                                                            else f"server_state_changed:{problem}")
         with runs_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
         if problem:
-            raise SystemExit(f"server check failed after {job['id']}: {problem}; the job is marked invalid")
+            raise SystemExit(f"check failed after {job['id']}: {problem}; the job is marked invalid")
         paths = [cycle["path"] for cycle in record.get("cycles", [])]
         accuracy = [round(sum(m[0] == "1" for m in c["marks"]) / max(len(c["marks"]), 1), 2)
                     for c in record.get("cycles", [])]
@@ -886,6 +941,12 @@ def timed_cycle(run: dict, index: int) -> dict | None:
     return cycles[index] if run.get("status") != "invalid" and index < len(cycles) else None
 
 
+def item_identity(run: dict) -> dict[str, Any]:
+    """The identity that each published item carries: the job, the attempt (start time), and its sources."""
+    return {"job": run.get("job"), "started_utc": run.get("started_utc"), "status": run.get("status"),
+            "harness": run.get("harness"), "sources": run.get("sources")}
+
+
 def rate(successes: int, total: int) -> dict[str, Any]:
     low, high = scoring.wilson(successes, total)
     return {"k": successes, "n": total, "rate": successes / total if total else None, "low": low, "high": high}
@@ -949,8 +1010,9 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         entry: dict[str, Any] = {
             "label": METHODS[name]["label"], "runs": len(items), "planned_runs": total, "not_run": len(not_run),
             "job_failures": len(failed_jobs), "attempts": len(method_attempts),
-            "failed_attempts": [{"job": item["job"], "error": item.get("error"), "status": item.get("status")}
+            "failed_attempts": [{**item_identity(item), "error": item.get("error")}
                                 for item in method_attempts if item.get("status") != "ok" or not item.get("cycles")],
+            "not_run_jobs": sorted(job["id"] for job in not_run),
             "compacted_runs": len(cycles), "preflight_runs": sum(bool(cycle.get("preflight")) for _r, cycle in every),
             "paths": dict(paths), "failure_reasons": dict(reasons),
             "success": rate(accepted, total) if METHODS[name]["engine"] != "none" else None,
@@ -976,7 +1038,7 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                 per_rep[run["rep"]][category][1] += 1
                 pairs[(run["fixture"], run["rep"], question["id"])][name] = mark[0]
             entry["per_run"].append({
-                "fixture": run["fixture"], "rep": run["rep"], "path": cycle["path"],
+                **item_identity(run), "fixture": run["fixture"], "rep": run["rep"], "path": cycle["path"],
                 "est_tokens_before": cycle["est_tokens_before"], "est_tokens_after": cycle["est_tokens_after"],
                 "qa_prompt_tokens": cycle["qa_prompt_tokens"], "main_prompt_tokens": cycle["main_prompt_tokens"],
                 "compress_s": cycle["compress_s"], "main_s": cycle["main_s"], "qa_s": cycle["qa_s"],
@@ -1007,7 +1069,8 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
         entry["overall_failures_wrong"] = rate(entry["overall"]["k"], entry["overall"]["n"] + missing)
         values = [cycle for _run, cycle in cycles]
         # Sizes: every completed compaction that compacted, also of a job that failed later (sized_cycle).
-        sized = [cycle for run in items if (cycle := sized_cycle(run, 0)) is not None]
+        sized_runs = [(run, cycle) for run in items if (cycle := sized_cycle(run, 0)) is not None]
+        sized = [cycle for _run, cycle in sized_runs]
         # The size before compaction and the ratio use only cycles that measured the exact compaction input.
         measured = [c for c in sized if c.get("size_basis") == "compaction_input" and c.get("est_tokens_before")]
         entry["tokens"] = {
@@ -1019,10 +1082,22 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "before_not_measured_runs": len(sized) - len(measured),
             "qa_prompt_tokens": scoring.mean_interval([c["qa_prompt_tokens"] for c in values
                                                        if c.get("qa_prompt_tokens")])}
+        # The items of the size numbers (the question prompt size is in per_run).
+        entry["sizes_per_run"] = [{**item_identity(run), "fixture": run["fixture"], "rep": run["rep"],
+                                   "est_tokens_before": cycle.get("est_tokens_before"),
+                                   "est_tokens_after": cycle.get("est_tokens_after"),
+                                   "size_basis": cycle.get("size_basis")} for run, cycle in sized_runs]
         # Time: every completed step of every attempt, also of a job that failed later (for example in the
         # questions) and of an earlier attempt that a resume ran again. Accuracy above uses the scored runs only.
         # An attempt that the server check marked invalid ran on a changed server: it is left out.
-        timed = [cycle for item in method_attempts if (cycle := timed_cycle(item, 0)) is not None]
+        timing = [(item, cycle) for item in method_attempts if (cycle := timed_cycle(item, 0)) is not None]
+        timed = [cycle for _item, cycle in timing]
+        # The items of the compaction and main request times: every attempt (also an earlier attempt of a job that
+        # a resume ran again). The question time is in per_run.
+        entry["timing_attempts"] = [{**item_identity(item), "compress_s": cycle.get("compress_s"),
+                                     "compacted": bool(cycle.get("compacted")), "main_s": cycle.get("main_s"),
+                                     "preflight": bool(cycle.get("preflight")),
+                                     "main_failed": bool(cycle.get("main_failed"))} for item, cycle in timing]
         entry["latency_s"] = {
             "compress": scoring.mean_interval([c["compress_s"] for c in timed if c.get("compress_s") is not None]),
             "compress_compacted": scoring.mean_interval([c["compress_s"] for c in timed if c.get("compacted")
@@ -1033,7 +1108,8 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "questions": scoring.mean_interval([c["qa_s"] for c in values if c.get("qa_s") is not None]),
             "timed_attempts": len(timed)}
         scored_jobs_now = {run["job"] for run, _cycle in cycles}
-        entry["per_run_failed"] = [{"fixture": run["fixture"], "rep": run["rep"], "path": cycle["path"],
+        entry["per_run_failed"] = [{**item_identity(run), "fixture": run["fixture"], "rep": run["rep"],
+                                    "path": cycle["path"],
                                     "compress_s": cycle["compress_s"], "main_s": cycle["main_s"],
                                     "status": run.get("status"), "error": run.get("error")}
                                    for run, cycle in every if run["job"] not in scored_jobs_now]
@@ -1104,10 +1180,23 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
                          "cycle_3": rate(sum(k for k, _ in third), sum(n for _, n in third))}
         drift_planned = {job_id for job_id, job in planned.items() if job["method"] == name and job["cycles"] > 1}
         drift_total = len(drift_planned | {run["job"] for run in recorded_drift})
+        per_run = []
+        for run in recorded_drift:
+            cycles_out = []
+            for index in range(len(run.get("cycles") or [])):
+                completed, sized_one, scored_one = (completed_cycle(run, index), sized_cycle(run, index),
+                                                    scored(run, index))
+                k, n = hits(run, scored_one) if scored_one is not None else (None, None)
+                cycles_out.append({"cycle": index + 1, "path": completed["path"] if completed else None,
+                                   "est_tokens_after": sized_one.get("est_tokens_after") if sized_one else None,
+                                   "scored": scored_one is not None, "right": k, "total": n})
+            per_run.append({**item_identity(run), "fixture": run["fixture"], "rep": run.get("rep"),
+                            "in_cycle_1_and_3": run in both, "cycles": cycles_out})
         result["drift"][name] = {
             "runs": len(items), "planned_runs": drift_total, "failed_or_not_run": drift_total - len(items),
             "fixtures": sorted({run["fixture"] for run in items}), "cycles": per_cycle,
-            "cycle_1_and_3": paired_cycles}
+            "cycle_1_and_3": paired_cycles, "per_run": per_run,
+            "not_run_jobs": sorted(drift_planned - {run["job"] for run in recorded_drift})}
     result["decision"] = decide(result)
     return result
 
@@ -1475,6 +1564,10 @@ def command_report(args) -> int:
     attempts = load_attempts(out_dir)
     planned = planned_jobs(meta)
     gold_now = current_gold_sha256()
+    stray = record_mismatches(meta, attempts)
+    if stray:
+        raise SystemExit(f"report refused: {len(stray)} records in {out_dir} were made with sources that "
+                         f"meta.json does not record (first: {stray[0]})")
     rescores = []
     if args.rescore:
         raw_dirs = [Path(folder) for folder in args.raw_dir or []]
@@ -1493,6 +1586,10 @@ def command_report(args) -> int:
         if problems:
             raise SystemExit(f"report refused: {extra_dir} differs from {'; '.join(problems)}")
         accepted.append((extra_dir, extra_meta))
+        stray = record_mismatches(extra_meta, load_attempts(extra_dir))
+        if stray:
+            raise SystemExit(f"report refused: {len(stray)} records in {extra_dir} were made with sources that "
+                             f"meta.json does not record (first: {stray[0]})")
         known = {run["job"] for run in runs}
         extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
         if args.rescore:

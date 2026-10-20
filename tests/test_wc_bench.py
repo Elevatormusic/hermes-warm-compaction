@@ -21,6 +21,8 @@ FAKE_RUNTIME = {"public": {"host": {"os": "FakeOS", "machine": "x", "python": "3
                            "hermes_python": {"version": "3.11.14", "implementation": "cpython"}},
                 "sha256": {"runner_python": "a" * 64, "hermes_python": "b" * 64, "hermes_prefix": "c" * 64,
                            "hermes_packages": "d" * 64, "cli.codex_cli": "e" * 64}}
+# A fake harness (fake hash): the synthetic records carry its ID, as the records of a run carry the harness ID.
+FAKE_HARNESS = {"run.py": "0" * 64}
 FAKE_RUNTIME_META = {"host": FAKE_RUNTIME["public"]["host"],
                      "runtime": {"hermes_python": FAKE_RUNTIME["public"]["hermes_python"]},
                      "runtime_sha256": FAKE_RUNTIME["sha256"]}
@@ -333,7 +335,8 @@ class RunTest(unittest.TestCase):
                             "calls": [{"elapsed_s": 1.0, "prompt_tokens": 50}]}}
             scored = run.score_cycle(cycle, gold, history, method)
             records.append({"job": method, "fixture": SCENARIOS[0]["id"], "method": method, "rep": 1,
-                            "cycles_requested": 1, "status": "ok", "cycles": [scored]})
+                            "cycles_requested": 1, "status": "ok", "cycles": [scored],
+                            "harness": run.harness_id(FAKE_HARNESS)})
         return records
 
     def test_rescore_uses_the_current_gold_and_counts_missing_raw_output(self):
@@ -673,14 +676,114 @@ class RunTest(unittest.TestCase):
         runs = self.synthetic_runs()
         with tempfile.TemporaryDirectory() as folder:
             out = Path(folder)
-            (out / "meta.json").write_text(json.dumps({"schema": "s", "config": {}, "plugin": {}, "hermes": {}}),
-                                           encoding="utf-8")
+            (out / "meta.json").write_text(json.dumps({"schema": "s", "config": {}, "plugin": {}, "hermes": {},
+                                                       "harness_sha256": FAKE_HARNESS}), encoding="utf-8")
             (out / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in runs), encoding="utf-8")
             args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=True,
                                          raw_dir=None)
             with self.assertRaisesRegex(SystemExit, "3 jobs .* without a verified raw output"):
                 run.command_report(args)
             self.assertFalse((out / "r.json").exists())
+
+    def test_every_job_uses_the_sources_of_the_run_start(self):
+        plugin = {"commit": "p", "files_sha256": {"x": "1"}, "settings_known": []}
+        start = {"harness": run.harness_hashes(), "plugin": plugin["files_sha256"],
+                 "hermes": {"commit": "a", "clean": True}, "gold": run.current_gold_sha256(), "cli": {},
+                 "runtime": FAKE_RUNTIME["sha256"]}
+
+        def fake_job(job, *_args):
+            return {"job": job["id"], "fixture": job["fixture"], "method": job["method"], "rep": job["rep"],
+                    "cycles_requested": 1, "status": "ok", "error": None, "cycles": [], "elapsed_s": 1.0,
+                    "harness": run.harness_id(run.harness_hashes())}
+
+        # Snapshots: (before job 1, after job 1, before job 2). A change stops the run or marks the job invalid.
+        cases = (([start, start, {**start, "plugin": {"x": "2"}}], "sources changed before .*r2.*: plugin", "ok"),
+                 ([start, {**start, "hermes": {"commit": "b", "clean": True}}], "check failed after .*r1", "invalid"))
+        for snapshots, stop, status in cases:
+            with self.subTest(stop=stop), tempfile.TemporaryDirectory() as folder:
+                out = Path(folder) / "out"
+                config = {"hermes_source": "h", "plugin_source": "p", "history_dir": str(Path(folder) / "fixtures"),
+                          "threshold": 0.95, "methods": ["stock_hermes"], "fixtures": ["s1-ledgerline"],
+                          "replicates": 2, "endpoint": "http://127.0.0.1:9/v1", "model": "m"}
+                (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+                with mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                        mock.patch.object(run, "plugin_state", return_value=plugin), \
+                        mock.patch.object(run, "cli_state", return_value={}), \
+                        mock.patch.object(run, "runtime_state", return_value=FAKE_RUNTIME), \
+                        mock.patch.object(run, "source_snapshot", side_effect=snapshots), \
+                        mock.patch.object(run, "run_job", side_effect=fake_job), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(SystemExit, stop):
+                        run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
+                records = run.load_attempts(out)
+                self.assertEqual([record["status"] for record in records], [status])
+                self.assertEqual(records[0]["sources"], {"plugin_files": run.digest_id({"x": "1"}),
+                                                         "hermes_commit": "a", "gold": run.digest_id(start["gold"])})
+                if status == "invalid":
+                    self.assertEqual(records[0]["error"], "sources_changed:hermes")
+                # The report accepts the records that meta.json accounts for.
+                meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+                self.assertEqual(run.record_mismatches(meta, records), [])
+
+    def test_report_refuses_records_that_meta_does_not_account_for(self):
+        meta = {"schema": "s", "config": {}, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
+                "gold_sha256": {"g": "1"}, "harness_sha256": FAKE_HARNESS,
+                "resumes": [{"harness_sha256": {"run.py": "1" * 64}}]}
+        sources = {"plugin_files": run.digest_id({"x": "1"}), "hermes_commit": "a", "gold": run.digest_id({"g": "1"})}
+        runs = self.synthetic_runs()
+        runs[0]["sources"] = sources
+        runs[1]["harness"] = run.harness_id({"run.py": "1" * 64})
+        self.assertEqual(run.record_mismatches(meta, runs), [])
+        runs[1]["harness"] = run.harness_id({"run.py": "2" * 64})
+        runs[2]["sources"] = {**sources, "hermes_commit": "b"}
+        self.assertEqual(len(run.record_mismatches(meta, runs)), 2)
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            (out / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in runs), encoding="utf-8")
+            args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=False,
+                                         raw_dir=None)
+            with self.assertRaisesRegex(SystemExit, "2 records .* sources that meta.json does not record"):
+                run.command_report(args)
+            self.assertFalse((out / "r.json").exists())
+
+    def test_every_aggregate_publishes_its_items(self):
+        runs = self.synthetic_runs()
+        runs[0]["started_utc"] = "2026-01-02T00:00:00Z"
+        # An earlier attempt of the same job (a resume ran it again): its time is in the mean and in the list.
+        earlier = json.loads(json.dumps(runs[0]))
+        earlier.update(status="failed", error="qa_request:TimeoutError", started_utc="2026-01-01T00:00:00Z")
+        earlier["cycles"][0]["compress_s"] = 4.0
+        fixture = SCENARIOS[0]["id"]
+        planned = {"warm_ledger": {"id": "warm_ledger", "fixture": fixture, "method": "warm_ledger", "cycles": 1},
+                   "w2": {"id": "w2", "fixture": fixture, "method": "warm_ledger", "cycles": 1}}
+        result = run.aggregate(runs, {"config": {}, "plugin": {}, "hermes": {}}, attempts=[earlier] + runs,
+                               planned=planned)
+        entry = result["methods"]["warm_ledger"]
+        timing = entry["timing_attempts"]
+        self.assertEqual([item["compress_s"] for item in timing], [4.0, 2.0])
+        self.assertEqual(entry["latency_s"]["compress"]["mean"], 3.0)
+        self.assertEqual(len(timing), entry["latency_s"]["timed_attempts"])
+        self.assertEqual([item["started_utc"] for item in timing], ["2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z"])
+        self.assertEqual([item["est_tokens_after"] for item in entry["sizes_per_run"]], [10])
+        self.assertEqual(len(entry["sizes_per_run"]), entry["tokens"]["sized_runs"])
+        self.assertEqual(entry["not_run_jobs"], ["w2"])
+        self.assertEqual(entry["failed_attempts"][0]["started_utc"], "2026-01-01T00:00:00Z")
+        # Each item carries the job, the attempt, and its source identity.
+        for item in timing + entry["sizes_per_run"] + entry["per_run"] + entry["failed_attempts"]:
+            self.assertTrue({"job", "started_utc", "status", "harness", "sources"} <= set(item), item)
+            self.assertEqual(item["harness"], run.harness_id(FAKE_HARNESS))
+        # Drift: the items of each cycle number.
+        cycle = self.synthetic_runs()[0]["cycles"][0]
+        drift = {"job": "d1", "fixture": fixture, "method": "warm_ledger", "rep": 1, "cycles_requested": 3,
+                 "status": "ok", "cycles": [cycle, cycle, cycle], "harness": run.harness_id(FAKE_HARNESS)}
+        drift_entry = run.aggregate([drift], {"config": {}, "plugin": {}, "hermes": {}})["drift"]["warm_ledger"]
+        self.assertEqual([c["path"] for c in drift_entry["per_run"][0]["cycles"]], ["warm"] * 3)
+        self.assertEqual([c["est_tokens_after"] for c in drift_entry["per_run"][0]["cycles"]], [10] * 3)
+        self.assertTrue(drift_entry["per_run"][0]["in_cycle_1_and_3"])
+        self.assertEqual(sum(c["right"] for c in drift_entry["per_run"][0]["cycles"][:1]),
+                         drift_entry["cycles"][0]["accuracy"]["k"])
+        json.dumps(result)
 
     def test_drift_leaves_out_cycles_without_a_compaction(self):
         cycle = self.synthetic_runs()[0]["cycles"][0]
