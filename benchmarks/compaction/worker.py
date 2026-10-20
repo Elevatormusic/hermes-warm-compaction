@@ -26,10 +26,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from scoring import missing_answers, prompt_sha256, qa_prompt  # noqa: E402
 
 WIRE_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
-# Config sections that define the method of a job. hermes_config cannot set anything in them.
 # The only Hermes settings that hermes_config can set (an allow-list): extra request headers of the main model
 # route, for a local gateway. Every other key (a route, an engine, an auxiliary model, a plugin) is refused.
 HERMES_CONFIG_ALLOWED = ("model.headers",)
+# Header names that the harness, the HTTP client, or a CLI sets for the route (lower case; names are compared
+# without case). model.headers cannot set them: a second source with another value would replace one silently.
+RESERVED_HEADERS = ("authorization", "content-type", "content-length", "host", "x-api-key", "anthropic-version")
 # The only QA request fields that qa_extra_body can set: sampler and chat template options. The model, the messages,
 # the output limit, the temperature, and streaming stay fixed.
 QA_EXTRA_ALLOWED = ("chat_template_kwargs", "seed", "top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty",
@@ -58,11 +60,33 @@ def wire_rows(rows: list) -> list:
     return out
 
 
+def header_conflicts(headers) -> list[str]:
+    """The problems of model.headers: not a mapping, a name or value that is not a one-line string, a reserved
+    name (RESERVED_HEADERS), or two names that differ only in case. Names are compared without case."""
+    if not isinstance(headers, dict):
+        return ["model.headers"]
+    found, seen = [], set()
+    for key, value in headers.items():
+        name = str(key)
+        if not isinstance(key, str) or not key.strip() or not isinstance(value, str) or any(
+                char in name + value for char in "\r\n\0"):
+            found.append(f"model.headers.{name}")
+        elif name.strip().lower() in RESERVED_HEADERS or name.strip().lower() in seen:
+            found.append(f"model.headers.{name}")
+        seen.add(name.strip().lower())
+    return found
+
+
 def route_headers(job: dict) -> dict[str, str]:
     """The allowed extra request headers of the model route (hermes_config.model.headers). The main turn, the
-    compaction, and the questions send them all."""
+    compaction, the questions, and the CLI methods send them all. A reserved, duplicate, or malformed name fails
+    the job (the run refuses it before the first job)."""
     headers = ((job.get("hermes_config") or {}).get("model") or {}).get("headers") or {}
-    return {str(key): str(value) for key, value in headers.items()}
+    conflicts = header_conflicts(headers)
+    if conflicts:
+        # The error keeps a count only: the header names come from the user configuration.
+        raise JobFailed(f"route_headers_refused:{len(conflicts)}")
+    return dict(headers)
 
 
 def post_chat(endpoint: str, api_key: str, body: dict, timeout_s: float, headers: dict | None = None) -> dict:
@@ -79,6 +103,8 @@ def ask(job: dict, system: str, rows: list) -> dict:
     questions = {item["n"]: item for item in job["questions"]}
     if sorted(n for batch in job["qa_batches"] for n in batch) != sorted(questions):
         raise JobFailed("qa_plan_mismatch")
+    # The extra headers of the route, checked before the first request (a refused name fails the job).
+    headers = route_headers(job)
     result = {"batches": [], "calls": [], "error": None}
     for numbers in job["qa_batches"]:
         part = [questions[n] for n in numbers]
@@ -92,7 +118,7 @@ def ask(job: dict, system: str, rows: list) -> dict:
         started = time.monotonic()
         try:
             reply = post_chat(job["endpoint"], job["api_key"], body, float(job.get("qa_timeout_s", 600)),
-                              route_headers(job))
+                              headers)
         except Exception as error:
             # A failed request (timeout, HTTP error) gives no answers: the job fails, it is not scored as wrong.
             result["error"] = f"qa_request:{type(error).__name__}"
@@ -127,10 +153,14 @@ def qa_body_conflicts(extra: dict) -> list[str]:
 
 
 def override_conflicts(override: dict, prefix: str = "") -> list[str]:
-    """The leaf key paths of hermes_config that are not on the allow-list (HERMES_CONFIG_ALLOWED)."""
+    """The leaf key paths of hermes_config that are not on the allow-list (HERMES_CONFIG_ALLOWED), and the
+    model.headers names that header_conflicts refuses."""
     found = []
     for key, value in override.items():
         path = f"{prefix}.{key}" if prefix else str(key)
+        if path == "model.headers":
+            found += header_conflicts(value)
+            continue
         if any(path == allowed or path.startswith(allowed + ".") for allowed in HERMES_CONFIG_ALLOWED):
             continue
         if isinstance(value, dict) and value and any(allowed.startswith(path + ".")

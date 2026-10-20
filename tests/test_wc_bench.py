@@ -753,6 +753,36 @@ class RunTest(unittest.TestCase):
                 run.command_run(args)
             self.assertFalse((Path(folder) / "out" / "meta.json").exists())
 
+    def test_route_headers_cannot_replace_a_header_of_another_source(self):
+        # Synthetic header names and fake values. A reserved name (any case), two names that differ only in case,
+        # and a malformed name or value are refused before any request.
+        refused = ({"Authorization": "Bearer other"}, {"authorization": "x"}, {"CONTENT-TYPE": "text/plain"},
+                   {" Content-Type ": "x"}, {"X-Api-Key": "x"}, {"anthropic-version": "x"}, {"Host": "x"},
+                   {"Content-Length": "1"}, {"X-Gateway": "a", "x-gateway": "b"}, {"X-Gateway": 1},
+                   {"X-Gateway": "a\r\nAuthorization: b"}, {"": "x"}, {1: "x"}, ["X-Gateway"])
+        for headers in refused:
+            with self.subTest(headers=headers):
+                self.assertTrue(worker.override_conflicts({"model": {"headers": headers}}))
+                self.assertTrue(run.override_conflicts({"hermes_config": {"model": {"headers": headers}}}))
+                with self.assertRaisesRegex(worker.JobFailed, "^route_headers_refused:"):
+                    worker.route_headers({"hermes_config": {"model": {"headers": headers}}})
+        accepted = {"X-Gateway": "synthetic", "X-Trace": "1"}
+        self.assertEqual(worker.override_conflicts({"model": {"headers": accepted}}), [])
+        self.assertEqual(worker.route_headers({"hermes_config": {"model": {"headers": accepted}}}), accepted)
+        # The QA request fails before it is sent, so the harness key is the only Authorization value.
+        job = {"questions": [{"n": 1, "text": "Q?"}], "qa_batches": [[1]], "model": "m",
+               "endpoint": "http://127.0.0.1:9/v1", "api_key": "fake-key",
+               "hermes_config": {"model": {"headers": {"authorization": "Bearer other"}}}}
+        with mock.patch.object(worker.urllib.request, "urlopen", side_effect=AssertionError("no request")):
+            with self.assertRaisesRegex(worker.JobFailed, "^route_headers_refused:1$"):
+                worker.ask(job, "system", [])
+        with tempfile.TemporaryDirectory() as folder:
+            job = {"model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": "", "context_length": 8,
+                   "threshold": 0.9, "engine": "compressor", "hermes_config": {"model": {"headers": {
+                       "Content-Type": "text/plain"}}}}
+            with self.assertRaisesRegex(worker.JobFailed, "hermes_config_protected:1"):
+                worker.write_config(Path(folder), job)
+
     def test_report_refuses_an_incompatible_run_folder(self):
         gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
         base = {"schema": "s", "gold_sha256": gold, "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}},
