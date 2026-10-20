@@ -1732,6 +1732,43 @@ class RunTest(unittest.TestCase):
             # The resume turned the check off, but the folder recorded a model: the job check still runs on it.
             self.assertEqual(calls, [(True, model)])
 
+    def test_resume_keeps_meta_complete_when_the_write_stops(self):
+        model = {key: f"synthetic-{key}" for key in run.SERVER_MODEL_KEYS}
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            out.mkdir()
+            original = json.dumps({"server_model": model, "config": {}, "synthetic": True})
+            (out / "meta.json").write_text(original, encoding="utf-8")
+            config = {"hermes_source": "h", "plugin_source": "p", "history_dir": str(Path(folder) / "fixtures"),
+                      "threshold": 0.95, "methods": ["stock_hermes"], "fixtures": ["s1-ledgerline"],
+                      "replicates": 1, "server_check": False, "endpoint": "http://127.0.0.1:9/v1", "model": "m",
+                      "context_length": 8}
+            (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+            written, real_write = [], Path.write_text
+
+            def stopped_write(path, data, *args, **kwargs):
+                if not Path(path).name.startswith("meta.json"):
+                    return real_write(path, data, *args, **kwargs)
+                # A stop during the write: the file has only the start of the new text (synthetic interrupt).
+                written.append(Path(path).name)
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(data[:5])
+                raise KeyboardInterrupt("synthetic stop during the meta.json write")
+
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                    mock.patch.object(run, "plugin_state", return_value={"commit": "p", "files_sha256": {},
+                                                                          "settings_known": []}), \
+                    mock.patch.object(run, "runtime_state", return_value=FAKE_RUNTIME), \
+                    mock.patch.object(run, "server_model", return_value=model), \
+                    mock.patch.object(run, "resume_mismatches", return_value=([], [])), \
+                    mock.patch.object(Path, "write_text", stopped_write), \
+                    contextlib.redirect_stdout(io.StringIO()), \
+                    self.assertRaisesRegex(KeyboardInterrupt, "synthetic stop"):
+                run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
+            self.assertTrue(written)
+            # The old meta.json is complete, so a later resume or report can read the run.
+            self.assertEqual((out / "meta.json").read_text(encoding="utf-8"), original)
+
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}
         state = run.runtime_state(config)
@@ -2057,6 +2094,17 @@ class CliWorkerTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "pinned"):
             run.cli_state({"cli": {}}, ["codex_cli"])
         self.assertEqual(run.cli_state({}, ["stock_hermes"]), {})
+        # A CLI that prints the pinned version but exits with an error is not verified (fake CLI output).
+        config = {"cli": {"codex_cli": {"command": ["fake-codex"], "version": "9.9.9"}}}
+        for code in (0, 1):
+            done = subprocess.CompletedProcess(["fake-codex", "--version"], code, stdout="fake-codex 9.9.9\n",
+                                               stderr="")
+            with self.subTest(code=code), mock.patch("subprocess.run", return_value=done):
+                if code:
+                    with self.assertRaisesRegex(SystemExit, "exited with code 1"):
+                        run.cli_state(config, ["codex_cli"])
+                else:
+                    self.assertEqual(run.cli_state(config, ["codex_cli"])["codex_cli"]["version"], "9.9.9")
         self.assertEqual(run.anthropic_base_url({"endpoint": "http://localhost:1234/v1/"}), "http://localhost:1234")
 
 

@@ -512,6 +512,14 @@ def anthropic_base_url(config: dict) -> str:
     return url[:-3] if url.endswith("/v1") else url
 
 
+def write_meta(path: Path, meta: dict) -> None:
+    """Write meta.json to a temporary file, then replace the old file in one step. A stop during the write leaves
+    the old meta.json complete: the records of the run stay usable."""
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    os.replace(temporary, path)
+
+
 def cli_state(config: dict, methods: list[str]) -> dict[str, Any]:
     """The version of each CLI that the run uses. Stop when it is not the pinned version."""
     from .cli_worker import cli_environment
@@ -529,6 +537,9 @@ def cli_state(config: dict, methods: list[str]) -> dict[str, Any]:
             done = subprocess.run([*spec["command"], "--version"], cwd=home, env=env, stdin=subprocess.DEVNULL,
                                   capture_output=True, encoding="utf-8", errors="replace", timeout=120)
         found = (done.stdout or "").strip()
+        if done.returncode != 0:
+            # A CLI that prints the version and then fails (for example, at its start) is not a verified CLI.
+            raise SystemExit(f"{engine}: the version probe exited with code {done.returncode}; stop before any job")
         if spec["version"] not in found.split():
             raise SystemExit(f"{engine}: found version {found!r}, pinned {spec['version']!r}; stop before any job")
         state[engine] = {"version": spec["version"], "version_output": found}
@@ -1171,7 +1182,7 @@ def command_run(args) -> int:
             meta["cli"] = cli
         if not args.dry_run:
             # A dry run writes nothing: a later run of the same folder is a new run, not a resume.
-            meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
+            write_meta(meta_path, meta)
     else:
         # A resume: the jobs of one run folder must come from the same plugin, Hermes, gold files, and settings.
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -1193,7 +1204,7 @@ def command_run(args) -> int:
                 "harness_changed": harness, "methods": list(config["methods"]), "skipped_methods": skipped,
                 "same_credential_confirmed": bool(getattr(args, "same_credential", False)),
                 "plan": public_config({key: config[key] for key in PLAN_KEYS if key in config})})
-            meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
+            write_meta(meta_path, meta)
     runs_path = out_dir / "runs.jsonl"
     if not args.dry_run and repair_runs(out_dir):
         # A stop during the append of the last record left a partial line. Its job has no record and runs again.
