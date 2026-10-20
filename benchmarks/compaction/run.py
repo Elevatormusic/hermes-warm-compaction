@@ -136,14 +136,29 @@ def plugin_state(plugin_root: Path) -> dict[str, Any]:
     return {"files_sha256": files, "settings_known": known, "commit": commit}
 
 
+def ignored_files(source: Path) -> list[str] | None:
+    """The files that Git ignores in the checkout, apart from __pycache__ folders and virtual environments (a folder
+    with pyvenv.cfg: its packages are in the runtime hash). The worker puts the checkout on sys.path, so such a file
+    (an ignored module or generated source) could change Hermes behavior. None when Git fails."""
+    listed = git_output(source, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+    if listed is None:
+        return None
+    files = [item for item in listed.split("\0") if item]
+    venvs = {item.rsplit("/", 1)[0] + "/" for item in files if item.endswith("/pyvenv.cfg")}
+    return [item for item in files if "__pycache__" not in item.split("/")
+            and not any(item.startswith(venv) for venv in venvs)]
+
+
 def hermes_state(source: Path) -> dict[str, Any]:
     """The commit and state of the Hermes checkout. A folder that is not the top folder of a Git checkout (no
-    checkout, or a copy inside another checkout) has an unknown commit and is not clean."""
+    checkout, or a copy inside another checkout) has an unknown commit and is not clean. A changed, untracked, or
+    ignored file (ignored_files) makes the checkout not clean too: the commit would not describe the code."""
     if not checkout_root(source):
         return {"commit": None, "clean": False}
     status = git_output(source, "status", "--porcelain")
+    ignored = ignored_files(source)
     return {"commit": (git_output(source, "rev-parse", "HEAD") or "").strip() or None,
-            "clean": status is not None and not status.strip()}
+            "clean": status is not None and not status.strip() and ignored == []}
 
 
 def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any] | None:
@@ -948,7 +963,8 @@ def command_run(args) -> int:
     hermes = hermes_state(Path(config["hermes_source"]))
     if not hermes["clean"]:
         # Results must come from a clean, known Hermes source.
-        raise SystemExit("hermes_source is not a clean Git checkout; stop before any job runs")
+        raise SystemExit("hermes_source is not a clean Git checkout (a changed, untracked, or ignored file); stop "
+                         "before any job runs")
     plugin = plugin_state(Path(config["plugin_source"]))
     if plugin_links(plugin):
         # A job copies the plugin folder: a link would load files that the source identity does not cover.
@@ -984,6 +1000,12 @@ def command_run(args) -> int:
     else:
         # A resume: the jobs of one run folder must come from the same plugin, Hermes, gold files, and settings.
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if config.get("api_key_env") and not getattr(args, "same_credential", False):
+            # The run folder keeps only the variable name, never the key or a hash of it, so the run cannot see a
+            # changed key (a gateway can route by key): the user confirms it, or uses a new run folder.
+            raise SystemExit(f"resume refused: the run reads its key from {config['api_key_env']}, and the run folder "
+                             "keeps no identity of the key; add --same-credential to confirm the same key and "
+                             "route, or use a new run folder")
         hard, harness = resume_mismatches(meta, config, plugin, hermes, cli, runtime)
         if hard:
             raise SystemExit(f"resume refused: {', '.join(hard)} differ from {meta_path}; use a new run folder")
@@ -994,6 +1016,7 @@ def command_run(args) -> int:
             meta.setdefault("resumes", []).append({
                 "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "harness_sha256": harness_hashes(),
                 "harness_changed": harness, "methods": list(config["methods"]), "skipped_methods": skipped,
+                "same_credential_confirmed": bool(getattr(args, "same_credential", False)),
                 "plan": public_config({key: config[key] for key in PLAN_KEYS if key in config})})
             meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
@@ -1901,6 +1924,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--allow-harness-change", action="store_true",
                      help="continue a run folder after a harness change that does not change job results (recorded)")
+    run.add_argument("--same-credential", action="store_true",
+                     help="resume a run with api_key_env: confirm that the key and its route did not change (recorded)")
     run.set_defaults(func=command_run)
     report = sub.add_parser("report", help="aggregate runs.jsonl into the JSON results and the Markdown report")
     report.add_argument("--out", required=True)

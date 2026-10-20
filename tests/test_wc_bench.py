@@ -1188,6 +1188,61 @@ class RunTest(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "symbolic links or junctions \\(ext\\)"):
                     run.command_run(args)
 
+    def test_hermes_checkout_with_an_ignored_file_is_not_clean(self):
+        def git(folder, *args):
+            subprocess.run(["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                            *args], check=True, capture_output=True)
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "hermes"
+            source.mkdir()
+            (source / "agent.py").write_text("x = 1\n", encoding="utf-8")  # synthetic Hermes source
+            (source / ".gitignore").write_text("*.gen.py\n.venv/\n__pycache__/\n", encoding="utf-8")
+            git(source, "init", "-q")
+            git(source, "add", "-A")
+            git(source, "commit", "-q", "-m", "synthetic")
+            self.assertTrue(run.hermes_state(source)["clean"])
+            # A virtual environment and __pycache__ do not count (the packages are in the runtime hash).
+            (source / ".venv" / "lib").mkdir(parents=True)
+            (source / ".venv" / "pyvenv.cfg").write_text("home = fake\n", encoding="utf-8")
+            (source / ".venv" / "lib" / "site.py").write_text("y = 1\n", encoding="utf-8")
+            (source / "__pycache__").mkdir()
+            (source / "__pycache__" / "agent.cpython-312.pyc").write_bytes(b"fake")
+            self.assertTrue(run.hermes_state(source)["clean"])
+            # An ignored module that Python can load from the checkout makes it not clean.
+            (source / "patch.gen.py").write_text("import agent\nagent.x = 2\n", encoding="utf-8")
+            self.assertFalse(run.hermes_state(source)["clean"])
+            self.assertEqual(run.ignored_files(source), ["patch.gen.py"])
+
+    def test_resume_with_a_credential_needs_confirmation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            out.mkdir()
+            (out / "meta.json").write_text("{}", encoding="utf-8")  # an existing run folder (synthetic)
+            config = {"threshold": 0.95, "methods": ["stock_hermes"], "fixtures": ["s1-ledgerline"],
+                      "replicates": 1, "api_key_env": "WC_FAKE_KEY_ENV", "hermes_source": "h",
+                      "plugin_source": str(Path(run.__file__).parents[2]), "history_dir": str(Path(folder) / "h")}
+            config_path = Path(folder) / "config.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            def resume(**flags):
+                args = types.SimpleNamespace(config=str(config_path), out=str(out), limit=None, dry_run=True,
+                                             allow_harness_change=False, **flags)
+                with mock.patch.object(run, "hermes_state", return_value={"commit": "abc", "clean": True}), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    run.command_run(args)
+
+            # The folder keeps only the variable name: without the confirmation the resume stops.
+            with self.assertRaisesRegex(SystemExit, "--same-credential"):
+                resume()
+            with self.assertRaisesRegex(SystemExit, "--same-credential"):
+                resume(same_credential=False)
+            # With the confirmation the other resume checks run (this synthetic folder records nothing).
+            with self.assertRaises(SystemExit) as stop:
+                resume(same_credential=True)
+            self.assertNotIn("--same-credential", str(stop.exception))
+            self.assertIn("runtime (not recorded)", str(stop.exception))
+
     def test_commits_label_only_the_exact_source_folder(self):
         def git(folder, *args):
             subprocess.run(["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
