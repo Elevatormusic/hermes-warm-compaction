@@ -23,6 +23,8 @@ FAKE_RUNTIME = {"public": {"host": {"os": "FakeOS", "machine": "x", "python": "3
                            "hermes_packages": "d" * 64, "cli.codex_cli": "e" * 64}}
 # A fake harness (fake hash): the synthetic records carry its ID, as the records of a run carry the harness ID.
 FAKE_HARNESS = {"run.py": "0" * 64}
+# The source identity of a record whose meta.json has no plugin, Hermes, or gold values (synthetic).
+FAKE_SOURCES = {"plugin_files": run.digest_id(None), "hermes_commit": None, "gold": run.digest_id(None)}
 FAKE_RUNTIME_META = {"host": FAKE_RUNTIME["public"]["host"],
                      "runtime": {"hermes_python": FAKE_RUNTIME["public"]["hermes_python"]},
                      "runtime_sha256": FAKE_RUNTIME["sha256"]}
@@ -276,6 +278,17 @@ class RunTest(unittest.TestCase):
         # The drift jobs rotate with the same helper (in the order of "methods"), so no method always runs first.
         self.assertEqual([(job["method"], job["rep"], job["cycles"]) for job in jobs[6:]],
                          [("stock_hermes", 1, 3), ("warm_ledger", 1, 3), ("warm_ledger", 2, 3), ("stock_hermes", 2, 3)])
+        # Each list names each item once, the drift cycle count is 2 or more (also when it is missing), and every
+        # job ID is unique.
+        for changed in ({"methods": ["stock_hermes", "stock_hermes"]}, {"fixtures": ["s1-ledgerline"] * 2},
+                        {"drift": {**config["drift"], "fixtures": ["s1-ledgerline"] * 2}},
+                        {"drift": {**config["drift"], "methods": ["warm_ledger", "warm_ledger"]}},
+                        {"drift": {**config["drift"], "cycles": 1}},
+                        {"drift": {k: v for k, v in config["drift"].items() if k != "cycles"}},
+                        {"replicates": 0}, {"replicates": "2"}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                run.plan({**config, **changed}, {"settings_known": ["warm", "ledger"]})
+        self.assertEqual(len(run.plan({**config, "drift": {}}, {"settings_known": ["warm", "ledger"]})[0]), 6)
         # Each drift method gets a job or is refused: not in "methods", or the control (it never compacts).
         for methods in (["warm_ledger", "fallback_relaxed_ledger"], ["warm_ledger", "full_context"]):
             with self.subTest(methods=methods), self.assertRaisesRegex(ValueError, "drift methods without a drift job"):
@@ -336,7 +349,7 @@ class RunTest(unittest.TestCase):
             scored = run.score_cycle(cycle, gold, history, method)
             records.append({"job": method, "fixture": SCENARIOS[0]["id"], "method": method, "rep": 1,
                             "cycles_requested": 1, "status": "ok", "cycles": [scored],
-                            "harness": run.harness_id(FAKE_HARNESS)})
+                            "harness": run.harness_id(FAKE_HARNESS), "sources": dict(FAKE_SOURCES)})
         return records
 
     def test_rescore_uses_the_current_gold_and_counts_missing_raw_output(self):
@@ -731,9 +744,15 @@ class RunTest(unittest.TestCase):
                 "resumes": [{"harness_sha256": {"run.py": "1" * 64}}]}
         sources = {"plugin_files": run.digest_id({"x": "1"}), "hermes_commit": "a", "gold": run.digest_id({"g": "1"})}
         runs = self.synthetic_runs()
-        runs[0]["sources"] = sources
+        for record in runs:
+            record["sources"] = dict(sources)
         runs[1]["harness"] = run.harness_id({"run.py": "1" * 64})
         self.assertEqual(run.record_mismatches(meta, runs), [])
+        # A missing field is a mismatch, not "nothing to check": no sources, or a missing key.
+        for changed in ({"sources": None}, {"sources": {k: v for k, v in sources.items() if k != "gold"}},
+                        {"harness": None}):
+            with self.subTest(changed=changed):
+                self.assertEqual(len(run.record_mismatches(meta, [{**runs[0], **changed}])), 1)
         runs[1]["harness"] = run.harness_id({"run.py": "2" * 64})
         runs[2]["sources"] = {**sources, "hermes_commit": "b"}
         self.assertEqual(len(run.record_mismatches(meta, runs)), 2)

@@ -163,6 +163,21 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
                     if name not in methods or METHODS[name]["engine"] == "none"]
     if no_drift_job:
         raise ValueError(f"drift methods without a drift job (not in methods, or the control): {len(no_drift_job)}")
+    # Each list names each item once: a repeated name would plan the same job ID twice.
+    repeated = [key for key, items in (("fixtures", chosen), ("methods", methods),
+                                       ("drift.fixtures", drift.get("fixtures", [])),
+                                       ("drift.methods", drift.get("methods", []))) if len(set(items)) != len(items)]
+    if repeated:
+        raise ValueError(f"repeated names in the configuration lists: {', '.join(repeated)}")
+    reps = config.get("replicates", 5)
+    if not isinstance(reps, int) or isinstance(reps, bool) or reps < 1:
+        raise ValueError("replicates must be an integer of 1 or more")
+    if drift.get("fixtures") or drift.get("methods"):
+        # A drift job compacts more than once: a cycle count of 1 would give the ID of a main job. A missing
+        # count is an error too.
+        cycles = drift.get("cycles")
+        if not isinstance(cycles, int) or isinstance(cycles, bool) or cycles < 2:
+            raise ValueError("drift.cycles must be an integer of 2 or more")
     jobs, skipped = [], []
     usable = []
     for name in methods:
@@ -171,7 +186,6 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
             skipped.append({"method": name, "reason": "plugin_setting_missing"})
         else:
             usable.append((name, settings))
-    reps = int(config.get("replicates", 5))
     for fixture in chosen:
         for rep in range(reps):
             for name, settings in rotated(usable, rep):
@@ -184,6 +198,9 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
             for name, settings in rotated(drift_usable, rep):
                 jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c{drift['cycles']}", "fixture": fixture,
                              "method": name, "rep": rep + 1, "cycles": int(drift["cycles"]), "settings": settings})
+    # Every job ID is unique: load_runs keeps one record per ID, and every number counts each job once.
+    if len({job["id"] for job in jobs}) != len(jobs):
+        raise ValueError("the plan has repeated job IDs")
     return jobs, skipped
 
 
@@ -579,7 +596,9 @@ def record_sources(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 def record_mismatches(meta: dict, records: list[dict]) -> list[str]:
     """The records that meta.json does not account for: a harness ID that is not the harness of the first run or
-    of a resume, or a source identity (plugin files, Hermes commit, gold files) that differs from meta.json."""
+    of a resume, or a source identity (plugin files, Hermes commit, gold files) that is missing or differs from
+    meta.json. A missing field is a mismatch, not "nothing to check": a record made before the per-job source check
+    cannot show which files it used."""
     harness = harness_ids(meta)
     expected = {"plugin_files": digest_id((meta.get("plugin") or {}).get("files_sha256")),
                 "hermes_commit": (meta.get("hermes") or {}).get("commit"), "gold": digest_id(meta.get("gold_sha256"))}
@@ -587,9 +606,12 @@ def record_mismatches(meta: dict, records: list[dict]) -> list[str]:
     for record in records:
         if record.get("harness") not in harness:
             found.append(f"{record.get('job')}: harness {record.get('harness')}")
-        for key, value in (record.get("sources") or {}).items():
-            if key in expected and value != expected[key]:
-                found.append(f"{record.get('job')}: {key}")
+        sources = record.get("sources")
+        if not isinstance(sources, dict):
+            found.append(f"{record.get('job')}: no sources")
+            continue
+        found += [f"{record.get('job')}: {key}" for key in expected
+                  if key not in sources or sources[key] != expected[key]]
     return found
 
 
