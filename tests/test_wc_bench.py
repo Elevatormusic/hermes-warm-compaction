@@ -266,12 +266,22 @@ class RunTest(unittest.TestCase):
     def test_plan_rotates_methods_and_adds_drift_jobs(self):
         config = {"threshold": 0.95, "replicates": 2, "fixtures": ["s1-ledgerline"],
                   "methods": ["full_context", "stock_hermes", "warm_ledger"],
-                  "drift": {"fixtures": ["s1-ledgerline"], "methods": ["warm_ledger", "full_context"], "cycles": 3}}
+                  "drift": {"fixtures": ["s1-ledgerline"], "methods": ["warm_ledger", "stock_hermes"], "cycles": 3}}
         jobs, skipped = run.plan(config, {"settings_known": ["warm", "ledger"]})
         self.assertEqual(skipped, [])
         self.assertEqual([job["method"] for job in jobs[:3]], ["full_context", "stock_hermes", "warm_ledger"])
         self.assertEqual([job["method"] for job in jobs[3:6]], ["stock_hermes", "warm_ledger", "full_context"])
-        self.assertEqual([(job["method"], job["cycles"]) for job in jobs[6:]], [("warm_ledger", 3)] * 2)
+        # The drift jobs rotate with the same helper (in the order of "methods"), so no method always runs first.
+        self.assertEqual([(job["method"], job["rep"], job["cycles"]) for job in jobs[6:]],
+                         [("stock_hermes", 1, 3), ("warm_ledger", 1, 3), ("warm_ledger", 2, 3), ("stock_hermes", 2, 3)])
+        # Each drift method gets a job or is refused: not in "methods", or the control (it never compacts).
+        for methods in (["warm_ledger", "fallback_relaxed_ledger"], ["warm_ledger", "full_context"]):
+            with self.subTest(methods=methods), self.assertRaisesRegex(ValueError, "drift methods without a drift job"):
+                run.plan({**config, "drift": {**config["drift"], "methods": methods}}, {"settings_known": ["warm"]})
+        # A drift method that the plugin cannot run is listed as skipped (it is a main method too).
+        jobs, skipped = run.plan({**config, "methods": ["stock_hermes", "warm_ledger"]}, {"settings_known": []})
+        self.assertEqual(skipped, [{"method": "warm_ledger", "reason": "plugin_setting_missing"}])
+        self.assertEqual({job["method"] for job in jobs}, {"stock_hermes"})
 
     def test_plan_refuses_unknown_names(self):
         config = {"threshold": 0.95, "replicates": 1, "fixtures": ["s1-ledgerline"], "methods": ["stock_hermes"]}

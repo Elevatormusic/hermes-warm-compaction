@@ -139,8 +139,17 @@ def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any]
     return settings
 
 
+def rotated(items: list, rep: int) -> list:
+    """The items in the order of replicate rep (0-based): replicate rep starts at item rep (modulo the count), so no
+    method always runs first. Every job loop (main and drift) uses it; a resume plans its jobs with plan()."""
+    shift = rep % max(len(items), 1)
+    return items[shift:] + items[:shift]
+
+
 def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
-    """Return (jobs, skipped methods). Methods rotate between replicates so no method always runs first."""
+    """Return (jobs, skipped methods). Methods rotate between replicates so no method always runs first. Each
+    method name of the configuration gets jobs or is listed as skipped; a drift method that could get no job (not
+    in "methods", or the no-compaction control) is refused."""
     names = [spec["id"] for spec in fixtures.SCENARIOS]
     chosen = names if config.get("fixtures", "all") == "all" else list(config["fixtures"])
     methods = list(config["methods"])
@@ -150,6 +159,10 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
         set(methods) | set(drift.get("methods", []))) - set(METHODS)
     if unknown:
         raise ValueError(f"unknown fixture or method names in the configuration: {len(unknown)}")
+    no_drift_job = [name for name in drift.get("methods", [])
+                    if name not in methods or METHODS[name]["engine"] == "none"]
+    if no_drift_job:
+        raise ValueError(f"drift methods without a drift job (not in methods, or the control): {len(no_drift_job)}")
     jobs, skipped = [], []
     usable = []
     for name in methods:
@@ -161,17 +174,16 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
     reps = int(config.get("replicates", 5))
     for fixture in chosen:
         for rep in range(reps):
-            shift = rep % max(len(usable), 1)
-            for name, settings in usable[shift:] + usable[:shift]:
+            for name, settings in rotated(usable, rep):
                 jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c1", "fixture": fixture, "method": name,
                              "rep": rep + 1, "cycles": 1, "settings": settings})
+    # A drift method that the plugin cannot run is already in skipped (it is a main method too).
+    drift_usable = [(name, settings) for name, settings in usable if name in drift.get("methods", [])]
     for fixture in drift.get("fixtures", []):
         for rep in range(reps):
-            for name, settings in usable:
-                if name in drift.get("methods", []) and METHODS[name]["engine"] != "none":
-                    jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c{drift['cycles']}", "fixture": fixture,
-                                 "method": name, "rep": rep + 1, "cycles": int(drift["cycles"]),
-                                 "settings": settings})
+            for name, settings in rotated(drift_usable, rep):
+                jobs.append({"id": f"{fixture}|{name}|r{rep + 1}|c{drift['cycles']}", "fixture": fixture,
+                             "method": name, "rep": rep + 1, "cycles": int(drift["cycles"]), "settings": settings})
     return jobs, skipped
 
 
