@@ -17,7 +17,6 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 import traceback
 import urllib.request
@@ -251,13 +250,33 @@ def engine_outcome(engine) -> dict:
             if isinstance(value, (str, int, float, bool, type(None))) and "path" not in key.lower()}
 
 
+class CompressionLockSkipped(Exception):
+    """Another compaction held the compression lock, so the manual compaction did not run."""
+
+
+def manual_compress(agent, messages: list) -> tuple[int, list]:
+    """One manual /compress of the history, through the core that every Hermes surface (CLI, gateway, TUI, ACP)
+    uses: agent/conversation_compression_manual.py::compress_now (documented in the agent/AGENTS.md of Hermes).
+    No focus topic, no partial compaction. Return (the removed row count, the history after). A history shorter
+    than MIN_MESSAGES, or a compaction that changes nothing, returns (0, the same rows). The caller finalizes the
+    context-engine notification, as the Hermes surfaces do after their history commit."""
+    from agent.conversation_compression_manual import MIN_MESSAGES, compress_now, parse_compress_args
+    if len(messages) < MIN_MESSAGES:
+        return 0, list(messages)
+    result = compress_now(agent, list(messages), parse_compress_args(""), task_id=agent.session_id or "default")
+    if result.status == "lock_skipped":
+        raise CompressionLockSkipped()
+    if result.status != "compressed":
+        return 0, list(messages)
+    return result.removed, list(result.after_messages)
+
+
 def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
     sys.path[:0] = [job["hermes_source"]]
     write_config(home, job)
     from hermes_cli import plugins
     from hermes_state import SessionDB
     from run_agent import AIAgent
-    from tui_gateway.server import _compress_session_history
 
     from agent.conversation_compression import finalize_context_engine_compression_notification
     manager = plugins.get_plugin_manager()
@@ -334,11 +353,10 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
                 history = messages
                 continue
             item.update(rows_before=len(messages), est_tokens_before=estimate_tokens(wire_rows(messages)))
-            session = {"agent": agent, "history": list(messages), "history_lock": threading.Lock(),
-                       "history_version": 1, "session_key": agent.session_id}
+            after = list(messages)
             started = time.monotonic()
             try:
-                removed, _usage = _compress_session_history(session, "")
+                removed, after = manual_compress(agent, messages)
                 finalize_context_engine_compression_notification(agent, committed=removed > 0)
                 item["compress_error"] = None
             except Exception as error:
@@ -353,7 +371,7 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
             item["compress_s"] = round(time.monotonic() - started, 3)
             item["removed"] = removed
             item["outcome"] = engine_outcome(engine)
-            history = list(session["history"])
+            history = list(after)
             item["rows_after"] = len(history)
             item["est_tokens_after"] = estimate_tokens(wire_rows(history))
             item["compacted"] = removed > 0 and item["compress_error"] is None

@@ -1985,15 +1985,26 @@ class MainTurnFailureTest(unittest.TestCase):
 
         manager = types.SimpleNamespace(discover_and_load=lambda: None, _plugins={})
         plugins = module("hermes_cli.plugins", get_plugin_manager=lambda: manager)
-        server = module("tui_gateway.server", _compress_session_history=compress or (
-            lambda *_a: calls.append("compress")))
+        def compress_now(_agent, history, request, *, task_id="default", **_kwargs):
+            # The documented manual /compress core. compress(history) gives the rows after, or None for no change.
+            calls.append(("compress_now", request.raw, task_id))
+            after = compress(list(history)) if compress else None
+            if after is None:
+                return types.SimpleNamespace(status="nothing_to_do", after_messages=list(history), removed=0)
+            return types.SimpleNamespace(status="compressed", after_messages=after, removed=len(history) - len(after))
+
+        manual = module("agent.conversation_compression_manual", MIN_MESSAGES=4, compress_now=compress_now,
+                        parse_compress_args=lambda raw: types.SimpleNamespace(raw=raw, aggressive=False))
+        # The private TUI gateway helper: the worker must not call it.
+        server = module("tui_gateway.server", _compress_session_history=lambda *_a: calls.append("private_helper"))
         notify = module("agent.conversation_compression",
                         finalize_context_engine_compression_notification=lambda *_a, **_k: None)
         return {"hermes_cli": module("hermes_cli", plugins=plugins), "hermes_cli.plugins": plugins,
                 "hermes_state": module("hermes_state", SessionDB=SessionDB),
                 "run_agent": module("run_agent", AIAgent=Agent), "tui_gateway": module("tui_gateway", server=server),
-                "tui_gateway.server": server, "agent": module("agent", conversation_compression=notify),
-                "agent.conversation_compression": notify}
+                "tui_gateway.server": server,
+                "agent": module("agent", conversation_compression=notify, conversation_compression_manual=manual),
+                "agent.conversation_compression": notify, "agent.conversation_compression_manual": manual}
 
     def run_hermes(self, engine, reply, compression_enabled=None, compress=None):
         history, _gold = fixtures.build(SCENARIOS[0])
@@ -2049,12 +2060,15 @@ class MainTurnFailureTest(unittest.TestCase):
                                               {"role": "assistant", "content": "x" * 4000}],
                     "final_response": "x" * 4000}
 
-        def compress(session, _focus):
-            session["history"] = session["history"][-2:]
-            return 10, None
+        def compress(history):
+            return history[-2:]
 
         fixture, out = self.run_hermes("compressor", reply, compress=compress)
         cycle = out["cycles"][0]
+        # The compaction ran through the documented manual /compress core, not the private TUI gateway helper.
+        self.assertIsNone(cycle["compress_error"])
+        self.assertTrue(cycle["compacted"])
+        self.assertEqual(cycle["rows_after"], 2)
         after_main = reply(fixture["rows"])["messages"]
         self.assertEqual(cycle["est_tokens_before"], worker.estimate_tokens(worker.wire_rows(after_main)))
         self.assertEqual(cycle["est_tokens_before_main"], worker.estimate_tokens(worker.wire_rows(fixture["rows"])))
