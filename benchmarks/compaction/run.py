@@ -508,15 +508,14 @@ def fail_incomplete(record: dict) -> bool:
 
 def anthropic_base_url(config: dict) -> str:
     """The Anthropic Messages root of the endpoint (Claude Code adds /v1/messages to ANTHROPIC_BASE_URL). Claude
-    Code cannot keep a query or a fragment after that path, so an endpoint with one needs anthropic_base_url: the
-    run stops before any job."""
-    if config.get("anthropic_base_url"):
-        return str(config["anthropic_base_url"]).rstrip("/")
-    parts = urllib.parse.urlsplit(str(config["endpoint"]))
+    Code cannot keep a query or a fragment after that path, so an endpoint with one needs anthropic_base_url, and
+    anthropic_base_url cannot have one: else the run stops before any job. A /v1 at the end of either is removed."""
+    key = "anthropic_base_url" if config.get("anthropic_base_url") else "endpoint"
+    parts = urllib.parse.urlsplit(str(config[key]))
     if parts.query or parts.fragment:
-        raise SystemExit("claude_code_cli: the endpoint has a query or a fragment (for example an api-version), "
-                         "which Claude Code cannot add after /v1/messages; set anthropic_base_url; stop before any "
-                         "job")
+        raise SystemExit(f"claude_code_cli: the {key} has a query or a fragment (for example an api-version), "
+                         "which Claude Code cannot add after /v1/messages; set anthropic_base_url without one; stop "
+                         "before any job")
     path = parts.path.rstrip("/")
     return urllib.parse.urlunsplit(parts._replace(path=path[:-3] if path.endswith("/v1") else path))
 

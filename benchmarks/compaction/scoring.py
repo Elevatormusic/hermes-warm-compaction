@@ -164,9 +164,11 @@ def fact_positions(needle: str, normal: str) -> list[int]:
     pattern = re.escape(needle)
     if re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", needle):
         # A dotted version can have a "v" before it ("v7.3.0"), but not another letter or digit.
-        pattern = r"(?<![a-uw-z0-9])(?<![a-z0-9]v)(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
+        pattern = r"(?<![a-uw-z0-9+-])(?<![a-z0-9]v)(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
     elif re.fullmatch(r"[0-9.,:/ x%+-]+", needle):
-        pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
+        # A sign before the number changes the value ("-5" is not "5"), unless the fact has the sign.
+        sign = "" if needle[0] in "+-" else r"(?<![+-])"
+        pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + sign + pattern + r"(?![0-9])(?![.,][0-9])"
     elif short_text(needle):
         pattern = r"(?<![a-z0-9])" + pattern
     return [match.start() for match in re.finditer(pattern, normal)]

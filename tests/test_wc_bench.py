@@ -263,6 +263,10 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assertFalse(scoring.retained(item, f"The first axe scan found {changed} violations."))
         self.assertTrue(scoring.retained(item, "Axe scan: 5, violations listed."))
+        # A sign before the number changes the value (synthetic summary text).
+        for signed in ("-5", "+5"):
+            with self.subTest(signed=signed):
+                self.assertFalse(scoring.retained(item, f"The first axe scan found {signed} violations."))
         # A dotted version keeps a "v" before it, but not another letter or digit (synthetic summary text).
         gold = json.loads((GOLD_DIR / "s6-lumen.gold.json").read_text(encoding="utf-8"))
         release = next(q for q in gold["questions"] if q["id"] == "s6-lumen:04")
@@ -2149,6 +2153,11 @@ class CliWorkerTest(unittest.TestCase):
         probe.assert_not_called()
         self.assertEqual(run.anthropic_base_url({**query, "anthropic_base_url": "https://gateway.invalid/a/"}),
                          "https://gateway.invalid/a")
+        # The override gets the same /v1 removal and the same query check.
+        self.assertEqual(run.anthropic_base_url({**query, "anthropic_base_url": "https://gateway.invalid/v1"}),
+                         "https://gateway.invalid")
+        with self.assertRaisesRegex(SystemExit, "anthropic_base_url has a query"):
+            run.anthropic_base_url({**query, "anthropic_base_url": "https://gateway.invalid/v1?x=1"})
 
 
 # Synthetic main-turn replies of the fake CLIs.
