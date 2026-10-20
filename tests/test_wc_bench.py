@@ -1,5 +1,6 @@
 """Tests for the compaction benchmark harness (benchmarks/compaction). No model and no Hermes code run here."""
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -372,6 +373,108 @@ class RunTest(unittest.TestCase):
         text = run.markdown(result, {"config": {}, "plugin": {}, "hermes": {}})
         self.assertIn("| Warm path + ledger | 2 / 4 | 4 (2) |", text)
 
+    def test_timing_uses_every_completed_compaction(self):
+        runs = self.synthetic_runs()
+        ok = runs[0]
+        # The compaction completed, then the questions failed: no accuracy, but the time counts.
+        qa_failed = {**ok, "job": "warm_ledger-r2", "rep": 2, "status": "failed", "error": "qa_request:no_content",
+                     "cycles": [{**ok["cycles"][0], "compress_s": 8.0, "main_s": 3.0}]}
+        # An earlier attempt of a job that a resume ran again, and an attempt that the server check marked invalid.
+        earlier = {**ok, "job": "warm_ledger-r3", "rep": 3, "status": "failed", "error": "job_timeout",
+                   "cycles": [{**ok["cycles"][0], "compress_s": 5.0, "compacted": False, "main_s": 2.0}]}
+        retried = {**ok, "job": "warm_ledger-r3", "rep": 3}
+        invalid = {**ok, "job": "warm_ledger-r4", "rep": 4, "status": "invalid",
+                   "cycles": [{**ok["cycles"][0], "compress_s": 100.0}]}
+        main_failed = {**ok, "job": "warm_ledger-r5", "rep": 5, "status": "failed", "error": "main_turn_failed",
+                       "cycles": [{**ok["cycles"][0], "compress_s": None, "main_s": 50.0, "main_failed": True}]}
+        latest = runs + [qa_failed, retried, invalid, main_failed]
+        result = run.aggregate(latest, {"config": {}, "plugin": {}, "hermes": {}},
+                               attempts=latest + [earlier])
+        entry = result["methods"]["warm_ledger"]
+        latency = entry["latency_s"]
+        # compress: 2.0 (ok), 8.0 (questions failed), 2.0 (retried), 5.0 (earlier attempt); not the invalid one.
+        self.assertEqual((latency["compress"]["n"], latency["compress"]["mean"]), (4, 17.0 / 4))
+        self.assertEqual((latency["compress_compacted"]["n"], latency["compress_compacted"]["mean"]), (3, 4.0))
+        # main_request: every completed main turn, not a failed one.
+        self.assertEqual((latency["main_request"]["n"], latency["main_request"]["mean"]), (4, 7.0 / 4))
+        self.assertEqual(latency["timed_attempts"], 5)
+        # Accuracy uses the scored runs only: the ok run and the retried run.
+        self.assertEqual(entry["compacted_runs"], 2)
+
+    def test_rescore_reads_only_raw_files_of_a_verified_run(self):
+        spec = next(item for item in SCENARIOS if item["id"] == "s4-orchard")
+        history, gold = fixtures.build(spec)
+        cycle = {"cycle": 1, "compacted": True, "history": history["rows"][-4:],
+                 "qa": {"batches": [{"numbers": batch, "text": json.dumps({str(n): "unknown" for n in batch})}
+                                    for batch in gold["qa_batches"]]}}
+        data = json.dumps({"cycles": [cycle]}).encode("utf-8")
+        name = f"{spec['id']}__warm_ledger__r1__c1.json"
+        meta = {"schema": "s", **FAKE_RUNTIME_META, "config": {"model": "m", "methods": ["warm_ledger"]},
+                "hermes": {"commit": "a"}, "plugin": {"files_sha256": {"x": "1"}}}
+
+        def record(**extra):
+            return {"job": f"{spec['id']}|warm_ledger|r1|c1", "fixture": spec["id"], "method": "warm_ledger",
+                    "status": "ok", "started_utc": "2026-01-01T00:00:00Z",
+                    "cycles": [run.score_cycle(cycle, gold, history, "warm_ledger")], **extra}
+
+        def folder_with(base: Path, label: str, meta_value: dict, attempts: list[dict], raw: bytes) -> Path:
+            folder = base / label
+            (folder / "raw").mkdir(parents=True)
+            (folder / "meta.json").write_text(json.dumps(meta_value), encoding="utf-8")
+            (folder / "runs.jsonl").write_text("".join(json.dumps(item) + "\n" for item in attempts),
+                                               encoding="utf-8")
+            (folder / "raw" / name).write_bytes(raw)
+            return folder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            out = base / "out"
+            (out / "raw").mkdir(parents=True)
+            # A record with a hash reads only the file with that hash.
+            (out / "raw" / name).write_bytes(data)
+            good = hashlib.sha256(data).hexdigest()
+            self.assertEqual(run.rescore(out, [record(raw_sha256=good)], meta=meta)["jobs_rescored"], 1)
+            (out / "raw" / name).write_bytes(data + b" ")
+            self.assertEqual(run.rescore(out, [record(raw_sha256=good)], meta=meta)["jobs_without_raw"], 1)
+            # A --raw-dir of the same run identity, with the same attempt (job and start time).
+            (out / "raw" / name).unlink()
+            same = folder_with(base, "same", meta, [record()], data)
+            self.assertEqual(run.rescore(out, [record()], [same / "raw"], meta)["jobs_rescored"], 1)
+            self.assertEqual(run.rescore(out, [record(raw_sha256=good)], [same / "raw"], meta)["jobs_rescored"], 1)
+            # The same job name from another attempt is not the raw file of this record.
+            other_attempt = folder_with(base, "other", meta, [record(started_utc="2026-02-02T00:00:00Z")], data)
+            self.assertEqual(run.rescore(out, [record()], [other_attempt / "raw"], meta)["jobs_without_raw"], 1)
+            # A --raw-dir of another run, or a folder that is not the raw folder of a run, stops the report.
+            changed = folder_with(base, "changed", {**meta, "hermes": {"commit": "b"}}, [record()], data)
+            with self.assertRaisesRegex(SystemExit, "differs in Hermes commit"):
+                run.rescore(out, [record()], [changed / "raw"], meta)
+            with self.assertRaisesRegex(SystemExit, "not the raw folder of a run folder"):
+                run.rescore(out, [record()], [same], meta)
+
+    def test_run_job_names_its_raw_file_by_hash(self):
+        spec = SCENARIOS[0]
+        with tempfile.TemporaryDirectory() as folder:
+            history_dir = Path(folder) / "fixtures"
+            fixtures.write_all(history_dir, history_dir / "gold")
+            out_dir = Path(folder) / "out"
+            out_dir.mkdir()
+
+            def fake_worker(argv, **_kwargs):
+                # A fake worker report (synthetic): one job without cycles.
+                Path(argv[argv.index("--out") + 1]).write_text(
+                    json.dumps({"status": "ok", "error": None, "cycles": []}), encoding="utf-8")
+                return types.SimpleNamespace(returncode=0, stderr=b"")
+
+            job = {"id": f"{spec['id']}|stock_hermes|r1|c1", "fixture": spec["id"], "method": "stock_hermes",
+                   "rep": 1, "cycles": 1, "settings": {}}
+            config = {"hermes_python": "fake-python", "hermes_source": "h", "plugin_source": "p",
+                      "endpoint": "http://127.0.0.1:9/v1", "model": "m", "context_length": 8, "threshold": 0.95,
+                      "keep_text": True}
+            with mock.patch.object(run.subprocess, "run", side_effect=fake_worker):
+                record = run.run_job(job, config, out_dir, history_dir)
+            raw = out_dir / "raw" / f"{spec['id']}__stock_hermes__r1__c1.json"
+            self.assertEqual(record["raw_sha256"], run.sha256_file(raw))
+
     def test_failed_job_with_a_partial_cycle_is_not_scored(self):
         runs = self.synthetic_runs()
         runs[0].update(status="failed", error="main_turn_failed")
@@ -443,7 +546,7 @@ class RunTest(unittest.TestCase):
             (out / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in runs), encoding="utf-8")
             args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=None, also=None, rescore=True,
                                          raw_dir=None)
-            with self.assertRaisesRegex(SystemExit, "3 jobs .* without raw output"):
+            with self.assertRaisesRegex(SystemExit, "3 jobs .* without a verified raw output"):
                 run.command_report(args)
             self.assertFalse((out / "r.json").exists())
 
@@ -559,6 +662,12 @@ class RunTest(unittest.TestCase):
         self.assertEqual(run.merge_mismatches({**base, "server_model": model},
                                               {**cli, "server_model": {**model, "quantization": "Q8_0"}}, False),
                          ["server model"])
+        # A folder that checked the server model, merged with one that did not record it.
+        self.assertEqual(run.merge_mismatches({**base, "server_model": model}, cli, False),
+                         ["server model (not recorded)"])
+        checked = {**base, "config": {**base["config"], "server_check": True}}
+        self.assertEqual(run.merge_mismatches(checked, {**cli, "server_model": model}, False),
+                         ["server model (not recorded)"])
         codex = {**cli, "cli": {"codex_cli": {"version": "0.147.0"}}}
         self.assertEqual(run.merge_mismatches(codex, {**codex, "cli": {"codex_cli": {"version": "0.148.0"}}}, False),
                          ["codex_cli version"])
@@ -634,6 +743,36 @@ class RunTest(unittest.TestCase):
         # A recorded resume with --allow-harness-change becomes the new reference.
         old["resumes"] = [{"harness_sha256": run.harness_hashes()}]
         self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}, runtime), ([], []))
+        # The server model: a failed probe or a folder without the model stops a checked resume.
+        model = {"id": "m", "quantization": "Q8_K_XL"}
+        checked = {**config, "server_check": True}
+        with mock.patch.object(run, "server_model", return_value=None):
+            self.assertEqual(run.resume_mismatches({**meta, "server_model": model}, checked, plugin, hermes, {},
+                                                   runtime)[0], ["server model (probe failed)"])
+        with mock.patch.object(run, "server_model", return_value=model):
+            self.assertEqual(run.resume_mismatches(meta, checked, plugin, hermes, {}, runtime)[0],
+                             ["server model (not recorded)"])
+            self.assertEqual(run.resume_mismatches({**meta, "server_model": model}, checked, plugin, hermes, {},
+                                                   runtime)[0], [])
+            # A folder that recorded the model is checked also when the resume turns server_check off.
+            self.assertEqual(run.resume_mismatches({**meta, "server_model": {**model, "id": "x"}}, config, plugin,
+                                                   hermes, {}, runtime)[0], ["server model"])
+
+    def test_a_failed_server_model_probe_stops_the_run_before_meta(self):
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "out"
+            config = {"hermes_source": "h", "plugin_source": "p", "history_dir": str(Path(folder) / "fixtures"),
+                      "threshold": 0.95, "methods": [], "server_check": True,
+                      "endpoint": "http://127.0.0.1:9/v1", "model": "m"}
+            (Path(folder) / "config.json").write_text(json.dumps(config), encoding="utf-8")
+            with mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                    mock.patch.object(run, "plugin_state", return_value={"commit": "p", "files_sha256": {}}), \
+                    mock.patch.object(run, "runtime_state", return_value=FAKE_RUNTIME), \
+                    mock.patch.object(run, "server_model", return_value=None):
+                with self.assertRaisesRegex(SystemExit, "model probe failed"):
+                    run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
+            self.assertFalse((out / "meta.json").exists())
+            self.assertFalse((out / "runs.jsonl").exists())
 
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}

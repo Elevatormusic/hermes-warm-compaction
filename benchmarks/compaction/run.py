@@ -339,7 +339,10 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
                 raw = out_dir / "raw"
                 raw.mkdir(exist_ok=True)
                 name = job["id"].replace("|", "__")
-                (raw / f"{name}.json").write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+                data = json.dumps(out, ensure_ascii=False).encode("utf-8")
+                (raw / f"{name}.json").write_bytes(data)
+                # The record names its raw file by hash: --rescore uses only this file for the record.
+                record["raw_sha256"] = hashlib.sha256(data).hexdigest()
     record["elapsed_s"] = round(time.monotonic() - started, 3)
     return record
 
@@ -548,8 +551,12 @@ def merge_mismatches(meta: dict, extra: dict, rescore: bool) -> list[str]:
               if key not in exempt and base.get(key) != other.get(key)]
     if harness_ids(meta) != harness_ids(extra):
         found.append("harness files")
-    if meta.get("server_model") and extra.get("server_model") and meta["server_model"] != extra["server_model"]:
-        found.append("server model")
+    if any(item.get("server_model") or (item.get("config") or {}).get("server_check") for item in (meta, extra)):
+        # One folder checked the server model: both must have recorded it, and the same one.
+        if not meta.get("server_model") or not extra.get("server_model"):
+            found.append("server model (not recorded)")
+        elif meta["server_model"] != extra["server_model"]:
+            found.append("server model")
     shared_cli = engines(meta) & engines(extra) & set(CLI_ENGINES)
     found += [f"{name} version" for name in sorted(shared_cli)
               if ((meta.get("cli") or {}).get(name) or {}).get("version")
@@ -589,9 +596,15 @@ def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli:
         hard.append("gold files")
     if digest_hash(meta_digests(meta)) != config_hash(config):
         hard.append("config")
-    current_model = server_model(config)
-    if meta.get("server_model") and current_model and meta["server_model"] != current_model:
-        hard.append("server model")
+    if config.get("server_check") or meta.get("server_model"):
+        # The check is on (now or when the folder was made): the model must be read and recorded, and the same.
+        current_model = server_model({**config, "server_check": True})
+        if current_model is None:
+            hard.append("server model (probe failed)")
+        elif not meta.get("server_model"):
+            hard.append("server model (not recorded)")
+        elif meta["server_model"] != current_model:
+            hard.append("server model")
     if {name: item.get("version") for name, item in (meta.get("cli") or {}).items() if name in cli} != {
             name: item.get("version") for name, item in cli.items()} and cli:
         hard.append("CLI versions")
@@ -672,12 +685,16 @@ def command_run(args) -> int:
     jobs, skipped = plan(config, plugin)
     cli = cli_state(config, list(config["methods"]))
     runtime = runtime_state(config)
+    model = server_model(config)
+    if config.get("server_check") and model is None:
+        # A required probe that fails stops the run: meta.json never records an unknown server model.
+        raise SystemExit("server_check: the LM Studio model probe failed; stop before any job")
     meta_path = out_dir / "meta.json"
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
                 "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "config": public_config(config), "config_sha256": config_digests(config),
-                "server_model": server_model(config),
+                "server_model": model,
                 "plugin": plugin, "hermes": hermes,
                 "harness_sha256": harness_hashes(),
                 "gold_sha256": current_gold_sha256(),
@@ -900,16 +917,20 @@ def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
             "before_not_measured_runs": len(values) - len(measured),
             "qa_prompt_tokens": scoring.mean_interval([c["qa_prompt_tokens"] for c in values
                                                        if c.get("qa_prompt_tokens")])}
-        # Time of all runs, also the runs that did not compact: a failed attempt costs time too.
-        attempts = [cycle for _run, cycle in every]
+        # Time: every completed step of every attempt, also of a job that failed later (for example in the
+        # questions) and of an earlier attempt that a resume ran again. Accuracy above uses the scored runs only.
+        # An attempt that the server check marked invalid ran on a changed server: it is left out.
+        timed = [item["cycles"][0] for item in method_attempts
+                 if item.get("cycles") and item.get("status") != "invalid"]
         entry["latency_s"] = {
-            "compress": scoring.mean_interval([c["compress_s"] for c in attempts if c.get("compress_s") is not None]),
-            "compress_compacted": scoring.mean_interval([c["compress_s"] for c in values
-                                                         if c.get("compress_s") is not None]),
+            "compress": scoring.mean_interval([c["compress_s"] for c in timed if c.get("compress_s") is not None]),
+            "compress_compacted": scoring.mean_interval([c["compress_s"] for c in timed if c.get("compacted")
+                                                         and c.get("compress_s") is not None]),
             # A preflight run compacted inside the main request: its main time includes the compaction.
-            "main_request": scoring.mean_interval([c["main_s"] for c in attempts
-                                                   if c.get("main_s") is not None and not c.get("preflight")]),
-            "questions": scoring.mean_interval([c["qa_s"] for c in values if c.get("qa_s") is not None])}
+            "main_request": scoring.mean_interval([c["main_s"] for c in timed if c.get("main_s") is not None
+                                                   and not c.get("preflight") and not c.get("main_failed")]),
+            "questions": scoring.mean_interval([c["qa_s"] for c in values if c.get("qa_s") is not None]),
+            "timed_attempts": len(timed)}
         entry["per_run_failed"] = [{"fixture": run["fixture"], "rep": run["rep"], "path": cycle["path"],
                                     "compress_s": cycle["compress_s"], "main_s": cycle["main_s"]}
                                    for run, cycle in every if (run, cycle) not in cycles]
@@ -1225,18 +1246,54 @@ def current_gold_sha256() -> dict[str, str]:
     return {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
 
 
-def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = ()) -> dict[str, int]:
+def raw_sources(out_dir: Path, meta: dict | None, raw_dirs: list[Path] | tuple) -> list[tuple[Path, set | None]]:
+    """The raw folders that --rescore can read for the records of out_dir: its own raw/ folder, and each --raw-dir
+    that is the raw/ folder of a run folder of the same run identity (merge_mismatches finds no difference). For a
+    --raw-dir, the set has the (job, start time) of each attempt in its runs.jsonl."""
+    sources: list[tuple[Path, set | None]] = [(out_dir / "raw", None)]
+    for folder in raw_dirs:
+        parent = Path(folder).parent
+        if Path(folder).name != "raw" or not (parent / "meta.json").exists() or not (parent / "runs.jsonl").exists():
+            raise SystemExit(f"report refused: --raw-dir {folder} is not the raw folder of a run folder")
+        other = json.loads((parent / "meta.json").read_text(encoding="utf-8"))
+        mismatches = merge_mismatches(meta or {}, other, True)
+        if mismatches:
+            raise SystemExit(f"report refused: --raw-dir {folder} is from a run that differs in "
+                             f"{', '.join(mismatches)}")
+        sources.append((Path(folder), {(item["job"], item.get("started_utc")) for item in load_attempts(parent)}))
+    return sources
+
+
+def find_raw(run: dict, sources: list[tuple[Path, set | None]]) -> Path | None:
+    """The raw file of a record: the file whose hash the record names. A record made before the hash takes the
+    file of its own run folder, or of a --raw-dir folder that has the same attempt (job and start time)."""
+    name = run["job"].replace("|", "__") + ".json"
+    for folder, attempts in sources:
+        path = folder / name
+        if not path.exists():
+            continue
+        if run.get("raw_sha256"):
+            if sha256_file(path) == run["raw_sha256"]:
+                return path
+        elif attempts is None or (run["job"], run.get("started_utc")) in attempts:
+            return path
+    return None
+
+
+def rescore(out_dir: Path, runs: list[dict], raw_dirs: list[Path] | tuple = (),
+            meta: dict | None = None) -> dict[str, int]:
     """Score the kept worker output (raw/) again with the current gold files. Only the marks change.
-    raw_dirs are more raw folders to search, for example of a run that gave reused jobs.
-    A job without a raw file keeps its marks; the result counts it."""
+    raw_dirs are more raw folders to search, for example of a run that gave reused jobs; meta is the meta.json of
+    out_dir, which each of them must match. A job without a verified raw file keeps its marks; the result counts
+    it."""
     built = {spec["id"]: fixtures.build(spec)[0] for spec in fixtures.SCENARIOS}
     counts = {"jobs_rescored": 0, "jobs_without_raw": 0, "marks_changed": 0, "jobs_failed_incomplete": 0,
               "jobs_other_qa_plan": 0}
+    sources = raw_sources(out_dir, meta, raw_dirs)
     for run in runs:
         if not run.get("cycles"):
             continue
-        name = run["job"].replace("|", "__") + ".json"
-        raw = next((folder / name for folder in (out_dir / "raw", *raw_dirs) if (folder / name).exists()), None)
+        raw = find_raw(run, sources)
         if raw is None:
             counts["jobs_without_raw"] += 1
             continue
@@ -1264,8 +1321,9 @@ def refuse_stale(item: dict) -> None:
                          "Report them with the harness that made them.")
     if item["jobs_without_raw"]:
         raise SystemExit(f"report refused: --rescore found {item['jobs_without_raw']} jobs in {item['folder']} "
-                         "without raw output (keep_text was off); their marks use the old gold files. Add "
-                         "--raw-dir for them, or report without --rescore (the report then warns).")
+                         "without a verified raw output (keep_text was off, or no raw file has the hash or the "
+                         "attempt of the record); their marks use the old gold files. Add --raw-dir for them, or "
+                         "report without --rescore (the report then warns).")
 
 
 def command_report(args) -> int:
@@ -1278,7 +1336,7 @@ def command_report(args) -> int:
     rescores = []
     if args.rescore:
         raw_dirs = [Path(folder) for folder in args.raw_dir or []]
-        rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs)})
+        rescores.append({"folder": out_dir.name, **rescore(out_dir, runs, raw_dirs, meta)})
         refuse_stale(rescores[-1])
     for extra in args.also or []:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
@@ -1290,7 +1348,7 @@ def command_report(args) -> int:
         known = {run["job"] for run in runs}
         extra_runs = [run for run in load_runs(extra_dir) if run["job"] not in known]
         if args.rescore:
-            rescores.append({"folder": extra_dir.name, **rescore(extra_dir, extra_runs, raw_dirs)})
+            rescores.append({"folder": extra_dir.name, **rescore(extra_dir, extra_runs, raw_dirs, extra_meta)})
             refuse_stale(rescores[-1])
         elif extra_meta.get("gold_sha256") != gold_now:
             meta.setdefault("gold_changed_after_run", []).append(extra_dir.name)
