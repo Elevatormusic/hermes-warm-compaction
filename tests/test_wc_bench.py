@@ -255,6 +255,11 @@ class ScoringTest(unittest.TestCase):
                              ("Done; unsure which test ran last.", "done")):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
+        # An explicit blocked label wins over the open class that a negated completion infers.
+        for answer in ("Blocked; not completed yet", "Blocked, not finished: waiting on review."):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", "blocked"), answer))
+                self.assertFalse(scoring.score(question("choice", "open"), answer))
         # A contrastive "not only" or "not merely" is not a negation.
         for answer in ("not only completed but verified", "Not merely done, but shipped."):
             with self.subTest(answer=answer):
@@ -1895,8 +1900,20 @@ class RunTest(unittest.TestCase):
             with self.subTest(probe=probe.__name__), \
                     mock.patch("urllib.request.urlopen", return_value=reply) as opened:
                 probe(config)
-                self.assertEqual(opened.call_args[0][0],
+                sent = opened.call_args[0][0]
+                self.assertEqual(getattr(sent, "full_url", sent),
                                  "https://gateway.invalid/api/v0/models/m?api-version=2026-01-01")
+        # An authenticated server: the probes send the route key and headers of the jobs (fake key and header).
+        authed = {**config, "api_key_env": "WC_FAKE_KEY_ENV",
+                  "hermes_config": {"model": {"default_headers": {"X-Fake-Route": "1"}}}}
+        for probe in (run.server_model, run.server_state):
+            with self.subTest(probe=probe.__name__, auth=True), \
+                    mock.patch.dict(os.environ, {"WC_FAKE_KEY_ENV": "fake-key-value"}), \
+                    mock.patch("urllib.request.urlopen", return_value=reply) as opened:
+                probe(authed)
+                sent = opened.call_args[0][0]
+                self.assertEqual(sent.get_header("Authorization"), "Bearer fake-key-value")
+                self.assertEqual(sent.get_header("X-fake-route"), "1")
         self.assertEqual(run.server_model_url({"endpoint": "http://localhost:1234/v1/", "model": "m"}),
                          "http://localhost:1234/api/v0/models/m")
 
@@ -1939,6 +1956,16 @@ class RunTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "runtime files of .* changed during the run"):
                 run.command_report(types.SimpleNamespace(out=str(out), json=str(site / "r.json"), md=None, also=[],
                                                          same_credential=False, rescore=False, raw_dir=[]))
+            # The same for a folder that the report adds with --also (the first folder is fine).
+            (out / "meta.json").write_text(json.dumps({"config": {}}), encoding="utf-8")
+            added = site / "added"
+            added.mkdir()
+            (added / "meta.json").write_text(json.dumps({"runtime_content_changed": True}), encoding="utf-8")
+            with mock.patch.object(run, "record_mismatches", return_value=[]), \
+                    self.assertRaisesRegex(SystemExit, "runtime files of .*added changed during the run"):
+                run.command_report(types.SimpleNamespace(out=str(out), json=str(site / "r.json"), md=None,
+                                                         also=[str(added)], same_credential=False, rescore=False,
+                                                         raw_dir=[]))
 
     def test_runtime_state_hashes_paths_and_argv(self):
         config = {"hermes_python": sys.executable, "cli": {"codex_cli": {"command": ["fake-codex", "--flag"]}}}

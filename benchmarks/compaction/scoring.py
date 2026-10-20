@@ -134,7 +134,9 @@ def status_class(answer: str) -> str | None:
     negated = NEGATED_DONE.search(text) is not None
     text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", text))
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
-    if negated:
+    if negated and found != {"blocked"}:
+        # A negated completion infers the open class. An explicit blocked label wins over it: "Blocked; not
+        # completed yet" is blocked.
         found.add("open")
     return found.pop() if len(found) == 1 else None
 

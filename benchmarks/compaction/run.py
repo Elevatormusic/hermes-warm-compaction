@@ -1127,12 +1127,22 @@ def server_model_url(config: dict) -> str:
     return urllib.parse.urlunsplit(parts._replace(path=f"{path}/api/v0/models/{config['model']}"))
 
 
+def server_request(config: dict) -> urllib.request.Request:
+    """The LM Studio REST request of the configured model, with the route credentials of the jobs: the key of
+    api_key_env as a bearer token (when it is set) and the allowed route headers."""
+    headers = dict(job_worker.route_headers(config))
+    key = os.environ.get(config.get("api_key_env") or "", "")
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return urllib.request.Request(server_model_url(config), headers=headers)
+
+
 def server_model(config: dict) -> dict | None:
     """With "server_check": true, the model file fields that the LM Studio REST API reports (no paths)."""
     if not config.get("server_check"):
         return None
     try:
-        with urllib.request.urlopen(server_model_url(config), timeout=30) as response:
+        with urllib.request.urlopen(server_request(config), timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None
@@ -1163,7 +1173,7 @@ def server_state(config: dict, expected: dict | None = None) -> str | None:
     if not config.get("server_check"):
         return None
     try:
-        with urllib.request.urlopen(server_model_url(config), timeout=30) as response:
+        with urllib.request.urlopen(server_request(config), timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception as error:
         return f"server_unreachable:{type(error).__name__}"
@@ -2160,6 +2170,8 @@ def command_report(args) -> int:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
         extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
+        if extra_meta.get("runtime_content_changed"):
+            raise SystemExit(f"report refused: the Hermes runtime files of {extra_dir} changed during the run")
         # Each added folder must match every folder accepted so far (not only the first): two added folders can
         # share an engine that the first folder does not run.
         problems = [f"{folder} in {', '.join(found)}" for folder, item in accepted
