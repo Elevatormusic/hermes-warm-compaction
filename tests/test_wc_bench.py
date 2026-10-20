@@ -1983,7 +1983,9 @@ class MainTurnFailureTest(unittest.TestCase):
             item.__dict__.update(items)
             return item
 
-        manager = types.SimpleNamespace(discover_and_load=lambda: None, _plugins={})
+        # The public plugin list has the plugin; the private registry of this fake is empty (synthetic).
+        manager = types.SimpleNamespace(discover_and_load=lambda: None, _plugins={}, list_plugins=lambda: [
+            {"name": "warm_compaction", "enabled": True}, {"name": "synthetic-disabled", "enabled": False}])
         plugins = module("hermes_cli.plugins", get_plugin_manager=lambda: manager)
         def compress_now(_agent, history, request, *, task_id="default", **_kwargs):
             # The documented manual /compress core. compress(history) gives the rows after, or None for no change.
@@ -2065,6 +2067,8 @@ class MainTurnFailureTest(unittest.TestCase):
 
         fixture, out = self.run_hermes("compressor", reply, compress=compress)
         cycle = out["cycles"][0]
+        # The loaded plugins come from the public plugin list of the manager, not its private registry.
+        self.assertEqual(out["plugins_loaded"], ["warm_compaction"])
         # The compaction ran through the documented manual /compress core, not the private TUI gateway helper.
         self.assertIsNone(cycle["compress_error"])
         self.assertTrue(cycle["compacted"])

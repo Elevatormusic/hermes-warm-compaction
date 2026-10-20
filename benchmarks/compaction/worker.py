@@ -281,7 +281,8 @@ def run_cycles(job: dict, fixture: dict, home: Path, out: dict) -> None:
     from agent.conversation_compression import finalize_context_engine_compression_notification
     manager = plugins.get_plugin_manager()
     manager.discover_and_load()
-    out["plugins_loaded"] = sorted(p.manifest.name for p in manager._plugins.values() if p.enabled)
+    # The public plugin list of the manager (Hermes uses it in its own commands), not its private registry.
+    out["plugins_loaded"] = sorted(item["name"] for item in manager.list_plugins() if item.get("enabled"))
     db = SessionDB(home / "state.db")
     session_id = "synthetic-bench-session"
     db.create_session(session_id, "cli")

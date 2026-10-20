@@ -25,8 +25,11 @@ compaction.
 
 1. Each job is one fresh process: a clean Hermes checkout, a new temporary Hermes home, the plugin installed by a
    file copy, and the real Hermes agent loop (`AIAgent.run_conversation`) with no tools.
-2. The agent sends one main request with the session as its history. Then the Hermes manual compress entry
-   compacts the history (`tui_gateway.server._compress_session_history`).
+2. The agent sends one main request with the session as its history. Then the Hermes manual compress core
+   compacts the history (`agent/conversation_compression_manual.py::compress_now`, which every Hermes surface
+   uses for `/compress`). Change after registration (2026-10-20, PR review): the runs made with the harness
+   commits `c195a40`, `fecb892`, and `f6dc770` called `tui_gateway.server._compress_session_history`, the private
+   TUI gateway wrapper of the same `compress_now` core. Their reports state this entry and the Hermes commit.
 3. A separate request asks the questions on the compacted history, at temperature 0, in the batches of the
    plan in the gold file (at most 12 questions in a batch; five batches of 9 or 10 for 46 questions). No gold rule
    passes on the prompt of its batch: the full prompt, a line, or a word of the instruction or of another question.
