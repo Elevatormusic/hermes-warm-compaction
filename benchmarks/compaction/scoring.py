@@ -39,8 +39,11 @@ NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 # A negation on normalized text (normalize removes apostrophes: "isn't" becomes "isnt"), then at most three words.
 # The words between are letters only (a comma or a full stop ends the phrase), and a conjunction ends it too ("not
 # tested but completed" is done).
+# A contrastive "not only", "not merely", "not just", or "not simply" is not a negation ("not only completed but
+# verified" is done).
 NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|hasnt|havent|hadnt|wont|dont|doesnt|"
-            r"didnt|couldnt)(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? ")
+            r"didnt|couldnt)(?! (?:only|merely|just|simply)(?![a-z0-9]))"
+            r"(?: (?!(?:and|but|or|so|then|now|though|although|because|while)(?![a-z0-9]))[a-z]+){0,3}? ")
 # A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
 # done", "cannot be completed", "has not been finished yet".
 NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished)(?![a-z0-9])")

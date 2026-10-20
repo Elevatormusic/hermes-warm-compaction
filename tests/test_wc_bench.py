@@ -212,6 +212,10 @@ class ScoringTest(unittest.TestCase):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
         self.assertFalse(scoring.score(question("choice", "open"), "not open"))
         self.assertFalse(scoring.score(question("choice", "blocked"), "not blocked"))
+        # A contrastive "not only" or "not merely" is not a negation.
+        for answer in ("not only completed but verified", "Not merely done, but shipped."):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", "done"), answer))
         # A conjunction or a comma ends the negated phrase: the completion word names the done class.
         for answer in ("not tested but completed", "Not reviewed, completed."):
             with self.subTest(answer=answer):
@@ -1663,6 +1667,22 @@ class RunTest(unittest.TestCase):
                     run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out)])
             self.assertFalse((out / "meta.json").exists())
             self.assertFalse((out / "runs.jsonl").exists())
+            # The probe reads the model, but it is not loaded or has another context length: stop before meta.json,
+            # also in a dry run.
+            model = {key: f"synthetic-{key}" for key in run.SERVER_MODEL_KEYS}
+            for problem in ("model_state:not-loaded", "loaded_context_length:8192"):
+                for extra in ([], ["--dry-run"]):
+                    with self.subTest(problem=problem, extra=extra), \
+                            mock.patch.object(run, "hermes_state", return_value={"commit": "a", "clean": True}), \
+                            mock.patch.object(run, "plugin_state", return_value={"commit": "p", "files_sha256": {},
+                                                                                  "settings_known": []}), \
+                            mock.patch.object(run, "runtime_state", return_value=FAKE_RUNTIME), \
+                            mock.patch.object(run, "server_model", return_value=model), \
+                            mock.patch.object(run, "server_state", return_value=problem), \
+                            contextlib.redirect_stdout(io.StringIO()), \
+                            self.assertRaisesRegex(SystemExit, f"server_check: {problem}"):
+                        run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(out), *extra])
+                    self.assertFalse((out / "meta.json").exists())
 
     def test_resume_keeps_the_server_check_of_a_checked_folder(self):
         model = {key: f"synthetic-{key}" for key in run.SERVER_MODEL_KEYS}

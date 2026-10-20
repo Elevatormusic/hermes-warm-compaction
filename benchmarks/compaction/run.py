@@ -1149,6 +1149,11 @@ def command_run(args) -> int:
     if config.get("server_check") and model is None:
         # A required probe that fails stops the run: meta.json never records an unknown server model.
         raise SystemExit("server_check: the LM Studio model probe failed; stop before any job")
+    problem = server_state(config) if config.get("server_check") else None
+    if problem:
+        # A model that is not loaded, or loaded with another context length, stops the run before meta.json (also
+        # a dry run): a folder with meta.json is a resume.
+        raise SystemExit(f"server_check: {problem}; stop before any job")
     meta_path = out_dir / "meta.json"
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
