@@ -227,6 +227,52 @@ class RunTest(unittest.TestCase):
                 run.main(["run", "--config", str(Path(folder) / "config.json"), "--out", str(Path(folder) / "out")])
             self.assertFalse((Path(folder) / "out" / "runs.jsonl").exists())
 
+    def test_failed_and_missing_jobs_count_as_failures(self):
+        runs = self.synthetic_runs()
+        fixture = SCENARIOS[0]["id"]
+        timed_out = {"job": "warm_ledger-r2", "fixture": fixture, "method": "warm_ledger", "rep": 2,
+                     "cycles_requested": 1, "status": "failed", "error": "job_timeout"}
+        first_try = {**timed_out, "job": "warm_ledger-r3", "rep": 3}
+        retried = {**runs[0], "job": "warm_ledger-r3", "rep": 3}
+        planned = {job: {"id": job, "fixture": fixture, "method": "warm_ledger", "cycles": 1}
+                   for job in ("warm_ledger", "warm_ledger-r2", "warm_ledger-r3", "warm_ledger-r4")}
+        latest = runs + [timed_out, retried]
+        result = run.aggregate(latest, {"config": {}, "plugin": {}, "hermes": {}},
+                               attempts=latest + [first_try], planned=planned)
+        entry = result["methods"]["warm_ledger"]
+        # 2 accepted of 4 planned: the timeout and the job that never ran are failures, not left out.
+        self.assertEqual((entry["success"]["k"], entry["success"]["n"]), (2, 4))
+        self.assertEqual(entry["planned_runs"], 4)
+        self.assertEqual(entry["not_run"], 1)
+        self.assertEqual(entry["failure_reasons"], {"job:job_timeout": 1, "not_run": 1})
+        self.assertEqual([item["job"] for item in entry["failed_attempts"]], ["warm_ledger-r2", "warm_ledger-r3"])
+        self.assertEqual(entry["attempts"], 4)
+        self.assertEqual(entry["categories_failures_wrong"]["goal"]["n"], 4 * entry["categories"]["goal"]["n"] // 2)
+        self.assertLess(entry["overall_failures_wrong"]["rate"], entry["overall"]["rate"])
+        text = run.markdown(result, {"config": {}, "plugin": {}, "hermes": {}})
+        self.assertIn("| Warm path + ledger | 2 / 4 | 4 (2) |", text)
+
+    def test_resume_refuses_a_changed_source(self):
+        plugin = run.plugin_state(Path(run.__file__).parents[2])
+        hermes = {"commit": "abc", "clean": True}
+        config = {"model": "m", "threshold": 0.95, "methods": ["stock_hermes"], "plugin_source": "/private"}
+        gold = {path.name: run.sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}
+        meta = {"config": {k: v for k, v in config.items() if k != "plugin_source"}, "plugin": plugin,
+                "hermes": hermes, "gold_sha256": gold, "harness_sha256": run.harness_hashes()}
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, hermes, {}), ([], []))
+        # Job selection keys can change on a resume; result settings, plugin, and Hermes cannot.
+        self.assertEqual(run.resume_mismatches(meta, {**config, "methods": ["full_context"]}, plugin, hermes, {}),
+                         ([], []))
+        changed = {**plugin, "files_sha256": {**plugin["files_sha256"], "engine.py": "0"}}
+        self.assertEqual(run.resume_mismatches(meta, config, changed, hermes, {})[0], ["plugin files"])
+        self.assertEqual(run.resume_mismatches(meta, config, plugin, {"commit": "def"}, {})[0], ["Hermes commit"])
+        self.assertEqual(run.resume_mismatches(meta, {**config, "threshold": 0.5}, plugin, hermes, {})[0], ["config"])
+        old = {**meta, "harness_sha256": {**meta["harness_sha256"], "worker.py": "0"}}
+        self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}), ([], ["worker.py"]))
+        # A recorded resume with --allow-harness-change becomes the new reference.
+        old["resumes"] = [{"harness_sha256": run.harness_hashes()}]
+        self.assertEqual(run.resume_mismatches(old, config, plugin, hermes, {}), ([], []))
+
     def test_score_cycle_and_report(self):
         runs = self.synthetic_runs()
         self.assertEqual(sum(mark[0] == "1" for mark in runs[0]["cycles"][0]["marks"]), 45)

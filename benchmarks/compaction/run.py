@@ -246,6 +246,7 @@ def run_job(job: dict, config: dict, out_dir: Path, history_dir: Path) -> dict:
     method = METHODS[job["method"]]
     record = {"job": job["id"], "fixture": job["fixture"], "method": job["method"], "rep": job["rep"],
               "cycles_requested": job["cycles"], "settings": job["settings"], "status": "failed", "error": None,
+              "harness": harness_id(harness_hashes()),
               "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     started = time.monotonic()
     # A CLI child process can hold a file handle for a short time after it exits (Windows): cleanup is best effort.
@@ -330,6 +331,46 @@ def cli_state(config: dict, methods: list[str]) -> dict[str, Any]:
     return state
 
 
+PRIVATE_CONFIG_KEYS = ("hermes_python", "hermes_source", "plugin_source", "history_dir", "cli")
+# Keys that select which jobs run. They do not change the result of a job, so a resume can change them.
+PLAN_KEYS = ("methods", "fixtures", "replicates", "drift")
+
+
+def config_hash(config: dict) -> str:
+    """A hash of the settings that can change a job result: no private paths and no job selection keys."""
+    kept = {key: value for key, value in config.items() if key not in PRIVATE_CONFIG_KEYS + PLAN_KEYS}
+    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def harness_hashes() -> dict[str, str]:
+    return {path.name: sha256_file(path) for path in sorted(HERE.glob("*.py"))}
+
+
+def harness_id(hashes: dict[str, str]) -> str:
+    return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def resume_mismatches(meta: dict, config: dict, plugin: dict, hermes: dict, cli: dict) -> tuple[list, list]:
+    """Compare a run folder with the current sources. Return (hard, harness): a hard mismatch always stops the run;
+    a harness mismatch stops it unless the caller allows it and records it."""
+    hard = []
+    if (meta.get("plugin") or {}).get("files_sha256") != plugin["files_sha256"]:
+        hard.append("plugin files")
+    if (meta.get("hermes") or {}).get("commit") != hermes["commit"]:
+        hard.append("Hermes commit")
+    if meta.get("gold_sha256") != {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))}:
+        hard.append("gold files")
+    if config_hash(meta.get("config") or {}) != config_hash(config):
+        hard.append("config")
+    if {name: item.get("version") for name, item in (meta.get("cli") or {}).items() if name in cli} != {
+            name: item.get("version") for name, item in cli.items()} and cli:
+        hard.append("CLI versions")
+    latest = (meta.get("resumes") or [{}])[-1].get("harness_sha256") or meta.get("harness_sha256")
+    harness = sorted(name for name in set(latest or {}) | set(harness_hashes())
+                     if (latest or {}).get(name) != harness_hashes().get(name))
+    return hard, harness
+
+
 def command_run(args) -> int:
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     out_dir = Path(args.out)
@@ -351,10 +392,9 @@ def command_run(args) -> int:
     if not meta_path.exists():
         meta = {"schema": "warm-compaction.compaction-benchmark/v1", "synthetic": True,
                 "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "config": {key: value for key, value in config.items()
-                           if key not in ("hermes_python", "hermes_source", "plugin_source", "history_dir", "cli")},
+                "config": {key: value for key, value in config.items() if key not in PRIVATE_CONFIG_KEYS},
                 "plugin": plugin, "hermes": hermes,
-                "harness_sha256": {path.name: sha256_file(path) for path in sorted(HERE.glob("*.py"))},
+                "harness_sha256": harness_hashes(),
                 "gold_sha256": {path.name: sha256_file(path) for path in sorted(GOLD_DIR.glob("*.json"))},
                 "host": {"os": platform.system(), "machine": platform.machine(),
                          "python": sys.version.split()[0]},
@@ -362,6 +402,20 @@ def command_run(args) -> int:
         if cli:
             meta["cli"] = cli
         meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    else:
+        # A resume: the jobs of one run folder must come from the same plugin, Hermes, gold files, and settings.
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        hard, harness = resume_mismatches(meta, config, plugin, hermes, cli)
+        if hard:
+            raise SystemExit(f"resume refused: {', '.join(hard)} differ from {meta_path}; use a new run folder")
+        if harness and not args.allow_harness_change:
+            raise SystemExit(f"resume refused: harness files changed ({', '.join(harness)}); check that the change "
+                             "does not change job results, then add --allow-harness-change to record it")
+        if not args.dry_run:
+            meta.setdefault("resumes", []).append({
+                "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "harness_sha256": harness_hashes(),
+                "harness_changed": harness, "methods": list(config["methods"])})
+            meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
     done = set()
     if runs_path.exists():
@@ -395,14 +449,24 @@ def command_run(args) -> int:
 
 # Report.
 
+def load_attempts(out_dir: Path) -> list[dict]:
+    """Every record of runs.jsonl, also the earlier attempts of a job that a resume ran again."""
+    return [json.loads(line) for line in (out_dir / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+
+
 def load_runs(out_dir: Path) -> list[dict]:
     """The latest record of each job."""
-    latest: dict[str, dict] = {}
-    for line in (out_dir / "runs.jsonl").read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            item = json.loads(line)
-            latest[item["job"]] = item
-    return list(latest.values())
+    return list({item["job"]: item for item in load_attempts(out_dir)}.values())
+
+
+def planned_jobs(meta: dict) -> dict[str, dict]:
+    """The jobs that the configuration of a run folder plans, by job id (empty when the plan cannot be made)."""
+    try:
+        jobs, _skipped = plan(meta["config"], meta["plugin"])
+    except (KeyError, TypeError, ValueError):
+        return {}
+    return {job["id"]: job for job in jobs}
 
 
 def rate(successes: int, total: int) -> dict[str, Any]:
@@ -415,15 +479,24 @@ def question_table() -> dict[str, list[dict]]:
             for spec in fixtures.SCENARIOS}
 
 
-def aggregate(runs: list[dict], meta: dict) -> dict[str, Any]:
+def aggregate(runs: list[dict], meta: dict, attempts: list[dict] | None = None,
+              planned: dict[str, dict] | None = None) -> dict[str, Any]:
+    """Aggregate the latest record of each job. A planned job without a record, a failed job, and a job without a
+    scored compaction count as failures in the success rate and in the "failures as wrong" accuracy."""
     gold = question_table()
+    all_attempts = attempts if attempts is not None else runs
+    planned = planned or {}
+    recorded = {run["job"] for run in runs}
     main = [run for run in runs if run["cycles_requested"] == 1]
     drift = [run for run in runs if run["cycles_requested"] > 1]
-    methods = [name for name in METHODS if any(run["method"] == name for run in runs)]
+    methods = [name for name in METHODS if any(run["method"] == name for run in runs)
+               or any(job["method"] == name for job in planned.values())]
     result: dict[str, Any] = {"methods": {}, "paired": [], "drift": {}}
     pairs: dict[tuple, dict[str, str]] = defaultdict(dict)
     for name in methods:
         items = [run for run in main if run["method"] == name]
+        not_run = [job for job_id, job in planned.items()
+                   if job["method"] == name and job["cycles"] == 1 and job_id not in recorded]
         every = [(run, run["cycles"][0]) for run in items if run.get("cycles")]
         # Accuracy uses the runs that compacted: an aborted run keeps the full history and asks no questions.
         cycles = [(run, cycle) for run, cycle in every if cycle["compacted"] or METHODS[name]["engine"] == "none"]
@@ -440,12 +513,23 @@ def aggregate(runs: list[dict], meta: dict) -> dict[str, Any]:
                 reasons[f"{warm_code}/{outcome.get('fallback_reason') or '-'}"] += 1
             elif cycle["path"] not in ACCEPTED_PATHS + ("none",):
                 reasons[cycle["path"]] += 1
-        failed_jobs = [run["job"] for run in items if run["status"] != "ok"]
+        # A job without cycles (a timeout, a worker error) and a planned job without a record are failures too.
+        for run in items:
+            if not run.get("cycles"):
+                reasons[f"job:{run.get('error') or run.get('status')}"] += 1
+        if not_run:
+            reasons["not_run"] += len(not_run)
+        failed_jobs = [run["job"] for run in items if run["status"] != "ok" or not run.get("cycles")]
         accepted = sum(1 for _run, cycle in every if cycle["path"] in ACCEPTED_PATHS)
+        method_attempts = [item for item in all_attempts if item["method"] == name and item["cycles_requested"] == 1]
+        total = len(items) + len(not_run)
         entry: dict[str, Any] = {
-            "label": METHODS[name]["label"], "runs": len(items), "job_failures": len(failed_jobs),
+            "label": METHODS[name]["label"], "runs": len(items), "planned_runs": total, "not_run": len(not_run),
+            "job_failures": len(failed_jobs), "attempts": len(method_attempts),
+            "failed_attempts": [{"job": item["job"], "error": item.get("error"), "status": item.get("status")}
+                                for item in method_attempts if item.get("status") != "ok" or not item.get("cycles")],
             "compacted_runs": len(cycles), "paths": dict(paths), "failure_reasons": dict(reasons),
-            "success": rate(accepted, len(every)) if METHODS[name]["engine"] != "none" else None,
+            "success": rate(accepted, total) if METHODS[name]["engine"] != "none" else None,
             "categories": {}, "categories_compacted_evidence": {}, "retention": {},
             "per_rep_accuracy": {}, "tokens": {}, "latency_s": {}, "per_run": []}
         by_category = defaultdict(lambda: [0, 0])
@@ -483,9 +567,19 @@ def aggregate(runs: list[dict], meta: dict) -> dict[str, Any]:
                  if per_rep[rep][category][1]])
         scored = [c for c in CATEGORIES if c != "recent"]
         entry["overall"] = rate(sum(by_category[c][0] for c in scored), sum(by_category[c][1] for c in scored))
-        # The same, with each run that did not compact scored as all wrong.
-        missing = sum(len([q for q in gold[run["fixture"]] if q["category"] != "recent"])
-                      for run, cycle in every if (run, cycle) not in cycles)
+        # The same, with each planned run that has no scored compaction (not compacted, failed, or not run) scored
+        # as all wrong.
+        scored_jobs = {run["job"] for run, _cycle in cycles}
+        unscored = [run["fixture"] for run in items if run["job"] not in scored_jobs]
+        unscored += [job["fixture"] for job in not_run]
+        missing_by_category = defaultdict(int)
+        for fixture in unscored:
+            for question in gold[fixture]:
+                missing_by_category[question["category"]] += 1
+        entry["categories_failures_wrong"] = {
+            category: rate(by_category[category][0], by_category[category][1] + missing_by_category[category])
+            for category in CATEGORIES}
+        missing = sum(missing_by_category[c] for c in scored)
         entry["overall_failures_wrong"] = rate(entry["overall"]["k"], entry["overall"]["n"] + missing)
         values = [cycle for _run, cycle in cycles]
         entry["tokens"] = {
@@ -527,7 +621,8 @@ def aggregate(runs: list[dict], meta: dict) -> dict[str, Any]:
                     "second_only": b_only, "difference": (a_only - b_only) / n,
                     "p_mcnemar": scoring.mcnemar(a_only, b_only)})
     for name in sorted({run["method"] for run in drift}, key=list(METHODS).index):
-        items = [run for run in drift if run["method"] == name and run.get("cycles")]
+        recorded_drift = [run for run in drift if run["method"] == name]
+        items = [run for run in recorded_drift if run.get("cycles")]
         per_cycle = []
         for index in range(max(len(run["cycles"]) for run in items) if items else 0):
             hits = total = 0
@@ -545,8 +640,11 @@ def aggregate(runs: list[dict], meta: dict) -> dict[str, Any]:
                               "est_tokens_after": scoring.mean_interval(
                                   [run["cycles"][index]["est_tokens_after"] for run in items
                                    if index < len(run["cycles"])])})
-        result["drift"][name] = {"runs": len(items), "fixtures": sorted({run["fixture"] for run in items}),
-                                 "cycles": per_cycle}
+        drift_planned = {job_id for job_id, job in planned.items() if job["method"] == name and job["cycles"] > 1}
+        drift_total = len(drift_planned | {run["job"] for run in recorded_drift})
+        result["drift"][name] = {
+            "runs": len(items), "planned_runs": drift_total, "failed_or_not_run": drift_total - len(items),
+            "fixtures": sorted({run["fixture"] for run in items}), "cycles": per_cycle}
     result["decision"] = decide(result)
     return result
 
@@ -675,10 +773,15 @@ def markdown(result: dict, meta: dict) -> str:
         *(["- Other CLIs: " + ", ".join(f"{name} {item['version']}" for name, item in meta["cli"].items()) + "."]
           if meta.get("cli") else []), "",
         "## Compaction success", "",
-        "| Method | Runs | Accepted summary | Paths | Failure reasons |", "| --- | --- | --- | --- | --- |"]
+        "A planned job that failed, timed out, or did not run counts as a failure. Attempts include the earlier "
+        "attempts of a job that a resume ran again.", "",
+        "| Method | Runs ok / planned | Attempts (failed) | Accepted summary | Paths | Failure reasons |",
+        "| --- | --- | --- | --- | --- | --- |"]
     for name in names:
         entry = methods[name]
-        lines.append(f"| {entry['label']} | {entry['runs']} | {pct(entry['success'])} | "
+        ok_runs = entry["runs"] - entry["job_failures"]
+        lines.append(f"| {entry['label']} | {ok_runs} / {entry['planned_runs']} | "
+                     f"{entry['attempts']} ({len(entry['failed_attempts'])}) | {pct(entry['success'])} | "
                      f"{', '.join(f'{k}: {v}' for k, v in sorted(entry['paths'].items()))} | "
                      f"{', '.join(f'{k}: {v}' for k, v in sorted(entry['failure_reasons'].items())) or '-'} |")
     if any(entry["paths"].get("preflight") for entry in methods.values()):
@@ -686,13 +789,27 @@ def markdown(result: dict, meta: dict) -> str:
                   "example, the plugin preflight check with no captured request). The questions use that history, "
                   "and the main request ran on the compacted history, unlike the other runs."]
     lines += ["", "## Accuracy by category (all questions)", "",
+              "Runs with a scored compaction only (the control: all runs). The first row gives the scored runs and "
+              "the planned runs of each method.", "",
               "| Category | " + " | ".join(methods[n]["label"] for n in names) + " |",
-              "| --- | " + " | ".join("---" for _ in names) + " |"]
+              "| --- | " + " | ".join("---" for _ in names) + " |",
+              "| runs scored / planned | " + " | ".join(f"{methods[n]['compacted_runs']} / {methods[n]['planned_runs']}"
+                                                      for n in names) + " |"]
     for category in CATEGORIES:
         lines.append(f"| {category} | " + " | ".join(pct(methods[n]["categories"][category]) for n in names) + " |")
     lines.append("| overall (without recent) | " + " | ".join(pct(methods[n]["overall"]) for n in names) + " |")
     lines.append("| est. tokens after (mean) | " + " | ".join(num(methods[n]["tokens"]["est_after"], 0)
                                                              for n in names) + " |")
+    lines += ["", "## Accuracy by category, failures as wrong", "",
+              "Each planned run without a scored compaction (not compacted, failed, timed out, or not run) counts as "
+              "a wrong answer to all its questions.", "",
+              "| Category | " + " | ".join(methods[n]["label"] for n in names) + " |",
+              "| --- | " + " | ".join("---" for _ in names) + " |"]
+    for category in CATEGORIES:
+        lines.append(f"| {category} | " + " | ".join(pct(methods[n]["categories_failures_wrong"][category])
+                                                      for n in names) + " |")
+    lines.append("| overall (without recent) | " + " | ".join(pct(methods[n]["overall_failures_wrong"])
+                                                              for n in names) + " |")
     lines += ["", "## Accuracy when the evidence rows were compacted", "",
               "Only questions whose evidence rows are not in the compacted history with the same text.", "",
               "| Category | " + " | ".join(methods[n]["label"] for n in names) + " |",
@@ -729,11 +846,12 @@ def markdown(result: dict, meta: dict) -> str:
         lines += ["", "## Repeated compaction (drift)", "",
                   "The same session, compacted again after each new chunk of work. Accuracy is on the questions about "
                   "the first window (without the recent facts).", "",
-                  "| Method | Runs | Cycle | Accuracy | Paths | Est. tokens after |",
+                  "| Method | Runs ok / planned | Cycle | Accuracy | Paths | Est. tokens after |",
                   "| --- | --- | --- | --- | --- | --- |"]
         for name, entry in result["drift"].items():
             for cycle in entry["cycles"]:
-                lines.append(f"| {METHODS[name]['label']} | {entry['runs']} | {cycle['cycle']} | "
+                lines.append(f"| {METHODS[name]['label']} | {entry['runs']} / {entry['planned_runs']} | "
+                             f"{cycle['cycle']} | "
                              f"{pct(cycle['accuracy'])} | "
                              f"{', '.join(f'{k}: {v}' for k, v in sorted(cycle['paths'].items()))} | "
                              f"{num(cycle['est_tokens_after'], 0)} |")
@@ -752,16 +870,20 @@ def command_report(args) -> int:
     out_dir = Path(args.out)
     meta = json.loads((out_dir / "meta.json").read_text(encoding="utf-8"))
     runs = load_runs(out_dir)
+    attempts = load_attempts(out_dir)
+    planned = planned_jobs(meta)
     for extra in args.also or []:
         # A second run folder (for example the CLI methods): its jobs join the report, and its metadata is kept.
         extra_dir = Path(extra)
         extra_meta = json.loads((extra_dir / "meta.json").read_text(encoding="utf-8"))
         known = {run["job"] for run in runs}
         runs += [run for run in load_runs(extra_dir) if run["job"] not in known]
+        attempts += [item for item in load_attempts(extra_dir) if item["job"] not in known]
+        planned.update({job_id: job for job_id, job in planned_jobs(extra_meta).items() if job_id not in planned})
         meta.setdefault("merged_runs", []).append({key: extra_meta.get(key) for key in (
-            "started_utc", "plugin", "hermes", "harness_sha256", "cli", "planned_jobs")})
+            "started_utc", "config", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs")})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
-    result = aggregate(runs, meta)
+    result = aggregate(runs, meta, attempts, planned)
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
                        "text.", "meta": meta, "results": result,
@@ -796,6 +918,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--out", required=True)
     run.add_argument("--limit", type=int, default=0)
     run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--allow-harness-change", action="store_true",
+                     help="continue a run folder after a harness change that does not change job results (recorded)")
     run.set_defaults(func=command_run)
     report = sub.add_parser("report", help="aggregate runs.jsonl into the JSON results and the Markdown report")
     report.add_argument("--out", required=True)
