@@ -272,6 +272,12 @@ class ScoringTest(unittest.TestCase):
             with self.subTest(answer=answer):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
                 self.assertFalse(scoring.score(question("choice", "done"), answer))
+        # A completion word with a negative prefix is a negated completion: blocked wins (synthetic answers).
+        for answer, gold in (("Blocked; incomplete", "blocked"), ("Blocked; unfinished", "blocked"),
+                             ("incomplete", "open"), ("Unfinished.", "open")):
+            with self.subTest(answer=answer):
+                self.assertTrue(scoring.score(question("choice", gold), answer))
+                self.assertFalse(scoring.score(question("choice", "done"), answer))
         # A future or scheduled completion is not done (synthetic answers).
         for answer, gold in (("will be completed tomorrow", "open"), ("scheduled to be finished after review", "open"),
                              ("Blocked; will be completed after review", "blocked")):

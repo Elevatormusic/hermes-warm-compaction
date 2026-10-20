@@ -50,6 +50,9 @@ NEGATION = (r"(?<![a-z0-9])(?:not|never|no|cannot|cant|isnt|arent|wasnt|werent|h
 # A negated completion phrase names the open class. Examples: "not completed", "not fully completed", "not actually
 # done", "cannot be completed", "has not been finished yet".
 NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished|finish)(?![a-z0-9])")
+# A completion word with a negative prefix ("incomplete", "unfinished") is a negated completion too: it names the
+# open class, and an explicit blocked label wins over it ("Blocked; incomplete" is blocked).
+INCOMPLETE = re.compile(r"(?<![a-z0-9])(?:incomplete|unfinished)(?![a-z0-9])")
 # A pending or future completion ("still needs to be completed", "yet to be done", "waiting to complete", "will be
 # completed tomorrow", "scheduled to be finished") is not done: the
 # completion word is removed, and the answer infers the open class (an explicit blocked label wins over it).
@@ -136,16 +139,16 @@ def keyword_in(text: str, keyword: str) -> bool:
 
 def status_class(answer: str) -> str | None:
     """The one status class that the answer names, or None for no class or more than one. A negated completion
-    phrase (NEGATED_DONE) names the open class, and its completion word does not name the done class. A negated
-    open or blocked label (NEGATED_LABEL) names no class. An answer that states uncertainty (UNCERTAIN) names no
-    class."""
+    phrase (NEGATED_DONE, INCOMPLETE) names the open class, and its completion word does not name the done class.
+    A negated open or blocked label (NEGATED_LABEL) names no class. An answer that states uncertainty (UNCERTAIN)
+    names no class."""
     text = normalize(answer)
     if UNCERTAIN.search(text):
         return None
     pending = PENDING_DONE.search(text) is not None
     text = PENDING_DONE.sub(r"\1", text)
-    negated = pending or NEGATED_DONE.search(text) is not None
-    text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", text))
+    negated = pending or NEGATED_DONE.search(text) is not None or INCOMPLETE.search(text) is not None
+    text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", INCOMPLETE.sub(" ", text)))
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}
     if negated and found != {"blocked"}:
         # A negated completion infers the open class. An explicit blocked label wins over it: "Blocked; not
