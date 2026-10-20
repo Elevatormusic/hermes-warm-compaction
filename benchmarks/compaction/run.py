@@ -640,13 +640,19 @@ def server_model(config: dict) -> dict | None:
 
 
 def override_conflicts(config: dict) -> list[str]:
-    """Config overrides that would change the method of a job (see worker.PROTECTED_SECTIONS)."""
-    sample = {"model": config.get("model"), "endpoint": config.get("endpoint"), "api_key": "", "engine":
-              "warm_compaction", "context_length": config.get("context_length") or 0,
-              "threshold": config.get("threshold") or 0, "settings": {}}
-    return ([f"hermes_config.{path}" for path in job_worker.override_conflicts(
-        job_worker.base_config(sample), config.get("hermes_config") or {})]
-        + [f"qa_extra_body.{key}" for key in job_worker.qa_body_conflicts(config.get("qa_extra_body") or {})])
+    """The config override keys that are not on the allow-lists (worker.HERMES_CONFIG_ALLOWED and
+    worker.QA_EXTRA_ALLOWED)."""
+    return ([f"hermes_config.{path}" for path in job_worker.override_conflicts(config.get("hermes_config") or {})]
+            + [f"qa_extra_body.{key}" for key in job_worker.qa_body_conflicts(config.get("qa_extra_body") or {})])
+
+
+def skipped_methods(meta: dict) -> list[dict]:
+    """The methods that the first plan and each resume plan skipped, each method once (the first reason)."""
+    found: dict[str, dict] = {}
+    for item in (meta.get("skipped_methods") or []) + [
+            skipped for resume in meta.get("resumes") or [] for skipped in resume.get("skipped_methods") or []]:
+        found.setdefault(item["method"], item)
+    return list(found.values())
 
 
 def server_state(config: dict) -> str | None:
@@ -725,7 +731,7 @@ def command_run(args) -> int:
         if not args.dry_run:
             meta.setdefault("resumes", []).append({
                 "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "harness_sha256": harness_hashes(),
-                "harness_changed": harness, "methods": list(config["methods"]),
+                "harness_changed": harness, "methods": list(config["methods"]), "skipped_methods": skipped,
                 "plan": public_config({key: config[key] for key in PLAN_KEYS if key in config})})
             meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
     runs_path = out_dir / "runs.jsonl"
@@ -1377,6 +1383,7 @@ def command_report(args) -> int:
         planned.update({job_id: job for job_id, job in planned_jobs(extra_meta).items() if job_id not in planned})
         meta.setdefault("merged_runs", []).append({**{key: extra_meta.get(key) for key in (
             "started_utc", "plugin", "hermes", "harness_sha256", "resumes", "cli", "planned_jobs", "server_model")},
+            "skipped_methods": skipped_methods(extra_meta),
             "config": report_config(extra_meta)})
         meta.setdefault("cli", {}).update(extra_meta.get("cli") or {})
     if rescores:
@@ -1393,6 +1400,10 @@ def command_report(args) -> int:
     meta["config"] = report_config(meta)
     meta.pop("config_sha256", None)
     meta.pop("runtime_sha256", None)
+    # The methods that the first plan or a resume plan skipped (also of a merged run folder).
+    meta["skipped_methods"] = list({item["method"]: item for item in skipped_methods(meta) + [
+        skipped for merged in meta.get("merged_runs") or [] for skipped in merged.get("skipped_methods") or []]
+        }.values())
     data = {"schema": meta["schema"], "synthetic": True,
             "privacy": "Metadata only: counts, codes, booleans, times, and hashes. No message, answer, or summary "
                        "text.", "meta": meta, "results": result,

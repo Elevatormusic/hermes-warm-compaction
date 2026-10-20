@@ -215,6 +215,38 @@ class ScoringTest(unittest.TestCase):
         self.assertAlmostEqual(interval["mean"], 2.0)
         self.assertAlmostEqual(interval["high"] - interval["mean"], 4.303 / 3 ** 0.5, places=3)
 
+    def test_statistics_are_exact_at_edge_sizes(self):
+        # t: the exact quantile at each df, also between the keys of a printed table (two-sided 95%, 3 decimals).
+        printed = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 10: 2.228, 20: 2.086, 21: 2.080, 22: 2.074,
+                   24: 2.064, 25: 2.060, 29: 2.045, 30: 2.042, 40: 2.021, 60: 2.000, 120: 1.980}
+        for df, value in printed.items():
+            self.assertAlmostEqual(scoring.t_quantile(df), value, places=3, msg=df)
+        # Between table keys the quantile is larger than at the next key (a smaller df gives a wider interval).
+        self.assertGreater(scoring.t_quantile(21), scoring.t_quantile(25))
+        self.assertGreater(scoring.t_quantile(100000), 1.95996)
+        self.assertTrue(scoring.t_quantile(0) != scoring.t_quantile(0))  # NaN: no interval for df 0
+        # mean_interval at n = 0, 1, 2.
+        self.assertEqual(scoring.mean_interval([])["mean"], None)
+        self.assertEqual((scoring.mean_interval([4.0])["mean"], scoring.mean_interval([4.0])["low"]), (4.0, None))
+        two = scoring.mean_interval([1.0, 3.0])
+        self.assertAlmostEqual(two["high"] - two["mean"], 12.7062 * (2 ** 0.5) / 2 ** 0.5, places=3)
+        # Wilson at n = 0, 1, 2 (z = 1.959964, at least the exact 97.5% normal quantile).
+        self.assertGreaterEqual(1.959964, 1.95996398454)
+        self.assertEqual(scoring.wilson(0, 0), (None, None))
+        self.assertEqual(scoring.wilson(0, 1)[0], 0.0)
+        self.assertAlmostEqual(scoring.wilson(0, 1)[1], 0.79345, places=4)
+        self.assertAlmostEqual(scoring.wilson(1, 1)[0], 0.20655, places=4)
+        self.assertEqual(scoring.wilson(1, 1)[1], 1.0)
+        low, high = scoring.wilson(1, 2)
+        self.assertAlmostEqual(low + high, 1.0)
+        # McNemar (exact binomial) at 0, 1, and 2 discordant pairs, and a tie.
+        self.assertIsNone(scoring.mcnemar(0, 0))
+        self.assertEqual(scoring.mcnemar(0, 1), 1.0)
+        self.assertEqual(scoring.mcnemar(1, 1), 1.0)
+        self.assertEqual(scoring.mcnemar(0, 2), 0.5)
+        self.assertEqual(scoring.mcnemar(3, 3), 1.0)
+        self.assertAlmostEqual(scoring.mcnemar(0, 5), 0.0625)
+
 
 class RunTest(unittest.TestCase):
     def test_method_settings_follow_the_plugin_settings(self):
@@ -604,6 +636,26 @@ class RunTest(unittest.TestCase):
         self.assertEqual(report["meta"]["config"]["hermes_config"],
                          {"redacted": True, "types": {"model.headers.X-Fake": "str"}})
 
+    def test_report_lists_the_methods_that_each_resume_skipped(self):
+        first = {"method": "fallback_quoted_ledger", "reason": "plugin_setting_missing"}
+        later = {"method": "warm_no_ledger", "reason": "plugin_setting_missing"}
+        meta = {"schema": "s", "config": {"model": "m"}, "plugin": {}, "hermes": {}, "skipped_methods": [first],
+                "resumes": [{"plan": {"methods": ["warm_no_ledger"]}, "skipped_methods": [later, first]}]}
+        self.assertEqual(run.skipped_methods(meta), [first, later])
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder)
+            (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            (out / "runs.jsonl").write_text("", encoding="utf-8")
+            args = types.SimpleNamespace(out=str(out), json=str(out / "r.json"), md=str(out / "r.md"), also=None,
+                                         rescore=False, raw_dir=None)
+            with mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+                run.command_report(args)
+            report = json.loads((out / "r.json").read_text(encoding="utf-8"))
+            text = (out / "r.md").read_text(encoding="utf-8")
+        self.assertEqual([item["method"] for item in report["meta"]["skipped_methods"]],
+                         ["fallback_quoted_ledger", "warm_no_ledger"])
+        self.assertIn("Skipped methods: fallback_quoted_ledger, warm_no_ledger.", text)
+
     def test_plugin_hash_covers_every_loaded_file(self):
         with tempfile.TemporaryDirectory() as folder:
             package = Path(folder) / "warm_compaction"
@@ -640,13 +692,22 @@ class RunTest(unittest.TestCase):
     def test_config_overrides_cannot_change_the_method(self):
         job = {"model": "m", "endpoint": "http://127.0.0.1:9/v1", "api_key": "", "context_length": 8,
                "threshold": 0.9, "engine": "warm_compaction", "settings": {"ledger": True}}
-        base = worker.base_config(job)
+        # An allow-list: only model.headers. Every other key is refused, also a key that the benchmark does not set
+        # (an auxiliary model of the built-in compressor, another engine key, an unknown section).
         for override in ({"context": {"engine": "compressor"}}, {"compression": {"threshold": 0.5}},
                          {"plugins": {"entries": {"warm_compaction": {"settings": {"ledger": False}}}}},
-                         {"model": {"base_url": "http://127.0.0.1:8/v1"}}, {"auxiliary": {"warm_compaction": {}}}):
-            self.assertTrue(worker.override_conflicts(base, override), override)
-        self.assertEqual(worker.override_conflicts(base, {"model": {"headers": {"X-Fake": "1"}}}), [])
+                         {"model": {"base_url": "http://127.0.0.1:8/v1"}}, {"auxiliary": {"warm_compaction": {}}},
+                         {"auxiliary": {"compression": {"provider": "other", "model": "other"}}},
+                         {"model": {"headers_extra": 1}}, {"model": {}}, {"new_section": {"key": 1}}, {"x": 1}):
+            self.assertTrue(worker.override_conflicts(override), override)
+        self.assertEqual(worker.override_conflicts({"auxiliary": {"compression": {"model": "other"}}}),
+                         ["auxiliary"])
+        self.assertEqual(worker.override_conflicts({"model": {"headers": {"X-Fake": "1"}}}), [])
+        self.assertEqual(worker.override_conflicts({"model": {"headers": {}, "provider": "x"}}), ["model.provider"])
         self.assertEqual(worker.qa_body_conflicts({"max_tokens": 1, "top_p": 1}), ["max_tokens"])
+        self.assertEqual(worker.qa_body_conflicts({"logit_bias": {}, "response_format": {}, "seed": 1}),
+                         ["logit_bias", "response_format"])
+        self.assertEqual(worker.qa_body_conflicts({key: 1 for key in worker.QA_EXTRA_ALLOWED}), [])
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaisesRegex(worker.JobFailed, "hermes_config_protected:1"):
                 worker.write_config(Path(folder), {**job, "hermes_config": {"context": {"engine": "compressor"}}})

@@ -205,19 +205,50 @@ def wilson(successes: int, total: int, z: float = 1.959964) -> tuple[float | Non
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
-T_975 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
-         11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
-         20: 2.086, 25: 2.060, 30: 2.042, 40: 2.021, 60: 2.000, 120: 1.980}
+
+def incomplete_beta(x: float, a: float, b: float) -> float:
+    """The regularized incomplete beta function I_x(a, b) (continued fraction, modified Lentz method)."""
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    if x > (a + 1) / (a + b + 2):
+        return 1.0 - incomplete_beta(1.0 - x, b, a)
+    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x)) / a
+    tiny = 1e-300
+    c, d = 1.0, 1.0 - (a + b) * x / (a + 1)
+    d = 1.0 / (d if abs(d) > tiny else tiny)
+    result = d
+    for m in range(1, 1000):
+        for numerator in (m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)),
+                          -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))):
+            d = 1.0 + numerator * d
+            d = 1.0 / (d if abs(d) > tiny else tiny)
+            c = 1.0 + numerator / c
+            c = c if abs(c) > tiny else tiny
+            result *= c * d
+        if abs(c * d - 1.0) < 1e-15:
+            break
+    return front * result
 
 
-def t_quantile(df: int) -> float:
+def t_cdf(t: float, df: int) -> float:
+    """The CDF of Student's t distribution with df degrees of freedom."""
+    tail = 0.5 * incomplete_beta(df / (df + t * t), df / 2, 0.5)
+    return 1.0 - tail if t >= 0 else tail
+
+
+def t_quantile(df: int, p: float = 0.975) -> float:
+    """The exact p quantile of Student's t distribution (bisection on t_cdf), for each df >= 1."""
     if df <= 0:
         return float("nan")
-    keys = sorted(T_975)
-    for key in keys:
-        if df <= key:
-            return T_975[key]
-    return 1.960
+    low, high = 0.0, 1.0
+    while t_cdf(high, df) < p:
+        high *= 2
+    for _ in range(200):
+        middle = (low + high) / 2
+        low, high = (middle, high) if t_cdf(middle, df) < p else (low, middle)
+    return high
 
 
 def mean_interval(values: list[float]) -> dict[str, Any]:

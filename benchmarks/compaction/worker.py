@@ -27,9 +27,13 @@ from scoring import missing_answers, prompt_sha256, qa_prompt  # noqa: E402
 
 WIRE_KEYS = ("role", "content", "tool_calls", "tool_call_id", "name")
 # Config sections that define the method of a job. hermes_config cannot set anything in them.
-PROTECTED_SECTIONS = ("context", "compression", "plugins", "auxiliary.warm_compaction")
-# Request fields of the QA call that define the experiment. qa_extra_body cannot set them.
-QA_PROTECTED_KEYS = ("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "stream", "n")
+# The only Hermes settings that hermes_config can set (an allow-list): extra request headers of the main model
+# route, for a local gateway. Every other key (a route, an engine, an auxiliary model, a plugin) is refused.
+HERMES_CONFIG_ALLOWED = ("model.headers",)
+# The only QA request fields that qa_extra_body can set: sampler and chat template options. The model, the messages,
+# the output limit, the temperature, and streaming stay fixed.
+QA_EXTRA_ALLOWED = ("chat_template_kwargs", "seed", "top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty",
+                    "frequency_penalty")
 
 
 class JobFailed(Exception):
@@ -110,22 +114,22 @@ def ask(job: dict, system: str, rows: list) -> dict:
 
 
 def qa_body_conflicts(extra: dict) -> list[str]:
-    return sorted(key for key in extra if key in QA_PROTECTED_KEYS)
+    """The qa_extra_body keys that are not on the allow-list."""
+    return sorted(str(key) for key in extra if key not in QA_EXTRA_ALLOWED)
 
 
-def override_conflicts(base: dict, override: dict, prefix: str = "") -> list[str]:
-    """The key paths in override that change the method of a job: a protected section, or a value that the
-    benchmark sets (the model route and the other settings of base_config). New keys elsewhere are allowed."""
+def override_conflicts(override: dict, prefix: str = "") -> list[str]:
+    """The leaf key paths of hermes_config that are not on the allow-list (HERMES_CONFIG_ALLOWED)."""
     found = []
     for key, value in override.items():
         path = f"{prefix}.{key}" if prefix else str(key)
-        if any(path == section or path.startswith(section + ".") for section in PROTECTED_SECTIONS):
-            found += override_conflicts({}, value, path) if isinstance(value, dict) and value else [path]
-        elif key in base:
-            if isinstance(value, dict) and isinstance(base[key], dict):
-                found += override_conflicts(base[key], value, path)
-            else:
-                found.append(path)
+        if any(path == allowed or path.startswith(allowed + ".") for allowed in HERMES_CONFIG_ALLOWED):
+            continue
+        if isinstance(value, dict) and value and any(allowed.startswith(path + ".")
+                                                     for allowed in HERMES_CONFIG_ALLOWED):
+            found += override_conflicts(value, path)
+        else:
+            found.append(path)
     return found
 
 
@@ -160,7 +164,7 @@ def write_config(home: Path, job: dict) -> None:
     """Write base_config with the allowed hermes_config additions. An override of a benchmark setting fails before
     any other step."""
     config = base_config(job)
-    conflicts = override_conflicts(config, job.get("hermes_config") or {})
+    conflicts = override_conflicts(job.get("hermes_config") or {})
     if conflicts:
         # The error keeps a count only: the key names come from the user configuration.
         raise JobFailed(f"hermes_config_protected:{len(conflicts)}")
