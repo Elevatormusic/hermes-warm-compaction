@@ -143,6 +143,18 @@ class ScoringTest(unittest.TestCase):
         self.assertTrue(scoring.score(item, "1"))
         self.assertFalse(scoring.score(item, "0"))
         self.assertFalse(scoring.score(item, "unknown"))
+        # An answer that starts by saying that it is not known is wrong, also with a guess after it (synthetic).
+        for answer in ("unknown, maybe 1", "Not stated; possibly 1", "I don't know - perhaps 1", "unclear: 1?"):
+            with self.subTest(answer=answer):
+                self.assertFalse(scoring.score(item, answer))
+        self.assertTrue(scoring.score(question("text", "37"), "37 (not stated elsewhere)"))
+
+    def test_text_versions_need_whole_versions(self):
+        item = question("text", "7.3.0")
+        for answer, correct in (("v7.3.0", True), ("7.3.0", True), ("release 7.3.0.", True), ("7.3.0.1", False),
+                                ("17.3.0", False), ("xv7.3.0", False), ("-7.3.0", False)):
+            with self.subTest(answer=answer):
+                self.assertEqual(scoring.score(item, answer), correct)
 
     def test_text_needs_whole_words(self):
         item = question("text", "37")
@@ -1502,6 +1514,31 @@ class RunTest(unittest.TestCase):
             self.assertEqual(git(source, "status", "--porcelain"), b"")
             self.assertFalse(run.hermes_state(source)["clean"])
             self.assertEqual(run.tracked_links(source), ["agent_patch.py"])
+
+    def test_checkout_with_a_hidden_edit_is_not_clean(self):
+        def git(folder, *args):
+            return subprocess.run(["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                                   *args], check=True, capture_output=True).stdout
+
+        for flag in ("--assume-unchanged", "--skip-worktree"):
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as folder:
+                source = Path(folder) / "hermes"
+                (source / "warm_compaction").mkdir(parents=True)
+                (source / "agent.py").write_text("x = 1\n", encoding="utf-8")  # synthetic Hermes source
+                for name in ("engine.py", "plugin.yaml"):
+                    (source / "warm_compaction" / name).write_text("x = 1\n", encoding="utf-8")
+                git(source, "init", "-q")
+                git(source, "add", "-A")
+                git(source, "commit", "-q", "-m", "synthetic")
+                self.assertTrue(run.hermes_state(source)["clean"])
+                self.assertIsNotNone(run.plugin_state(source)["commit"])
+                # An edit that the index flag hides from git status.
+                for name in ("agent.py", "warm_compaction/engine.py"):
+                    git(source, "update-index", flag, name)
+                    (source / name).write_text("x = 2\n", encoding="utf-8")
+                self.assertEqual(git(source, "status", "--porcelain"), b"")
+                self.assertFalse(run.hermes_state(source)["clean"])
+                self.assertIsNone(run.plugin_state(source)["commit"])
 
     def test_runner_python_identity_follows_its_files(self):
         with tempfile.TemporaryDirectory() as folder:

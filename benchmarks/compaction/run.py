@@ -133,7 +133,9 @@ def plugin_state(plugin_root: Path) -> dict[str, Any]:
     if checkout_root(plugin_root) and SYMLINK not in files.values():
         tracked = set((git_output(plugin_root, "ls-files", "-z", "--", "warm_compaction") or "").split("\0"))
         status = git_output(plugin_root, "status", "--porcelain", "--untracked-files=all", "--", "warm_compaction")
-        if status is not None and not status.strip() and {f"warm_compaction/{name}" for name in files} <= tracked:
+        hidden = hidden_entries(plugin_root, "warm_compaction")
+        if status is not None and not status.strip() and hidden == [] and \
+                {f"warm_compaction/{name}" for name in files} <= tracked:
             commit = (git_output(plugin_root, "rev-parse", "HEAD") or "").strip() or None
     return {"files_sha256": files, "settings_known": known, "commit": commit}
 
@@ -146,6 +148,15 @@ def tracked_links(source: Path) -> list[str] | None:
     if listed is None:
         return None
     return [entry.split("\t", 1)[1] for entry in listed.split("\0") if entry.startswith("120000 ") and "\t" in entry]
+
+
+def hidden_entries(source: Path, *paths: str) -> list[str] | None:
+    """The tracked files that Git marks assume-unchanged (a lower-case tag) or skip-worktree (tag S): Git does not
+    report an edit of such a file in its status, so the commit would not describe the code. None when Git fails."""
+    listed = git_output(source, "ls-files", "-v", "-z", *(["--", *paths] if paths else []))
+    if listed is None:
+        return None
+    return [entry[2:] for entry in listed.split("\0") if len(entry) > 2 and (entry[0].islower() or entry[0] == "S")]
 
 
 def ignored_files(source: Path) -> list[str] | None:
@@ -164,15 +175,16 @@ def ignored_files(source: Path) -> list[str] | None:
 def hermes_state(source: Path) -> dict[str, Any]:
     """The commit and state of the Hermes checkout. A folder that is not the top folder of a Git checkout (no
     checkout, or a copy inside another checkout) has an unknown commit and is not clean. A changed, untracked, or
-    ignored file (ignored_files) or a tracked symbolic link (tracked_links) makes the checkout not clean too: the
-    commit would not describe the code."""
+    ignored file (ignored_files), a tracked symbolic link (tracked_links), or a file with a hidden-edit flag
+    (hidden_entries) makes the checkout not clean too: the commit would not describe the code."""
     if not checkout_root(source):
         return {"commit": None, "clean": False}
     status = git_output(source, "status", "--porcelain")
     ignored = ignored_files(source)
     links = tracked_links(source)
+    hidden = hidden_entries(source)
     return {"commit": (git_output(source, "rev-parse", "HEAD") or "").strip() or None,
-            "clean": status is not None and not status.strip() and ignored == [] and links == []}
+            "clean": status is not None and not status.strip() and ignored == [] and links == [] and hidden == []}
 
 
 def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any] | None:

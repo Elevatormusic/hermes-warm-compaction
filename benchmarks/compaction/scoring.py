@@ -77,10 +77,20 @@ def loose(text: Any) -> str:
     return " ".join(re.sub(r"[^a-z0-9]+", " ", normalize(text)).split())
 
 
+# A dotted version ("7.3.0") can have a "v" before it ("v7.3.0"), but not another letter, a digit, or a sign, and
+# not a longer version after it ("7.3.0.1").
+VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)+")
+VERSION_LEFT = r"(?<![a-uw-z0-9+-])(?<![a-z0-9]v)(?<![0-9][.,])"
+NUMBER_RIGHT = r"(?![0-9])(?![.,][0-9])"
+
+
 def contains(haystack: str, needle: str) -> bool:
-    """needle occurs in haystack, and an edge that is a letter or digit is not part of a longer word."""
+    """needle occurs in haystack, and an edge that is a letter or digit is not part of a longer word. A dotted
+    version needle uses the version edges (VERSION)."""
     if not needle:
         return False
+    if VERSION.fullmatch(needle):
+        return re.search(VERSION_LEFT + re.escape(needle) + NUMBER_RIGHT, haystack) is not None
     left = r"(?<![a-z0-9])" if needle[0].isalnum() else ""
     right = r"(?![a-z0-9])" if needle[-1].isalnum() else ""
     return re.search(left + re.escape(needle) + right, haystack) is not None
@@ -109,9 +119,18 @@ def status_class(answer: str) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
+# An answer that starts by saying that the conversation does not give the answer is unknown, also with a guess
+# after it ("unknown, maybe 7.3.0").
+UNKNOWN_START = re.compile(r"(?:unknown|not stated|not given|not mentioned|not specified|not established|not recorded|"
+                           r"not known|not sure|unsure|unclear|uncertain|i dont know|i do not know|cannot tell|"
+                           r"cant tell|cannot determine|cant determine|no information|n/a)(?![a-z0-9])")
+
+
 def is_unknown(answer: Any) -> bool:
+    """True for an empty answer, an answer of "none", or an answer that starts with an unknown phrase
+    (UNKNOWN_START)."""
     text = normalize(answer)
-    return not text or text in ("unknown", "unknown.", "n/a", "none", "not stated", "not given")
+    return not text or text in ("unknown.", "none") or UNKNOWN_START.match(text) is not None
 
 
 def score(question: dict, answer: Any) -> bool:
@@ -162,13 +181,12 @@ def fact_positions(needle: str, normal: str) -> list[int]:
     if not needle:
         return []
     pattern = re.escape(needle)
-    if re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", needle):
-        # A dotted version can have a "v" before it ("v7.3.0"), but not another letter or digit.
-        pattern = r"(?<![a-uw-z0-9+-])(?<![a-z0-9]v)(?<![0-9][.,])" + pattern + r"(?![0-9])(?![.,][0-9])"
+    if VERSION.fullmatch(needle):
+        pattern = VERSION_LEFT + pattern + NUMBER_RIGHT
     elif re.fullmatch(r"[0-9.,:/ x%+-]+", needle):
         # A sign before the number changes the value ("-5" is not "5"), unless the fact has the sign.
         sign = "" if needle[0] in "+-" else r"(?<![+-])"
-        pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + sign + pattern + r"(?![0-9])(?![.,][0-9])"
+        pattern = r"(?<![a-z0-9])(?<![0-9][.,])" + sign + pattern + NUMBER_RIGHT
     elif short_text(needle):
         pattern = r"(?<![a-z0-9])" + pattern
     return [match.start() for match in re.finditer(pattern, normal)]
