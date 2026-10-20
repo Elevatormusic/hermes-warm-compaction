@@ -10,7 +10,8 @@ Answer rules (the question "kind" in a gold file):
 An answer "unknown" or an empty answer is wrong.
 
 Retention (model-free): the compacted history text has the fact. Each retention group needs one alternative, and
-all groups must occur within RETENTION_WINDOW characters. This check is approximate: it shows whether the text is
+one occurrence of each group must fit in one span of RETENTION_WINDOW characters (from the first to the last start
+position). This check is approximate: it shows whether the text is
 still there, not whether a model can use it.
 """
 
@@ -146,9 +147,10 @@ def retained(question: dict, text: str) -> bool:
         positions.append(sorted(found))
     if len(positions) == 1:
         return True
-    # Every group within one window: take each occurrence of the first group as the window start.
-    for start in positions[0]:
-        if all(any(abs(position - start) <= RETENTION_WINDOW for position in group) for group in positions[1:]):
+    # One span for all groups: the span starts at the first chosen occurrence, so try each occurrence of any group
+    # as the start, and each group needs an occurrence from there to RETENTION_WINDOW characters after it.
+    for start in sorted({position for group in positions for position in group}):
+        if all(any(start <= position <= start + RETENTION_WINDOW for position in group) for group in positions):
             return True
     return False
 

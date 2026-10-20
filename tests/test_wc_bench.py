@@ -1,5 +1,6 @@
 """Tests for the compaction benchmark harness (benchmarks/compaction). No model and no Hermes code run here."""
 
+import ast
 import contextlib
 import hashlib
 import io
@@ -197,6 +198,12 @@ class ScoringTest(unittest.TestCase):
         self.assertTrue(scoring.retained(item, "- `make test`: exit 2; error"))
         self.assertFalse(scoring.retained(item, "make test" + " x" * 400 + " exit 2"))
         self.assertFalse(scoring.retained(item, "- `make test`: exit 0"))
+        # Three groups: one before and one after the first group, each 400 characters away, span 800 characters.
+        three = {"kind": "keywords", "gold": [], "retention": [["alpha"], ["beta"], ["gamma"]]}
+        self.assertFalse(scoring.retained(three, "beta" + " x" * 200 + " alpha" + " x" * 200 + " gamma"))
+        self.assertTrue(scoring.retained(three, "beta" + " x" * 100 + " alpha" + " x" * 100 + " gamma"))
+        # Another occurrence of a group can give the one span.
+        self.assertTrue(scoring.retained(three, "gamma" + " x" * 400 + " beta alpha gamma"))
 
     def test_prompt_leaks_checks_the_full_batch_prompt(self):
         def item(id_, kind, gold, text):
@@ -306,10 +313,16 @@ class RunTest(unittest.TestCase):
                         {"drift": {k: v for k, v in config["drift"].items() if k != "methods"}},
                         {"drift": {k: v for k, v in config["drift"].items() if k != "fixtures"}},
                         {"drift": {k: v for k, v in config["drift"].items() if k != "cycles"}},
-                        {"replicates": 0}, {"replicates": "2"}):
+                        {"replicates": 0}, {"replicates": "2"},
+                        # A threshold outside the plugin range: the plugin would use its default.
+                        {"threshold": 0.99}, {"threshold": 0.05}, {"threshold": "0.9"}, {"threshold": True}):
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 run.plan({**config, **changed}, {"settings_known": ["warm", "ledger"]})
         self.assertEqual(len(run.plan({**config, "drift": {}}, {"settings_known": ["warm", "ledger"]})[0]), 6)
+        # The range is the plugin range (read from the source: the engine module needs Hermes to import).
+        source = (Path(run.__file__).parents[2] / "warm_compaction" / "engine.py").read_text(encoding="utf-8")
+        line = next(item for item in source.splitlines() if item.startswith("THRESHOLD_RANGE = "))
+        self.assertEqual(run.THRESHOLD_RANGE, ast.literal_eval(line.split("=", 1)[1].strip()))
         # Each drift method gets a job or is refused: not in "methods", or the control (it never compacts).
         for methods in (["warm_ledger", "fallback_relaxed_ledger"], ["warm_ledger", "full_context"]):
             with self.subTest(methods=methods), self.assertRaisesRegex(ValueError, "drift methods without a drift job"):

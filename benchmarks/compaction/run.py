@@ -199,6 +199,9 @@ def method_settings(name: str, plugin: dict, threshold: float) -> dict[str, Any]
 
 # The cycle count of a drift job: the first compaction and one for each of the two continuation chunks of a fixture.
 DRIFT_CYCLES = 3
+# The threshold range that the plugin accepts (warm_compaction/engine.py THRESHOLD_RANGE). The plugin uses its
+# default for a value outside it, so the methods of one run would use different thresholds.
+THRESHOLD_RANGE = (0.10, 0.95)
 
 
 def balanced_order(items: list, block: int) -> list:
@@ -254,6 +257,11 @@ def plan(config: dict, plugin: dict) -> tuple[list[dict], list[dict]]:
     reps = config.get("replicates", 5)
     if not isinstance(reps, int) or isinstance(reps, bool) or reps < 1:
         raise ValueError("replicates must be an integer of 1 or more")
+    threshold = config.get("threshold")
+    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool) or not (
+            THRESHOLD_RANGE[0] <= float(threshold) <= THRESHOLD_RANGE[1]):
+        raise ValueError(f"threshold must be a number from {THRESHOLD_RANGE[0]} to {THRESHOLD_RANGE[1]} (the "
+                         "plugin range): every method uses the same threshold")
     if drift.get("fixtures") or drift.get("methods"):
         # A drift section with only fixtures or only methods would plan no drift job: the experiment would be
         # missing from the run and the report without notice.
