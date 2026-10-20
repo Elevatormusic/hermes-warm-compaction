@@ -50,6 +50,9 @@ NEGATED_DONE = re.compile(NEGATION + r"(?:done|completed|complete|finished)(?![a
 # A negated open or blocked label names no class: "still open, not blocked" is open, and "not open" alone is no
 # class. ("not started" and "not done" are open phrases: the label after the negation is not in this list.)
 NEGATED_LABEL = re.compile(NEGATION + r"(?:blocked|waiting|open|pending|in progress|todo|to do)(?![a-z0-9])")
+# An answer that states uncertainty about the status names no class: "not sure if completed" is not an open answer.
+UNCERTAIN = re.compile(r"(?<![a-z0-9])(?:not sure|not clear|not certain|unsure|unclear|uncertain|cannot tell|cant "
+                       r"tell|unknown whether|unknown if)(?![a-z0-9])")
 
 
 def normalize(text: Any) -> str:
@@ -88,8 +91,11 @@ def keyword_in(text: str, keyword: str) -> bool:
 def status_class(answer: str) -> str | None:
     """The one status class that the answer names, or None for no class or more than one. A negated completion
     phrase (NEGATED_DONE) names the open class, and its completion word does not name the done class. A negated
-    open or blocked label (NEGATED_LABEL) names no class."""
+    open or blocked label (NEGATED_LABEL) names no class. An answer that states uncertainty (UNCERTAIN) names no
+    class."""
     text = normalize(answer)
+    if UNCERTAIN.search(text):
+        return None
     negated = NEGATED_DONE.search(text) is not None
     text = NEGATED_LABEL.sub(" ", NEGATED_DONE.sub(" ", text))
     found = {name for name, words in STATUS_CLASSES.items() if any(contains(text, word) for word in words)}

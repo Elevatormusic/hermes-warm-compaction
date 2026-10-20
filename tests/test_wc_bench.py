@@ -212,6 +212,12 @@ class ScoringTest(unittest.TestCase):
                 self.assertTrue(scoring.score(question("choice", gold), answer))
         self.assertFalse(scoring.score(question("choice", "open"), "not open"))
         self.assertFalse(scoring.score(question("choice", "blocked"), "not blocked"))
+        # An answer that states uncertainty names no class (synthetic answers).
+        for answer in ("not sure if completed", "Not clear whether finished.", "unclear if it is blocked",
+                       "I can't tell; maybe done"):
+            for gold in ("open", "done", "blocked"):
+                with self.subTest(answer=answer, gold=gold):
+                    self.assertFalse(scoring.score(question("choice", gold), answer))
         # A contrastive "not only" or "not merely" is not a negation.
         for answer in ("not only completed but verified", "Not merely done, but shipped."):
             with self.subTest(answer=answer):
