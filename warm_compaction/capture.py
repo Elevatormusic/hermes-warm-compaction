@@ -37,7 +37,9 @@ REQUEST_REFUSALS = ("request_not_mapping", "request_options_unsupported", "reque
 # If Hermes rewords a prompt, the matching below silently stops covering that fork
 # type until the prefix is updated; the tests pin the text so the drift is visible
 # in review. Where the host passes the turn's origin to the pre_api_request hook,
-# FORK_TURN_ORIGINS is the authoritative signal and the prefixes are the fallback.
+# the origin is the authoritative signal: a fork origin drops the request and a
+# non-fork origin is trusted and captured. The prefixes are the fallback only where
+# the host passes no origin.
 REVIEW_PROMPT_PREFIX = "Review the conversation above"
 SIDE_QUESTION_PROMPT_PREFIX = "The user asked a quick SIDE question with /btw"
 FORK_TURN_ORIGINS = ("background_review", "side_question")
@@ -60,10 +62,12 @@ class UnsupportedRequest(ValueError):
 def _is_fork_request(user_message: Any, turn_origin: Any = None) -> bool:
     """True for a detached-fork request (background review, side question). The fork's
     rows never enter the parent's stored conversation (Hermes severs the fork's
-    session binding), so the turn origin — or, where the host does not pass one, the
-    turn's user message — is the only check."""
-    if turn_origin in FORK_TURN_ORIGINS:
-        return True
+    session binding), so the turn origin — or, where the host passes no origin, the
+    turn's user message — is the only check. A host-supplied origin is authoritative
+    in both directions: a fork origin drops the request, and a non-fork origin is
+    trusted, so a live turn whose text starts with a fork prefix is still captured."""
+    if turn_origin is not None:
+        return turn_origin in FORK_TURN_ORIGINS
     try:
         text = plain_text(user_message).lstrip()
         return text.startswith(REVIEW_PROMPT_PREFIX) or text.startswith(SIDE_QUESTION_PROMPT_PREFIX)
