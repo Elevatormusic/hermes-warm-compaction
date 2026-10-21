@@ -24,22 +24,20 @@ REQUEST_REFUSALS = ("request_not_mapping", "request_options_unsupported", "reque
 # request must not replace the live conversation's capture: the next warm compaction
 # would build on the fork's prefix and degrade to the fallback (history_changed:digest).
 #
-# Two fork types are built by agent/background_review.py: build_cache_parity_fork,
-# with write_origin "background_review" (skill / memory / combined review) and
-# "side_question" (the /btw side questions of agent/side_question.py).
+# Both fork types are built with build_cache_parity_fork: the background review
+# (agent/background_review.py, origin "background_review") and the /btw side question
+# (agent/side_question.py, origin "side_question").
 #
-# The prompt prefixes are pinned to the current Hermes prompt texts:
+# The prompt prefixes match the current Hermes prompt texts:
 #   - background_review: _SKILL_REVIEW_PROMPT, _MEMORY_REVIEW_PROMPT and
-#     _COMBINED_REVIEW_PROMPT (agent/background_review.py) all start with
-#     REVIEW_PROMPT_PREFIX;
-#   - side_question: _FORK_PROMPT (agent/side_question.py) starts with
-#     SIDE_QUESTION_PROMPT_PREFIX.
-# If Hermes rewords a prompt, the matching below silently stops covering that fork
-# type until the prefix is updated; the tests pin the text so the drift is visible
-# in review. Where the host passes the turn's origin to the pre_api_request hook,
-# the origin is the authoritative signal: a fork origin drops the request and a
-# non-fork origin is trusted and captured. The prefixes are the fallback only where
-# the host passes no origin.
+#     _COMBINED_REVIEW_PROMPT all start with REVIEW_PROMPT_PREFIX;
+#   - side_question: _FORK_PROMPT starts with SIDE_QUESTION_PROMPT_PREFIX.
+# If Hermes rewords a prompt, the matching below stops covering that fork type until the
+# prefix is updated. The "fork_prompt_prefixes" case of scripts/check_hermes_compatibility.py
+# reads the prompts from the Hermes checkout, so a reword fails CI. Where the host passes
+# the turn's origin to the pre_api_request hook, the origin is the authoritative signal:
+# a fork origin drops the request and a non-fork origin is trusted and captured. The
+# prefixes are the fallback only where the host passes no origin.
 REVIEW_PROMPT_PREFIX = "Review the conversation above"
 SIDE_QUESTION_PROMPT_PREFIX = "The user asked a quick SIDE question with /btw"
 FORK_TURN_ORIGINS = ("background_review", "side_question")

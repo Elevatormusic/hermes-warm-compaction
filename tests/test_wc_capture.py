@@ -15,9 +15,8 @@ from warm_compaction.rows import row_digest
 from wc_fixtures import user
 
 # A copy of the current Hermes side-question fork prompt (agent/side_question.py:
-# _FORK_PROMPT), so the replacement test uses the real text. The pinned
-# prefix test (test_fork_prompt_prefixes_are_pinned_to_the_hermes_prompt_texts) keeps
-# this in step with the plugin's SIDE_QUESTION_PROMPT_PREFIX.
+# _FORK_PROMPT), so the replacement test uses the real text. Drift from Hermes is caught by
+# the "fork_prompt_prefixes" case of scripts/check_hermes_compatibility.py, not by this unit test.
 _SIDE_QUESTION_PROMPT = (
     "The user asked a quick SIDE question with /btw while the main work continues in the original "
     "session.\nRules:\n- Answer ONLY the side question, using the conversation above as context. Do not continue, "
@@ -219,10 +218,10 @@ class CaptureStoreTest(unittest.TestCase):
         self.assertIsNotNone(capture)
         self.assertIsNone(capture["refusal"])
 
-    def test_fork_prompt_prefixes_are_pinned_to_the_hermes_prompt_texts(self):
-        # Pin the prefixes to the current Hermes prompt texts (agent/background_review.py:
-        # _SKILL_REVIEW_PROMPT / _MEMORY_REVIEW_PROMPT / _COMBINED_REVIEW_PROMPT;
-        # agent/side_question.py: _FORK_PROMPT) so a reword is visible in review.
+    def test_fork_constants_keep_their_values(self):
+        # Guard the constants against an accidental edit. This test compares the constants
+        # with literals, so it cannot detect a Hermes reword; the Hermes compatibility
+        # job does that (case "fork_prompt_prefixes").
         self.assertEqual(REVIEW_PROMPT_PREFIX, "Review the conversation above")
         self.assertEqual(SIDE_QUESTION_PROMPT_PREFIX, "The user asked a quick SIDE question with /btw")
         self.assertEqual(FORK_TURN_ORIGINS, ("background_review", "side_question"))
