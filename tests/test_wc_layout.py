@@ -240,17 +240,41 @@ class BoundTailTest(unittest.TestCase):
         # A large user message or tool result alone above the tail budget would stay above the threshold after
         # the compaction. Its start and end stay.
         from warm_compaction.layout import bound_tail
-        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
+        from warm_compaction.rows import MIDDLE_MARK, sent_tokens
         rows = [assistant("", [("c1", "read", "{}")]), tool("c1", "head " + "r" * 40_000 + " tail"),
                 user("ask " + "u" * 20_000 + " end", api_content="[ctx]\n\nask " + "u" * 20_000 + " end")]
         bounded = bound_tail(rows, 2_000)
-        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        # The budget is on what Hermes sends (the sent payload), not the stored display text.
+        self.assertLessEqual(sum(sent_tokens(row) for row in bounded), 2_000)
         self.assertEqual(bounded[0], rows[0])
         self.assertTrue(bounded[1]["content"].startswith("head ") and bounded[1]["content"].endswith(" tail"))
         self.assertIn(MIDDLE_MARK, bounded[1]["content"])
-        self.assertTrue(bounded[2]["content"].startswith("[ctx]") and bounded[2]["content"].endswith(" end"))
-        self.assertNotIn("api_content", bounded[2])
+        # The user row keeps its display content intact; the cut sent payload stays in the api_content sidecar,
+        # so the stored display text is not replaced by the sent text (which carries <memory-context>).
+        self.assertEqual(bounded[2]["content"], "ask " + "u" * 20_000 + " end")
+        self.assertTrue(bounded[2]["api_content"].startswith("[ctx]") and bounded[2]["api_content"].endswith(" end"))
+        self.assertIn(MIDDLE_MARK, bounded[2]["api_content"])
         self.assertIs(bound_tail(rows[:1], 2_000)[0], rows[0])
+
+    def test_a_small_user_row_with_a_large_memory_context_sidecar_keeps_its_display(self):
+        # Regression (the "my messages move" bug): a real user row whose display content is short but
+        # whose sent payload (the api_content sidecar) is large because Hermes injected a <memory-context>
+        # block. bound_tail must cut the SENT payload and keep the DISPLAY content intact — not replace the
+        # display text with the cut sent text (which carries the <memory-context> block and a [cut] mark).
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import MIDDLE_MARK, sent_tokens
+        display = "algó algo raro en el código"  # what the user actually typed (short, no sidecar)
+        sent = display + "\n\n<memory-context>\n" + "recalled " * 3000 + "\n</memory-context>"  # large payload
+        rows = [assistant("", [("c1", "read", "{}")]), tool("c1", "ok"), user(display, api_content=sent)]
+        bounded = bound_tail(rows, 2_000)
+        self.assertLessEqual(sum(sent_tokens(row) for row in bounded), 2_000)
+        # Display content untouched: the exact text the user typed, no <memory-context>, no [cut] mark.
+        self.assertEqual(bounded[2]["content"], display)
+        self.assertNotIn("<memory-context>", bounded[2]["content"])
+        self.assertNotIn(MIDDLE_MARK, bounded[2]["content"])
+        # The cut sent payload stays in the sidecar (marked) and is what counts toward the budget.
+        self.assertIn(MIDDLE_MARK, bounded[2]["api_content"])
+        self.assertLess(len(bounded[2]["api_content"]), len(sent))
 
     def test_the_tail_is_sized_as_hermes_sends_it(self):
         # Hermes sends api_content in place of content: a row with both fields costs its sent text only.

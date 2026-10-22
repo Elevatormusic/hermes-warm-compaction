@@ -323,24 +323,42 @@ def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple
 
 
 def _set_parts(row: dict[str, Any], changes: dict[tuple, Any]) -> dict[str, Any]:
-    """Return a copy of the row with payloads replaced (key: value, with the keys of _tail_parts), in one copy. A
-    changed content drops the api_content sidecar: the new content is the sent text."""
+    """Return a copy of the row with payloads replaced (key: value, with the keys of _tail_parts), in one copy.
+
+    A user or assistant row that carries an ``api_content`` sidecar (the sent text) and a string display
+    ``content`` keeps its display content intact when the sent payload is cut: the cut payload stays in the
+    sidecar, so the stored display text is not replaced by the sent text (which carries ``<memory-context>``
+    and other model-only scaffolding). The display is what the user reads; the cut only serves the model's
+    context budget, which is measured on the sent text. A changed content without that sidecar (or with list
+    content) still replaces ``content`` directly: the new content is the sent text."""
     new = dict(row)
     content_keys = [key for key in changes if key[0] in ("content", "media")]
     if content_keys:
-        content = api_content(row) if row.get("role") in ("user", "assistant") else row.get("content")
-        new.pop("api_content", None)
-        if ("content",) in changes:
-            new["content"] = changes[("content",)]
+        role = row.get("role")
+        sidecar = attr(row, "api_content")
+        keeps_display = (
+            ("content",) in changes
+            and role in ("user", "assistant")
+            and isinstance(sidecar, str) and sidecar
+            and isinstance(row.get("content"), str)
+        )
+        if keeps_display:
+            # The cut sent payload goes to the sidecar; the display content stays as stored.
+            new["api_content"] = changes[("content",)]
         else:
-            items = list(content)
-            for key in content_keys:
-                item = items[key[1]]
-                if key[0] == "media" or isinstance(item, str):
-                    items[key[1]] = changes[key]
-                else:
-                    items[key[1]] = {**item, "text": changes[key]}
-            new["content"] = items
+            content = api_content(row) if role in ("user", "assistant") else row.get("content")
+            new.pop("api_content", None)
+            if ("content",) in changes:
+                new["content"] = changes[("content",)]
+            else:
+                items = list(content)
+                for key in content_keys:
+                    item = items[key[1]]
+                    if key[0] == "media" or isinstance(item, str):
+                        items[key[1]] = changes[key]
+                    else:
+                        items[key[1]] = {**item, "text": changes[key]}
+                new["content"] = items
     argument_keys = [key for key in changes if key[0] == "arguments"]
     if argument_keys:
         calls = [dict(call) for call in row["tool_calls"]]
