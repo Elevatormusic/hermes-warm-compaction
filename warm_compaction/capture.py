@@ -19,6 +19,28 @@ MAX_SESSIONS = 16
 CLIENT_OPTIONS = ("extra_body", "extra_headers", "extra_query", "timeout")
 CAPTURE_FINISH = ("stop", "tool_calls")
 REQUEST_REFUSALS = ("request_not_mapping", "request_options_unsupported", "request_not_json")
+# The user prompts of the Hermes detached-fork requests. A fork shares the parent's
+# session and model ("shared session_id for prefix warmth"), so a completed fork
+# request must not replace the live conversation's capture: the next warm compaction
+# would build on the fork's prefix and degrade to the fallback (history_changed:digest).
+#
+# Both fork types are built with build_cache_parity_fork: the background review
+# (agent/background_review.py, origin "background_review") and the /btw side question
+# (agent/side_question.py, origin "side_question").
+#
+# The prompt prefixes match the current Hermes prompt texts:
+#   - background_review: _SKILL_REVIEW_PROMPT, _MEMORY_REVIEW_PROMPT and
+#     _COMBINED_REVIEW_PROMPT all start with REVIEW_PROMPT_PREFIX;
+#   - side_question: _FORK_PROMPT starts with SIDE_QUESTION_PROMPT_PREFIX.
+# If Hermes rewords a prompt, the matching below stops covering that fork type until the
+# prefix is updated. The "fork_prompt_prefixes" case of scripts/check_hermes_compatibility.py
+# reads the prompts from the Hermes checkout, so a reword fails CI. Where the host passes
+# the turn's origin to the pre_api_request hook, the origin is the authoritative signal:
+# a fork origin drops the request and a non-fork origin is trusted and captured. The
+# prefixes are the fallback only where the host passes no origin.
+REVIEW_PROMPT_PREFIX = "Review the conversation above"
+SIDE_QUESTION_PROMPT_PREFIX = "The user asked a quick SIDE question with /btw"
+FORK_TURN_ORIGINS = ("background_review", "side_question")
 # A random salt for each plugin load: the stamps of one key differ between processes.
 _KEY_STAMP_SECRET = secrets.token_bytes(32)
 # PBKDF2 work for each stamp (about 3 ms): a stamp is made a few times for each main request.
@@ -33,6 +55,22 @@ def key_stamp(key: str) -> str:
 
 class UnsupportedRequest(ValueError):
     """The request body cannot become a warm request. The message is the reason code."""
+
+
+def _is_fork_request(user_message: Any, turn_origin: Any = None) -> bool:
+    """True for a detached-fork request (background review, side question). The fork's
+    rows never enter the parent's stored conversation (Hermes severs the fork's
+    session binding), so the turn origin — or, where the host passes no origin, the
+    turn's user message — is the only check. A host-supplied origin is authoritative
+    in both directions: a fork origin drops the request, and a non-fork origin is
+    trusted, so a live turn whose text starts with a fork prefix is still captured."""
+    if turn_origin is not None:
+        return turn_origin in FORK_TURN_ORIGINS
+    try:
+        text = plain_text(user_message).lstrip()
+        return text.startswith(REVIEW_PROMPT_PREFIX) or text.startswith(SIDE_QUESTION_PROMPT_PREFIX)
+    except Exception:
+        return False
 
 
 def request_headers(request: Any, api_mode: str = "chat_completions") -> dict[str, str]:
@@ -132,9 +170,15 @@ class CaptureStore:
 
     def on_pre_api_request(self, api_request_id: Any = None, session_id: Any = None,
                            conversation_history: Any = None, model: Any = None, base_url: Any = None,
-                           api_mode: Any = None, **_: Any) -> None:
+                           api_mode: Any = None, user_message: Any = None, turn_origin: Any = None,
+                           **_: Any) -> None:
         """Hook pre_api_request: keep the route and one digest for each stored history row."""
         if not api_request_id or not session_id or not isinstance(conversation_history, list):
+            return None
+        # A fork (background review, side question) shares the session for prefix warmth;
+        # its request must not become the capture of the live conversation (see
+        # FORK_TURN_ORIGINS and the prompt prefixes).
+        if _is_fork_request(user_message, turn_origin):
             return None
         try:
             digests = [row_digest(row) for row in conversation_history]
