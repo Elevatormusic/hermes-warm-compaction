@@ -610,7 +610,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 memory_context: str = "", task: str | None = TASK, timeout_s: float = TIMEOUT_S,
                 summary_words: int = DEFAULT_SUMMARY_WORDS,
                 ready: Callable[[], bool] | None = None,
-                failure: dict[str, Any] | None = None, quoted: bool = True) -> tuple[str | None, int | None]:
+                failure: dict[str, Any] | None = None, quoted: bool = True,
+                metadata: dict[str, Any] | None = None) -> tuple[str | None, int | None]:
     """Return (summary text, prompt tokens) from ctx.llm, or (None, None) when the request or the reply fails.
     ready checks the route and cancellation before each call and after each reply.
     An invalid reply gets one retry; after an end-marker failure it gets two. All calls share one time limit, and
@@ -618,9 +619,12 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
     quoted builds every section from verified source quotes. Otherwise the reply uses the free handoff sections
     of the warm request, and a reply without its end marker passes when it has all headings and stopped below the
     generation limit.
-    failure gets safe codes and bounded reply metadata only. It never gets provider text."""
+    failure gets safe codes and bounded reply metadata only. metadata gets bounded metadata for an accepted
+    reply only. Neither output gets provider text or the nonce. Both outputs are cleared before the call."""
     if failure is not None:
         failure.clear()
+    if metadata is not None:
+        metadata.clear()
     if llm is None:
         if failure is not None:
             failure["reason"] = "unavailable"
@@ -720,6 +724,8 @@ def llm_summary(llm: Any, messages: list, prefixes: Iterable[str], *, focus_topi
                 if text is not None and not _has_useful_evidence(text, source):
                     text, reason = None, "no_useful_evidence"
         if text is not None:
+            if metadata is not None:
+                metadata.update(_reply_metadata(result, raw, end_line, body, attempt))
             tokens = getattr(getattr(result, "usage", None), "input_tokens", None)
             return text, tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0 else None
         marker_failed = marker_failed or reason in MARKER_FAILURES

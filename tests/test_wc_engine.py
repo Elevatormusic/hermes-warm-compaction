@@ -1759,6 +1759,43 @@ class EngineTest(unittest.TestCase):
         self.assert_aborted(engine, history, "gate:missing_end_marker")
         self.assertEqual(len(self.llm.calls), 3)
 
+    def test_accepted_fallback_status_has_safe_metadata_on_first_or_later_attempt(self):
+        for format_name in ("quoted", "relaxed"):
+            for accepted_attempt in (1, 2, 3):
+                with self.subTest(format_name=format_name, accepted_attempt=accepted_attempt):
+                    calls = []
+                    synthetic = FakeLlm()
+
+                    def complete(messages, *, synthetic=synthetic, calls=calls,
+                                 accepted_attempt=accepted_attempt, **kwargs):
+                        result = synthetic.complete(messages, **kwargs)
+                        calls.append((messages, result.text))
+                        if len(calls) < accepted_attempt:
+                            result.text = "synthetic private refusal"
+                        result.usage.output_tokens = 1095 if len(calls) == accepted_attempt else 9000
+                        return result
+
+                    self.llm = SimpleNamespace(complete=complete)
+                    engine = self.make(warm=False, fallback_format=format_name)
+                    with self.assertLogs("warm_compaction", level="INFO") as logs:
+                        engine.compress([*old_turns(), assistant("synthetic final reply")])
+                    status = engine.get_status()["warm_last"]
+                    self.assertEqual(status["path"], "fallback")
+                    self.assertIsNone(status.get("fallback_reason"))
+                    expected = {"output_tokens": 1095, "requested_max_tokens": 8192, "end_marker": "present",
+                                "attempts": accepted_attempt,
+                                "body_tokens": estimate_tokens(calls[-1][1].rsplit("\n", 1)[0])}
+                    logged = "\n".join(logs.output)
+                    for key, value in expected.items():
+                        self.assertEqual(status["fallback_" + key], value)
+                        self.assertIn(f"fallback_{key}={value}", logged)
+                    self.assertEqual(len(calls), accepted_attempt)
+                    published = logged + json.dumps(status)
+                    self.assertNotIn("synthetic private refusal", published)
+                    self.assertNotIn(calls[-1][1], published)
+                    for messages, _text in calls:
+                        self.assertNotIn(messages[0]["content"].rstrip().splitlines()[-1], published)
+
     def test_fallback_refusal_status_has_safe_counts_and_marker_code(self):
         # These replies and counts are synthetic. History must stay unchanged.
         from warm_compaction.rows import estimate_tokens
