@@ -1,0 +1,991 @@
+{
+ "label": "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values.",
+ "id": "s6-lumen",
+ "target_tokens": 100000,
+ "history_sha256": "e4a15f9c6de12d7f5c019c4b84acd8411666d175f1d991ce2133091340ca9b41",
+ "rows": 241,
+ "est_tokens": 100255,
+ "continuation_est_tokens": [
+  50771,
+  51222
+ ],
+ "questions": [
+  {
+   "id": "s6-lumen:01",
+   "category": "goal",
+   "question": "What is the main goal of this session? Answer in one sentence.",
+   "kind": "keywords",
+   "gold": [
+    [
+     "label",
+     "accessib",
+     "a11y"
+    ],
+    [
+     "datepicker",
+     "date picker"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "label",
+     "accessib",
+     "a11y"
+    ],
+    [
+     "datepicker",
+     "date picker"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:02",
+   "category": "goal",
+   "question": "Which source file is the main target of the change? Give the path.",
+   "kind": "path",
+   "gold": "src/components/DatePicker/DatePicker.tsx",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "src/components/DatePicker/DatePicker.tsx"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:03",
+   "category": "goal",
+   "question": "What acceptance criterion did the user set for the work to count as finished?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "zero violation",
+     "0 violation",
+     "no violation",
+     "zero axe",
+     "no axe"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "zero violation",
+     "0 violation",
+     "no violation",
+     "zero axe",
+     "no axe"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:04",
+   "category": "goal",
+   "question": "Which release is this work for?",
+   "kind": "text",
+   "gold": "7.3.0",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "7.3.0"
+    ],
+    [
+     "release"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:05",
+   "category": "goal",
+   "question": "What did the user say is out of scope?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "timepicker",
+     "time picker"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "timepicker",
+     "time picker"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:06",
+   "category": "user_instruction",
+   "question": "The user gave a rule about styling. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not change any CSS or design tokens.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Do not change any CSS or design tokens."
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:07",
+   "category": "user_instruction",
+   "question": "The user gave a rule about ARIA roles. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Prefer native HTML elements over ARIA roles where possible.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Prefer native HTML elements over ARIA roles where possible."
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:08",
+   "category": "user_instruction",
+   "question": "The user gave a rule about snapshot updates. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Review each snapshot diff before you update it.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Review each snapshot diff before you update it."
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:09",
+   "category": "user_instruction",
+   "question": "The user gave a rule about label text. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "All new label text must go through the t() translation function.",
+   "evidence_rows": [
+    60
+   ],
+   "retention": [
+    [
+     "All new label text must go through the t() translation function."
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:10",
+   "category": "user_instruction",
+   "question": "The user gave a rule about browser support. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Keep Safari 16 support.",
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "Keep Safari 16 support."
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:11",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npx jest src/components/DatePicker` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    6
+   ],
+   "retention": [
+    [
+     "npx jest src/components/DatePicker"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s6-lumen:12",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npx axe-storybook --story datepicker--default` return? Answer with the number.",
+   "kind": "number",
+   "gold": "2",
+   "evidence_rows": [
+    48
+   ],
+   "retention": [
+    [
+     "npx axe-storybook --story datepicker--default"
+    ],
+    [
+     "exit 2",
+     "exit_code: 2",
+     "exit code 2",
+     "exit code: 2",
+     "exited 2",
+     "exited with 2",
+     "returned 2",
+     "status 2",
+     "code 2"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s6-lumen:13",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npx tsc --noEmit` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    76
+   ],
+   "retention": [
+    [
+     "npx tsc --noEmit"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s6-lumen:14",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npx eslint src/components/DatePicker --max-warnings 0` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    97
+   ],
+   "retention": [
+    [
+     "npx eslint src/components/DatePicker --max-warnings 0"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s6-lumen:15",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npm run storybook:build` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    124
+   ],
+   "retention": [
+    [
+     "npm run storybook:build"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s6-lumen:16",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npx playwright test e2e/datepicker.spec.ts --project=webkit` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    148
+   ],
+   "retention": [
+    [
+     "npx playwright test e2e/datepicker.spec.ts --project=webkit"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s6-lumen:17",
+   "category": "command_outcome",
+   "question": "What error line did the command `npx jest src/components/DatePicker` print? Quote it.",
+   "kind": "text",
+   "gold": "3 snapshots failed from 1 test suite.",
+   "evidence_rows": [
+    6
+   ],
+   "retention": [
+    [
+     "3 snapshots failed from 1 test suite."
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s6-lumen:18",
+   "category": "command_outcome",
+   "question": "What error line did the command `npx axe-storybook --story datepicker--default` print? Quote it.",
+   "kind": "text",
+   "gold": "button-name: Buttons must have discernible text (2 nodes)",
+   "evidence_rows": [
+    48
+   ],
+   "retention": [
+    [
+     "button-name: Buttons must have discernible text (2 nodes)"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s6-lumen:19",
+   "category": "command_outcome",
+   "question": "What error line did the command `npx eslint src/components/DatePicker --max-warnings 0` print? Quote it.",
+   "kind": "text",
+   "gold": "Missing translation call for string literal",
+   "evidence_rows": [
+    97
+   ],
+   "retention": [
+    [
+     "Missing translation call for string literal"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s6-lumen:20",
+   "category": "file_changed",
+   "question": "Which file did the agent change to name the month navigation buttons? Give the path.",
+   "kind": "path",
+   "gold": "src/components/DatePicker/DatePicker.tsx",
+   "evidence_rows": [
+    13,
+    14
+   ],
+   "retention": [
+    [
+     "src/components/DatePicker/DatePicker.tsx"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:21",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the translation keys of the new labels? Give the path.",
+   "kind": "path",
+   "gold": "src/components/DatePicker/labels.ts",
+   "evidence_rows": [
+    21,
+    22
+   ],
+   "retention": [
+    [
+     "src/components/DatePicker/labels.ts"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:22",
+   "category": "file_changed",
+   "question": "Which file did the agent change to give each day cell an accessible name? Give the path.",
+   "kind": "path",
+   "gold": "src/components/DatePicker/DayGrid.tsx",
+   "evidence_rows": [
+    71,
+    72
+   ],
+   "retention": [
+    [
+     "src/components/DatePicker/DayGrid.tsx"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:23",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the keyboard focus tests? Give the path.",
+   "kind": "path",
+   "gold": "src/components/DatePicker/__tests__/keyboard.test.tsx",
+   "evidence_rows": [
+    100,
+    101
+   ],
+   "retention": [
+    [
+     "src/components/DatePicker/__tests__/keyboard.test.tsx"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:24",
+   "category": "file_changed",
+   "question": "Which file did the agent change to add the English label strings? Give the path.",
+   "kind": "path",
+   "gold": "src/i18n/en.json",
+   "evidence_rows": [
+    129,
+    130
+   ],
+   "retention": [
+    [
+     "src/i18n/en.json"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:25",
+   "category": "identifier",
+   "question": "What is the translation key prefix of the new labels?",
+   "kind": "text",
+   "gold": "datepicker.a11y",
+   "evidence_rows": [
+    9
+   ],
+   "retention": [
+    [
+     "datepicker.a11y"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:26",
+   "category": "identifier",
+   "question": "Which issue number is this work for?",
+   "kind": "text",
+   "gold": "2214",
+   "evidence_rows": [
+    53
+   ],
+   "retention": [
+    [
+     "2214"
+    ],
+    [
+     "issue"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:27",
+   "category": "identifier",
+   "question": "How many violations did the first axe scan find?",
+   "kind": "text",
+   "gold": "5",
+   "evidence_rows": [
+    83
+   ],
+   "retention": [
+    [
+     "5"
+    ],
+    [
+     "violations"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:28",
+   "category": "identifier",
+   "question": "Which port did the Storybook server use?",
+   "kind": "text",
+   "gold": "6011",
+   "evidence_rows": [
+    107
+   ],
+   "retention": [
+    [
+     "6011"
+    ],
+    [
+     "storybook"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:29",
+   "category": "identifier",
+   "question": "Which version of eslint-plugin-jsx-a11y is installed?",
+   "kind": "text",
+   "gold": "6.10.2",
+   "evidence_rows": [
+    136
+   ],
+   "retention": [
+    [
+     "6.10.2"
+    ],
+    [
+     "eslint-plugin-jsx-a11y"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:30",
+   "category": "decision",
+   "question": "Why did the agent use button elements for the day cells instead of gridcell divs?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "keyboard",
+     "focus",
+     "enter"
+    ]
+   ],
+   "evidence_rows": [
+    31
+   ],
+   "retention": [
+    [
+     "keyboard",
+     "focus",
+     "enter"
+    ],
+    [
+     "elements"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:31",
+   "category": "decision",
+   "question": "Why did the agent not update the snapshots right away?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "regression",
+     "weekday"
+    ]
+   ],
+   "evidence_rows": [
+    69
+   ],
+   "retention": [
+    [
+     "regression",
+     "weekday"
+    ],
+    [
+     "snapshots"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:32",
+   "category": "decision",
+   "question": "Why does the month label use aria-live polite instead of assertive?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "interrupt"
+    ]
+   ],
+   "evidence_rows": [
+    87
+   ],
+   "retention": [
+    [
+     "interrupt"
+    ],
+    [
+     "aria-live"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:33",
+   "category": "decision",
+   "question": "Why did the agent format dates with Intl.DateTimeFormat instead of date-fns?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "bundle",
+     "41",
+     "size"
+    ]
+   ],
+   "evidence_rows": [
+    114
+   ],
+   "retention": [
+    [
+     "bundle",
+     "41",
+     "size"
+    ],
+    [
+     "Intl.DateTimeFormat"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:34",
+   "category": "decision",
+   "question": "Why did the agent run the Playwright webkit project?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "safari"
+    ]
+   ],
+   "evidence_rows": [
+    143
+   ],
+   "retention": [
+    [
+     "safari"
+    ],
+    [
+     "Playwright"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:35",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"label the month navigation buttons\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    35
+   ],
+   "retention": [
+    [
+     "label the month navigation buttons"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:36",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"label the day grid\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    35
+   ],
+   "retention": [
+    [
+     "label the day grid"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:37",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"fix the snapshot tests\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    151
+   ],
+   "retention": [
+    [
+     "fix the snapshot tests"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:38",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add keyboard focus tests\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    151
+   ],
+   "retention": [
+    [
+     "add keyboard focus tests"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:39",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"translate the new labels to German\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "blocked",
+   "evidence_rows": [
+    91
+   ],
+   "retention": [
+    [
+     "translate the new labels to German"
+    ],
+    [
+     "blocked",
+     "waiting"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:40",
+   "category": "next_step",
+   "question": "What did the user say to do once the snapshot diffs are reviewed?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "datepicker",
+     "date picker"
+    ]
+   ],
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "datepicker",
+     "date picker"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:41",
+   "category": "next_step",
+   "question": "Which file is the target of that next step? Give the path.",
+   "kind": "path",
+   "gold": "src/components/DatePicker/__snapshots__/DatePicker.test.tsx.snap",
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "src/components/DatePicker/__snapshots__/DatePicker.test.tsx.snap"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:42",
+   "category": "next_step",
+   "question": "What did the user say comes after that step?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "chromatic"
+    ]
+   ],
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "chromatic"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:43",
+   "category": "next_step",
+   "question": "Who must approve before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "ishii"
+    ]
+   ],
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "ishii"
+    ],
+    [
+     "approve"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:44",
+   "category": "next_step",
+   "question": "Besides the approval, which condition must hold before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "german"
+    ]
+   ],
+   "evidence_rows": [
+    120
+   ],
+   "retention": [
+    [
+     "german"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:45",
+   "category": "recent",
+   "question": "How many stories did the last Storybook build compile?",
+   "kind": "number",
+   "gold": "312",
+   "evidence_rows": [
+    235
+   ],
+   "retention": [
+    [
+     "312"
+    ],
+    [
+     "stories"
+    ]
+   ]
+  },
+  {
+   "id": "s6-lumen:46",
+   "category": "recent",
+   "question": "Which spec file did the last Playwright run use?",
+   "kind": "path",
+   "gold": "e2e/calendar.spec.ts",
+   "evidence_rows": [
+    239
+   ],
+   "retention": [
+    [
+     "e2e/calendar.spec.ts"
+    ]
+   ]
+  }
+ ],
+ "qa_batches": [
+  [
+   1,
+   6,
+   12,
+   17,
+   23,
+   26,
+   31,
+   37,
+   41,
+   46
+  ],
+  [
+   2,
+   7,
+   11,
+   16,
+   21,
+   27,
+   32,
+   36,
+   42
+  ],
+  [
+   3,
+   8,
+   13,
+   18,
+   22,
+   28,
+   33,
+   39,
+   43
+  ],
+  [
+   4,
+   9,
+   14,
+   19,
+   24,
+   29,
+   34,
+   38,
+   44
+  ],
+  [
+   5,
+   10,
+   15,
+   20,
+   25,
+   30,
+   35,
+   40,
+   45
+  ]
+ ]
+}
