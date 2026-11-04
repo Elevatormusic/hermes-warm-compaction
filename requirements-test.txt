@@ -3,4 +3,6 @@
 hypothesis==6.168.5; python_version < "3.11"
 hypothesis==6.170.9; python_version >= "3.11"
 sortedcontainers==2.4.0
-coverage==7.17.0
+# Coverage 7.17.0 needs Python 3.11 or later. Keep Python 3.10 checks.
+coverage==7.16.2; python_version < "3.11"
+coverage==7.17.0; python_version >= "3.11"
