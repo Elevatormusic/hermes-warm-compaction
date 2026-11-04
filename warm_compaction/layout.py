@@ -246,7 +246,8 @@ def fit_user_row(row: dict[str, Any], tokens: int, removed: list | None = None) 
     while True:
         out = {"role": "user", "content": cut_middle(text, limit)}
         if keeps_display:
-            out["api_content"] = out["content"]
+            # An empty sidecar would replay the display. One space keeps the blank sent text selected.
+            out["api_content"] = out["content"] or " "
             out["content"] = row["content"]
         if attr(row, "name"):
             out["name"] = attr(row, "name")
@@ -350,7 +351,8 @@ def _set_parts(row: dict[str, Any], changes: dict[tuple, Any]) -> dict[str, Any]
         )
         if keeps_display:
             # The cut sent payload goes to the sidecar; the display content stays as stored.
-            new["api_content"] = changes[("content",)]
+            # Keep a blank replacement nonempty, so Hermes does not replay the display instead.
+            new["api_content"] = changes[("content",)] or " "
         else:
             content = api_content(row) if role in ("user", "assistant") else row.get("content")
             new.pop("api_content", None)

@@ -236,6 +236,23 @@ class AttachmentAndPrependTest(unittest.TestCase):
 
 
 class FitUserRowTest(unittest.TestCase):
+    def test_a_whitespace_sidecar_does_not_restore_the_large_display(self):
+        import copy
+        from warm_compaction.layout import fit_user_row
+        from warm_compaction.rows import api_content, sent_tokens
+
+        row = user("synthetic display " * 20_000, api_content=" \t\n " * 1000)
+        before = copy.deepcopy(row)
+        removed = []
+        fitted = fit_user_row(row, 100, removed)
+        self.assertEqual(fitted["content"], row["content"])
+        self.assertIsInstance(fitted["api_content"], str)
+        self.assertTrue(fitted["api_content"])
+        self.assertFalse(api_content(fitted).strip())
+        self.assertLessEqual(sent_tokens(fitted), 100)
+        self.assertEqual(removed, [])
+        self.assertEqual(row, before)
+
     def test_a_cut_sidecar_keeps_the_user_display_and_input(self):
         import copy
         from warm_compaction.layout import fit_user_row
@@ -283,6 +300,22 @@ class FitUserRowTest(unittest.TestCase):
 
 
 class BoundTailTest(unittest.TestCase):
+    def test_an_empty_sidecar_replacement_does_not_restore_the_large_display(self):
+        from warm_compaction.layout import _set_parts, bound_tail
+        from warm_compaction.rows import api_content, sent_tokens
+
+        # Both helpers must keep a nonempty sidecar. An empty one replays the display text.
+        for role in ("user", "assistant"):
+            with self.subTest(role=role):
+                row = {"role": role, "content": "synthetic display " * 20_000,
+                       "api_content": "synthetic sent " * 2000}
+                for fitted in (_set_parts(row, {("content",): ""}), bound_tail([row], 0)[0]):
+                    self.assertEqual(fitted["content"], row["content"])
+                    self.assertTrue(fitted["api_content"])
+                    self.assertEqual(api_content(fitted), fitted["api_content"])
+                    self.assertLessEqual(sent_tokens(fitted), 50)
+                self.assertEqual(row["api_content"], "synthetic sent " * 2000)
+
     def test_a_newest_unit_larger_than_the_tail_is_cut(self):
         # A large user message or tool result alone above the tail budget would stay above the threshold after
         # the compaction. Its start and end stay.
