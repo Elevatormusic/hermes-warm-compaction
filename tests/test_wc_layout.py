@@ -235,6 +235,53 @@ class AttachmentAndPrependTest(unittest.TestCase):
         self.assertIn("> older ask", new[1]["content"])
 
 
+class FitUserRowTest(unittest.TestCase):
+    def test_a_cut_sidecar_keeps_the_user_display_and_input(self):
+        import copy
+        from warm_compaction.layout import fit_user_row
+        from warm_compaction.rows import MIDDLE_MARK, api_content, sent_tokens
+
+        display = "  Synthetic user request.  "
+        sent = display + "\n\n<memory-context>\n" + "synthetic memory " * 3000 + "\n</memory-context>"
+        row = user(display, api_content=sent, name="synthetic-user", unrelated="not copied")
+        before = copy.deepcopy(row)
+        for budget in (2_000, 0):
+            with self.subTest(budget=budget):
+                fitted = fit_user_row(row, budget)
+                self.assertEqual(fitted["content"], display)
+                self.assertEqual(fitted["name"], "synthetic-user")
+                self.assertNotIn("unrelated", fitted)
+                self.assertEqual(api_content(fitted), fitted["api_content"])
+                self.assertIn(MIDDLE_MARK, fitted["api_content"])
+                self.assertLess(len(fitted["api_content"]), len(sent))
+                if budget:
+                    self.assertLessEqual(sent_tokens(fitted), budget)
+                self.assertEqual(row, before)
+
+    def test_the_cut_middle_comes_from_the_sent_text(self):
+        from warm_compaction.layout import CUT_NOTE, fit_user_row
+
+        display = "SYNTHETIC DISPLAY ONLY"
+        sent = "sent start " + "s" * 20_000 + " SYNTHETIC SENT MIDDLE " + "s" * 20_000 + " sent end"
+        removed = []
+        fitted = fit_user_row(user(display, api_content=sent), 2_000, removed)
+        self.assertEqual(fitted["content"], display)
+        self.assertEqual(len(removed), 1)
+        self.assertTrue(removed[0]["content"].startswith(CUT_NOTE))
+        self.assertIn("SYNTHETIC SENT MIDDLE", removed[0]["content"])
+        self.assertNotIn(display, removed[0]["content"])
+
+    def test_only_the_sent_sidecar_counts_in_the_budget(self):
+        from warm_compaction.layout import fit_user_row
+        from warm_compaction.rows import sent_tokens
+
+        display = "synthetic display " * 3000
+        fitted = fit_user_row(user(display, api_content="synthetic sent text"), 100)
+        self.assertEqual(fitted["content"], display)
+        self.assertEqual(fitted["api_content"], "synthetic sent text")
+        self.assertLessEqual(sent_tokens(fitted), 100)
+
+
 class BoundTailTest(unittest.TestCase):
     def test_a_newest_unit_larger_than_the_tail_is_cut(self):
         # A large user message or tool result alone above the tail budget would stay above the threshold after

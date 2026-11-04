@@ -237,14 +237,20 @@ def _fit_copy(text: str, chars: int, tokens: int | None) -> str | None:
 def fit_user_row(row: dict[str, Any], tokens: int, removed: list | None = None) -> dict[str, Any]:
     """Return the user row cut to its start and end, at most tokens estimated tokens (the text that Hermes
     sent; an attachment becomes a mark). At least MIN_COPY_CHARS characters stay: the tail starts with it. With a
-    removed list, a cut adds one user row to it: the removed middle after CUT_NOTE."""
+    removed list, a cut adds one user row to it: the removed middle after CUT_NOTE. A string display with a valid
+    sidecar stays unchanged; only the sent sidecar is cut."""
+    sidecar = attr(row, "api_content")
+    keeps_display = isinstance(attr(row, "content"), str) and isinstance(sidecar, str) and bool(sidecar)
     text = visible_text(api_content(row)).strip()
     limit = len(text)
     while True:
         out = {"role": "user", "content": cut_middle(text, limit)}
+        if keeps_display:
+            out["api_content"] = out["content"]
+            out["content"] = row["content"]
         if attr(row, "name"):
             out["name"] = attr(row, "name")
-        cost = estimate_tokens(out)
+        cost = sent_tokens(out)
         if cost <= tokens or limit <= MIN_COPY_CHARS:
             if removed is not None and limit < len(text):
                 first, second = cut_bounds(text, limit)
