@@ -160,6 +160,31 @@ class EngineTest(unittest.TestCase):
         self.engine.update_from_response({})
         self.assertEqual((self.engine.last_prompt_tokens, self.engine.last_real_prompt_tokens), (0, 7))
 
+    def test_commit_arms_the_host_rearm_contract(self):
+        """A completed compaction leaves the fields the host reads to rearm the per-turn attempt budget."""
+        rows = old_turns()
+        reply = assistant("answer final")
+        self.seed(rows, reply)
+        self.engine.last_prompt_tokens = 99_000
+        self.engine.last_completion_tokens = 12
+        self.assertIsNot(self.compress_committed(self.engine, [*rows, reply]), None)
+        self.assertEqual((self.engine.compression_count, self.engine.last_prompt_tokens), (1, -1))
+        self.assertEqual(self.engine.last_completion_tokens, 0)
+        self.assertTrue(self.engine.awaiting_real_usage_after_compression)
+        self.assertTrue(self.engine._verify_compaction_cleared_threshold)
+        # One real response judges this compaction, then both flags drop.
+        self.engine.update_from_response({"prompt_tokens": 20_000, "completion_tokens": 10})
+        self.assertFalse(self.engine.awaiting_real_usage_after_compression)
+        self.assertFalse(self.engine._verify_compaction_cleared_threshold)
+        self.assertEqual(self.engine.last_prompt_tokens, 20_000)
+
+    def test_session_reset_clears_the_rearm_contract(self):
+        self.engine._verify_compaction_cleared_threshold = True
+        self.engine.awaiting_real_usage_after_compression = True
+        self.engine.on_session_reset()
+        self.assertFalse(self.engine.awaiting_real_usage_after_compression)
+        self.assertFalse(self.engine._verify_compaction_cleared_threshold)
+
     def test_preflight_uses_the_estimate(self):
         self.assertFalse(self.engine.should_compress_preflight([user("x")]))
         self.assertTrue(self.engine.should_compress_preflight([user("x" * 400_004)]))

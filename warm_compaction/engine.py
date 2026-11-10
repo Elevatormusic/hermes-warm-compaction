@@ -195,6 +195,9 @@ class WarmCompactionEngine(ContextEngine):
 
     threshold_percent = DEFAULTS["threshold"]
     awaiting_real_usage_after_compression = False
+    # Set by a completed compaction. The host reads it before it folds the next response and rearms the per-turn
+    # attempt budget when that response reports a prompt below the threshold.
+    _verify_compaction_cleared_threshold = False
 
     def __init__(self, *, store: CaptureStore | None = None, llm: Any = None,
                  settings: dict[str, Any] | None = None, task: str | None = fallback.TASK, post: Any = None,
@@ -283,6 +286,9 @@ class WarmCompactionEngine(ContextEngine):
             self.last_real_prompt_tokens = self.last_prompt_tokens
         # Hermes sets this flag on the engine after each compaction. The next response clears it.
         self.awaiting_real_usage_after_compression = False
+        # The host reads the compaction latch before it calls this method. Clear it here, as the built-in
+        # compressor does, so one real response judges one compaction.
+        self._verify_compaction_cleared_threshold = False
 
     def should_compress(self, prompt_tokens: int | None = None) -> bool:
         tokens = self.last_prompt_tokens if prompt_tokens is None else prompt_tokens
@@ -323,6 +329,7 @@ class WarmCompactionEngine(ContextEngine):
         # The calibration of the old session: Hermes uses the real prompt count as a floor unless the latch is set.
         self.last_real_prompt_tokens = 0
         self.awaiting_real_usage_after_compression = False
+        self._verify_compaction_cleared_threshold = False
 
     def get_status(self) -> dict[str, Any]:
         with self._wc_result_lock:
@@ -496,6 +503,14 @@ class WarmCompactionEngine(ContextEngine):
                 record["fallback_reason"] = "capacity"
                 return self._abort(messages, record, started, attempt)
             self.compression_count += 1
+            # Tell the host that a compaction completed. The built-in compressor sets the same three fields in
+            # `_commit_compression`. Without them the host never rearms the per-turn attempt budget: after three
+            # compactions in one long turn it logs `attempts_exhausted:3` and the context grows without
+            # compression until the turn ends (agent/turn_usage.py, `_should_rearm_compression_budget`).
+            self.last_prompt_tokens = -1
+            self.last_completion_tokens = 0
+            self.awaiting_real_usage_after_compression = True
+            self._verify_compaction_cleared_threshold = True
             self._finish(record, started, attempt[-1])
             # The host can still reject this candidate. Only its successful boundary updates the failure streak.
             self._pending_warm_result = (attempt[3], self.compression_count, dict(record))
