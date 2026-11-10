@@ -381,17 +381,19 @@ class WarmCompactionEngine(ContextEngine):
             # task follows the main route. The last check runs just before the request starts: after a switch,
             # the old transcript does not go to the new route.
             failure: dict[str, Any] = {}
+            metadata: dict[str, Any] = {}
             summary, _tokens = fallback.llm_summary(
                 self._llm, [*messages[:start], *removed], prefixes, focus_topic=focus_topic, memory_context=memory,
                 task=self._task, summary_words=self._settings["summary_words"],
                 timeout_s=float(self._settings["timeout_s"]),
                 ready=lambda: not self._cancelled() and self._attempt() == attempt, failure=failure,
-                quoted=self._settings["fallback_format"] == "quoted")
+                quoted=self._settings["fallback_format"] == "quoted", metadata=metadata)
             if summary is None:
                 record["fallback_reason"] = failure.get("reason", "unavailable")
-                for key in ("output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"):
-                    if key in failure:
-                        record["fallback_" + key] = failure[key]
+            reply_metadata = failure if summary is None else metadata
+            for key in ("output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"):
+                if key in reply_metadata:
+                    record["fallback_" + key] = reply_metadata[key]
             if summary is not None and (estimate_tokens(summary) > SUMMARY_RESERVE
                                         or not self._summary_fits(summary, overhead, reserve)):
                 # A dense summary (CJK, for example) above the reserve: the tail would cut more than the

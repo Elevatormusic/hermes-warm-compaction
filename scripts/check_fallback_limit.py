@@ -3,8 +3,9 @@
 Use a Hermes dependency interpreter and a clean Hermes checkout. Each case has a fresh process and
 temporary home. The check uses the public PluginContext API. It sends no real model request. The report
 keeps counts, booleans, and safe refusal codes only. A missing default limit is an observation of the host,
-not a passing limit check. The configured cases check a custom Chat Completions workaround, a reply whose
-usage includes thinking, one missing-marker retry, and refusal after both markers are missing.
+not a passing limit check. The four cases check the host default limit, a configured Chat Completions limit,
+one missing-marker retry, and refusal after every allowed reply lacks the marker. Synthetic usage includes
+thinking tokens.
 """
 
 from __future__ import annotations
@@ -65,33 +66,42 @@ def worker(source: Path, run_dir: Path, configured: bool, reply_case: str) -> No
     try:
         import hermes_bootstrap  # noqa: F401 - Select the isolated dependency runtime first.
         from hermes_cli.plugins import PluginContext, PluginManifest, get_plugin_manager
-        from warm_compaction.fallback import REQUEST_MAX_TOKENS, llm_summary
+        from warm_compaction.fallback import MAX_ATTEMPTS, REQUEST_MAX_TOKENS, llm_summary
 
         context = PluginContext(PluginManifest(name="warm_compaction", version="0.0.0"), get_plugin_manager())
         context.register_auxiliary_task("warm_compaction", display_name="Synthetic fallback probe",
                                         description="Check a synthetic fallback reply limit.")
-        failure = {}
+        failure, metadata = {}, {}
         summary, _tokens = llm_summary(context.llm, [{"role": "user", "content": "Synthetic question 1.\n"
                                                                        "The code word is BLUE-7."},
                                                     {"role": "assistant", "content": "Synthetic answer 1."}],
-                                      ("[CONTEXT SUMMARY]:",), failure=failure)
+                                      ("[CONTEXT SUMMARY]:",), failure=failure, metadata=metadata)
         requests = server.requests
         body = requests[0]["body"] if requests else {}
         result.update(request_count=len(requests), requested_max_tokens=REQUEST_MAX_TOKENS,
                       wire_max_tokens=body.get("max_tokens"),
                       wire_max_completion_tokens=body.get("max_completion_tokens"))
         checks = result["checks"]
-        expected = 1 if reply_case == "complete" else 2
+        expected = 1 if reply_case == "complete" else MAX_ATTEMPTS if reply_case == "exhausted" else 2
         checks["bounded_fallback_requests"] = len(requests) == expected and all(
             row["kind"] == "fallback" for row in requests)
         checks["synthetic_summary_outcome"] = (summary is not None) == (reply_case != "exhausted")
-        if expected == 2 and len(requests) == 2:
-            first, second = (row["body"]["messages"] for row in requests)
-            checks["retry_uses_original_transcript"] = first[1] == second[1]
-            checks["retry_has_fresh_instruction"] = first[0] != second[0]
+        if expected > 1 and len(requests) == expected:
+            messages = [row["body"]["messages"] for row in requests]
+            checks["retry_uses_original_transcript"] = all(rows[1] == messages[0][1] for rows in messages[1:])
+            checks["retry_has_fresh_instruction"] = len({rows[0]["content"] for rows in messages}) == expected
         if reply_case == "exhausted":
             result["failure"] = failure
             checks["missing_marker_refusal"] = failure.get("reason") == "gate:missing_end_marker"
+            checks["no_success_metadata_on_refusal"] = metadata == {}
+        else:
+            result["success_metadata"] = metadata
+            checks["accepted_reply_metadata"] = (
+                set(metadata) == {"output_tokens", "requested_max_tokens", "end_marker", "attempts", "body_tokens"}
+                and metadata["output_tokens"] == REQUEST_MAX_TOKENS
+                and metadata["requested_max_tokens"] == REQUEST_MAX_TOKENS
+                and metadata["end_marker"] == "present" and metadata["attempts"] == expected
+                and isinstance(metadata["body_tokens"], int) and metadata["body_tokens"] > 0)
         checks["no_other_limit_field"] = "max_completion_tokens" not in body
         # Keep optional host child processes blocked. They do not affect this wire check.
         checks["no_network_or_write_attempts"] = not set(fence.denied).difference({"child_process_blocked"})

@@ -182,6 +182,36 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertRegex(self.marker(messages), r"^\[END OF SUMMARY [0-9a-f]{32}\]$")
         self.assertEqual(len(llm.calls), 1)
 
+    def test_accepted_reply_metadata_is_safe_on_first_or_later_attempt(self):
+        for accepted_attempt in (1, 2, 3):
+            with self.subTest(accepted_attempt=accepted_attempt):
+                body = useful_summary("synthetic private source")
+
+                def reply(messages, kwargs, count, body=body, accepted_attempt=accepted_attempt):
+                    return body + "\n" + self.marker(messages) if count == accepted_attempt else "synthetic refusal"
+
+                llm = FakeLlm(text=reply, output_tokens=1095)
+                failure, metadata = {"reason": "old"}, {"old": "synthetic private value"}
+                self.assertEqual(llm_summary(llm, [user("synthetic private source")], PREFIXES,
+                                             failure=failure, metadata=metadata), (body, 321))
+                self.assertEqual(failure, {})
+                self.assertEqual(metadata, {"output_tokens": 1095, "requested_max_tokens": REQUEST_MAX_TOKENS,
+                                            "end_marker": "present", "attempts": accepted_attempt,
+                                            "body_tokens": estimate_tokens(body)})
+                self.assertEqual(len(llm.calls), accepted_attempt)
+                self.assertNotIn("synthetic", str(metadata))
+                for messages, _kwargs in llm.calls:
+                    self.assertNotIn(self.marker(messages), str(metadata))
+
+    def test_accepted_reply_metadata_keeps_unknown_usage_unknown(self):
+        for output in (None, 0, True, -1, "synthetic private count", 2 ** 64):
+            with self.subTest(output=output):
+                metadata = {}
+                self.assertEqual(llm_summary(FakeLlm(output_tokens=output), [user("hi")], PREFIXES,
+                                             metadata=metadata), (useful_summary("hi"), 321))
+                self.assertIsNone(metadata["output_tokens"])
+                self.assertEqual(metadata["attempts"], 1)
+
     def test_request_timeout_does_not_exceed_the_configured_limit(self):
         llm = FakeLlm()
         with patch("warm_compaction.fallback.time.monotonic", side_effect=(0.0, -3e-14, 0.0)):
@@ -435,10 +465,12 @@ class LlmSummaryTest(unittest.TestCase):
                                    ((True, True, True, False), SUMMARY, 2)):
             with self.subTest(states=states):
                 values = iter(states)
-                llm, failure = FakeLlm(text=text), {}
+                llm, failure, metadata = FakeLlm(text=text), {}, {"old": "synthetic private value"}
                 self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES,
-                                             ready=lambda values=values: next(values), failure=failure), (None, None))
+                                             ready=lambda values=values: next(values), failure=failure,
+                                             metadata=metadata), (None, None))
                 self.assertEqual(failure, {"reason": "cancelled"})
+                self.assertEqual(metadata, {})
                 self.assertEqual(len(llm.calls), count)
 
     def test_task_none_uses_the_main_model_route(self):
@@ -982,9 +1014,12 @@ class RelaxedFallbackTest(unittest.TestCase):
             self.assertEqual(llm_summary(FakeLlm(text=reply), [user("hi")], PREFIXES), (None, None))
 
     def test_a_complete_reply_without_the_marker_passes_below_the_generation_limit(self):
-        llm, failure = FakeLlm(text=PLAIN + "\n", output_tokens=400), {}
-        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, quoted=False, failure=failure), (PLAIN, 321))
+        llm, failure, metadata = FakeLlm(text=PLAIN + "\n", output_tokens=400), {}, {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, quoted=False, failure=failure,
+                                     metadata=metadata), (PLAIN, 321))
         self.assertEqual((len(llm.calls), failure), (1, {}))
+        self.assertEqual(metadata, {"output_tokens": 400, "requested_max_tokens": REQUEST_MAX_TOKENS,
+                                    "end_marker": "missing", "attempts": 1, "body_tokens": estimate_tokens(PLAIN)})
 
     def test_a_reply_without_the_marker_retries_when_it_can_be_cut(self):
         # Unknown output count, an output at the limit, a missing heading, or a marker part: not proof of an end.
