@@ -1,0 +1,973 @@
+{
+ "label": "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values.",
+ "id": "s4-orchard",
+ "target_tokens": 64000,
+ "history_sha256": "180dd3b0d74fb635b285e3340e403d48add2c01964ad40f58ba2cdde13e5edde",
+ "rows": 137,
+ "est_tokens": 64246,
+ "continuation_est_tokens": [
+  33034,
+  34408
+ ],
+ "questions": [
+  {
+   "id": "s4-orchard:01",
+   "category": "goal",
+   "question": "What is the main goal of this session? Answer in one sentence.",
+   "kind": "keywords",
+   "gold": [
+    [
+     "flak"
+    ],
+    [
+     "checkout_concurrency",
+     "checkout concurrency"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "flak"
+    ],
+    [
+     "checkout_concurrency",
+     "checkout concurrency"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:02",
+   "category": "goal",
+   "question": "Which source file is the main target of the change? Give the path.",
+   "kind": "path",
+   "gold": "crates/orchard-api/src/checkout/lock.rs",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "crates/orchard-api/src/checkout/lock.rs"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:03",
+   "category": "goal",
+   "question": "What acceptance criterion did the user set for the work to count as finished?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "200"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "200"
+    ],
+    [
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:04",
+   "category": "goal",
+   "question": "Which release is this work for?",
+   "kind": "text",
+   "gold": "1.18.3",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "1.18.3"
+    ],
+    [
+     "release"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:05",
+   "category": "goal",
+   "question": "What did the user say is out of scope?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "payment"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "payment"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:06",
+   "category": "user_instruction",
+   "question": "The user gave a rule about unsafe code. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not use unsafe blocks.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Do not use unsafe blocks."
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:07",
+   "category": "user_instruction",
+   "question": "The user gave a rule about test timeouts. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Never raise test timeouts to hide the flake.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Never raise test timeouts to hide the flake."
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:08",
+   "category": "user_instruction",
+   "question": "The user gave a rule about clippy warnings. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Fix clippy warnings in files you touch, not elsewhere.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Fix clippy warnings in files you touch, not elsewhere."
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:09",
+   "category": "user_instruction",
+   "question": "The user gave a rule about debug output. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Use tracing spans, not println! debugging, in committed code.",
+   "evidence_rows": [
+    32
+   ],
+   "retention": [
+    [
+     "Use tracing spans, not println! debugging, in committed code."
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:10",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the staging database. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Do not run anything against the shared staging database.",
+   "evidence_rows": [
+    68
+   ],
+   "retention": [
+    [
+     "Do not run anything against the shared staging database."
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:11",
+   "category": "command_outcome",
+   "question": "What exit code did the command `cargo nextest run -p orchard-api checkout_concurrency --retries 0` return? Answer with the number.",
+   "kind": "number",
+   "gold": "100",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "cargo nextest run -p orchard-api checkout_concurrency --retr"
+    ],
+    [
+     "exit 100",
+     "exit_code: 100",
+     "exit code 100",
+     "exit code: 100",
+     "exited 100",
+     "exited with 100",
+     "returned 100",
+     "status 100",
+     "code 100"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s4-orchard:12",
+   "category": "command_outcome",
+   "question": "What exit code did the command `cargo build -p orchard-api` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    24
+   ],
+   "retention": [
+    [
+     "cargo build -p orchard-api"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s4-orchard:13",
+   "category": "command_outcome",
+   "question": "What exit code did the command `cargo clippy -p orchard-api -- -D warnings` return? Answer with the number.",
+   "kind": "number",
+   "gold": "101",
+   "evidence_rows": [
+    40
+   ],
+   "retention": [
+    [
+     "cargo clippy -p orchard-api -- -D warnings"
+    ],
+    [
+     "exit 101",
+     "exit_code: 101",
+     "exit code 101",
+     "exit code: 101",
+     "exited 101",
+     "exited with 101",
+     "returned 101",
+     "status 101",
+     "code 101"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s4-orchard:14",
+   "category": "command_outcome",
+   "question": "What exit code did the command `RUST_LOG=orchard=trace cargo test -p orchard-api lock_order -- --nocapture` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    51
+   ],
+   "retention": [
+    [
+     "RUST_LOG=orchard=trace cargo test -p orchard-api lock_order "
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s4-orchard:15",
+   "category": "command_outcome",
+   "question": "What exit code did the command `cargo fmt --check` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    70
+   ],
+   "retention": [
+    [
+     "cargo fmt --check"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s4-orchard:16",
+   "category": "command_outcome",
+   "question": "What exit code did the command `cargo test -p orchard-api --test checkout_it` return? Answer with the number.",
+   "kind": "number",
+   "gold": "101",
+   "evidence_rows": [
+    88
+   ],
+   "retention": [
+    [
+     "cargo test -p orchard-api --test checkout_it"
+    ],
+    [
+     "exit 101",
+     "exit_code: 101",
+     "exit code 101",
+     "exit code: 101",
+     "exited 101",
+     "exited with 101",
+     "returned 101",
+     "status 101",
+     "code 101"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s4-orchard:17",
+   "category": "command_outcome",
+   "question": "What error line did the command `cargo nextest run -p orchard-api checkout_concurrency --retries 0` print? Quote it.",
+   "kind": "text",
+   "gold": "thread 'checkout::tests::test_checkout_concurrency' panicked at crates/orchard-api/src/checkout/mod.rs:212:9",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "thread 'checkout::tests::test_checkout_concurrency' panicked at crates/orchard-api/src/checkout/mod.rs:212:9"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s4-orchard:18",
+   "category": "command_outcome",
+   "question": "What error line did the command `cargo clippy -p orchard-api -- -D warnings` print? Quote it.",
+   "kind": "text",
+   "gold": "error: this `MutexGuard` is held across an `await` point",
+   "evidence_rows": [
+    40
+   ],
+   "retention": [
+    [
+     "error: this `MutexGuard` is held across an `await` point"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s4-orchard:19",
+   "category": "command_outcome",
+   "question": "What error line did the command `cargo test -p orchard-api --test checkout_it` print? Quote it.",
+   "kind": "text",
+   "gold": "deadlock detected after 30s: tasks 4 and 7 wait on inventory_lock",
+   "evidence_rows": [
+    88
+   ],
+   "retention": [
+    [
+     "deadlock detected after 30s: tasks 4 and 7 wait on inventory_lock"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s4-orchard:20",
+   "category": "file_changed",
+   "question": "Which file did the agent change to acquire the two locks in a fixed order? Give the path.",
+   "kind": "path",
+   "gold": "crates/orchard-api/src/checkout/lock.rs",
+   "evidence_rows": [
+    9,
+    10
+   ],
+   "retention": [
+    [
+     "crates/orchard-api/src/checkout/lock.rs"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:21",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the new lock-order test? Give the path.",
+   "kind": "path",
+   "gold": "crates/orchard-api/tests/lock_order.rs",
+   "evidence_rows": [
+    13,
+    14
+   ],
+   "retention": [
+    [
+     "crates/orchard-api/tests/lock_order.rs"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:22",
+   "category": "file_changed",
+   "question": "Which file did the agent change to drop the guard before the await? Give the path.",
+   "kind": "path",
+   "gold": "crates/orchard-api/src/checkout/mod.rs",
+   "evidence_rows": [
+    35,
+    36
+   ],
+   "retention": [
+    [
+     "crates/orchard-api/src/checkout/mod.rs"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:23",
+   "category": "file_changed",
+   "question": "Which file did the agent create to record the lock ordering decision? Give the path.",
+   "kind": "path",
+   "gold": "docs/adr/0042-lock-order.md",
+   "evidence_rows": [
+    56,
+    57
+   ],
+   "retention": [
+    [
+     "docs/adr/0042-lock-order.md"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:24",
+   "category": "file_changed",
+   "question": "Which file did the agent change to enable the tokio test-util feature? Give the path.",
+   "kind": "path",
+   "gold": "crates/orchard-api/Cargo.toml",
+   "evidence_rows": [
+    75,
+    76
+   ],
+   "retention": [
+    [
+     "crates/orchard-api/Cargo.toml"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:25",
+   "category": "identifier",
+   "question": "Which tokio version does the crate use?",
+   "kind": "text",
+   "gold": "1.47.1",
+   "evidence_rows": [
+    8
+   ],
+   "retention": [
+    [
+     "1.47.1"
+    ],
+    [
+     "version"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:26",
+   "category": "identifier",
+   "question": "What is the incident number of the flaky test?",
+   "kind": "text",
+   "gold": "INC-7781",
+   "evidence_rows": [
+    27
+   ],
+   "retention": [
+    [
+     "INC-7781"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:27",
+   "category": "identifier",
+   "question": "What timeout does the checkout handler use, in milliseconds?",
+   "kind": "text",
+   "gold": "750",
+   "evidence_rows": [
+    44
+   ],
+   "retention": [
+    [
+     "750"
+    ],
+    [
+     "checkout"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:28",
+   "category": "identifier",
+   "question": "Which random seed reproduced the flake?",
+   "kind": "text",
+   "gold": "0x5EEDBEEF",
+   "evidence_rows": [
+    60
+   ],
+   "retention": [
+    [
+     "0x5EEDBEEF"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:29",
+   "category": "identifier",
+   "question": "How many of the 500 local runs failed?",
+   "kind": "text",
+   "gold": "23",
+   "evidence_rows": [
+    80
+   ],
+   "retention": [
+    [
+     "23"
+    ],
+    [
+     "exit_code"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:30",
+   "category": "decision",
+   "question": "Why must every handler take inventory_lock before cart_lock?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "callback"
+    ]
+   ],
+   "evidence_rows": [
+    17
+   ],
+   "retention": [
+    [
+     "callback"
+    ],
+    [
+     "inventory_lock"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:31",
+   "category": "decision",
+   "question": "Why did the agent use paused tokio time in the new test?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "determin",
+     "real sleep"
+    ]
+   ],
+   "evidence_rows": [
+    33
+   ],
+   "retention": [
+    [
+     "determin",
+     "real sleep"
+    ],
+    [
+     "paused"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:32",
+   "category": "decision",
+   "question": "Why did the agent switch mod.rs from the std Mutex to the tokio Mutex?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "await"
+    ]
+   ],
+   "evidence_rows": [
+    45
+   ],
+   "retention": [
+    [
+     "await"
+    ],
+    [
+     "mod.rs"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:33",
+   "category": "decision",
+   "question": "Why did the agent keep the retry loop in the checkout handler?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "409"
+    ]
+   ],
+   "evidence_rows": [
+    64
+   ],
+   "retention": [
+    [
+     "409"
+    ],
+    [
+     "checkout"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:34",
+   "category": "decision",
+   "question": "Why did the agent write an architecture decision record?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "future"
+    ]
+   ],
+   "evidence_rows": [
+    83
+   ],
+   "retention": [
+    [
+     "future"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:35",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"reproduce the flake locally\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    21
+   ],
+   "retention": [
+    [
+     "reproduce the flake locally"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:36",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"find the lock ordering bug\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    21
+   ],
+   "retention": [
+    [
+     "find the lock ordering bug"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:37",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add a deterministic lock-order test\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    91
+   ],
+   "retention": [
+    [
+     "add a deterministic lock-order test"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:38",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"run the 200-run soak\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "blocked",
+   "evidence_rows": [
+    47
+   ],
+   "retention": [
+    [
+     "run the 200-run soak"
+    ],
+    [
+     "blocked",
+     "waiting"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:39",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"write the postmortem\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    91
+   ],
+   "retention": [
+    [
+     "write the postmortem"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:40",
+   "category": "next_step",
+   "question": "What did the user say to do once the soak runner is free?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "200"
+    ]
+   ],
+   "evidence_rows": [
+    68
+   ],
+   "retention": [
+    [
+     "200"
+    ],
+    [
+     "runner"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:41",
+   "category": "next_step",
+   "question": "Which file is the target of that next step? Give the path.",
+   "kind": "path",
+   "gold": ".config/nextest.toml",
+   "evidence_rows": [
+    68
+   ],
+   "retention": [
+    [
+     ".config/nextest.toml"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:42",
+   "category": "next_step",
+   "question": "What did the user say comes after that step?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "postmortem",
+     "post-mortem"
+    ]
+   ],
+   "evidence_rows": [
+    68
+   ],
+   "retention": [
+    [
+     "postmortem",
+     "post-mortem"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:43",
+   "category": "next_step",
+   "question": "Who must approve before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "wierzbicki"
+    ]
+   ],
+   "evidence_rows": [
+    68
+   ],
+   "retention": [
+    [
+     "wierzbicki"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:44",
+   "category": "next_step",
+   "question": "Besides the approval, which condition must hold before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "zero",
+     "no failure",
+     "0 failure"
+    ]
+   ],
+   "evidence_rows": [
+    68
+   ],
+   "retention": [
+    [
+     "zero",
+     "no failure",
+     "0 failure"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:45",
+   "category": "recent",
+   "question": "What p99 latency did the last benchmark output show, in milliseconds?",
+   "kind": "number",
+   "gold": "41.7",
+   "evidence_rows": [
+    131
+   ],
+   "retention": [
+    [
+     "41.7"
+    ],
+    [
+     "output"
+    ]
+   ]
+  },
+  {
+   "id": "s4-orchard:46",
+   "category": "recent",
+   "question": "Which crate did the last cargo build command build?",
+   "kind": "text",
+   "gold": "orchard-cli",
+   "evidence_rows": [
+    135
+   ],
+   "retention": [
+    [
+     "orchard-cli"
+    ]
+   ]
+  }
+ ],
+ "qa_batches": [
+  [
+   1,
+   6,
+   11,
+   16,
+   21,
+   27,
+   31,
+   36,
+   41,
+   46
+  ],
+  [
+   2,
+   7,
+   12,
+   18,
+   22,
+   26,
+   33,
+   37,
+   42
+  ],
+  [
+   3,
+   8,
+   13,
+   17,
+   23,
+   28,
+   32,
+   39,
+   43
+  ],
+  [
+   4,
+   9,
+   14,
+   19,
+   24,
+   29,
+   34,
+   38,
+   44
+  ],
+  [
+   5,
+   10,
+   15,
+   20,
+   25,
+   30,
+   35,
+   40,
+   45
+  ]
+ ]
+}

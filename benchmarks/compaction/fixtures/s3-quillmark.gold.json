@@ -1,0 +1,971 @@
+{
+ "label": "SYNTHETIC benchmark fixture: invented project, people, paths, commands, and values.",
+ "id": "s3-quillmark",
+ "target_tokens": 50000,
+ "history_sha256": "7ba928bdc8b55e3a07023d71ed5d7315ec333777f93e590fe484e93582a63c9c",
+ "rows": 136,
+ "est_tokens": 49187,
+ "continuation_est_tokens": [
+  25662,
+  25319
+ ],
+ "questions": [
+  {
+   "id": "s3-quillmark:01",
+   "category": "goal",
+   "question": "What is the main goal of this session? Answer in one sentence.",
+   "kind": "keywords",
+   "gold": [
+    [
+     "toml"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "toml"
+    ],
+    [
+     "configuration"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:02",
+   "category": "goal",
+   "question": "Which source file is the main target of the change? Give the path.",
+   "kind": "path",
+   "gold": "packages/core/src/config/load.ts",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "packages/core/src/config/load.ts"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:03",
+   "category": "goal",
+   "question": "What acceptance criterion did the user set for the work to count as finished?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "broken link"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "broken link"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:04",
+   "category": "goal",
+   "question": "Which release is this work for?",
+   "kind": "text",
+   "gold": "3.0.0-beta.2",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "3.0.0-beta.2"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:05",
+   "category": "goal",
+   "question": "What did the user say is out of scope?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "marketplace"
+    ]
+   ],
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "marketplace"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:06",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the Node version. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Use Node 20 features only; no Node 22 APIs.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Use Node 20 features only; no Node 22 APIs."
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:07",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the package manager. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Use npm, not pnpm or yarn.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Use npm, not pnpm or yarn."
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:08",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the old config file. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Keep reading quillmark.yaml for one release, with a deprecation warning.",
+   "evidence_rows": [
+    0
+   ],
+   "retention": [
+    [
+     "Keep reading quillmark.yaml for one release, with a deprecation warning."
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:09",
+   "category": "user_instruction",
+   "question": "The user gave a rule about snapshots. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Never update snapshots with -u unless I say so.",
+   "evidence_rows": [
+    26
+   ],
+   "retention": [
+    [
+     "Never update snapshots with -u unless I say so."
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:10",
+   "category": "user_instruction",
+   "question": "The user gave a rule about the TOML library. Quote that rule exactly.",
+   "kind": "verbatim",
+   "gold": "Use @iarna/toml and pin its exact version.",
+   "evidence_rows": [
+    71
+   ],
+   "retention": [
+    [
+     "Use @iarna/toml and pin its exact version."
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:11",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npm test -- --runInBand packages/core` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "npm test -- --runInBand packages/core"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s3-quillmark:12",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npm run build:docs` return? Answer with the number.",
+   "kind": "number",
+   "gold": "1",
+   "evidence_rows": [
+    22
+   ],
+   "retention": [
+    [
+     "npm run build:docs"
+    ],
+    [
+     "exit 1",
+     "exit_code: 1",
+     "exit code 1",
+     "exit code: 1",
+     "exited 1",
+     "exited with 1",
+     "returned 1",
+     "status 1",
+     "code 1"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s3-quillmark:13",
+   "category": "command_outcome",
+   "question": "What exit code did the command `node scripts/convert-config.mjs docs/quillmark.yaml` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    40
+   ],
+   "retention": [
+    [
+     "node scripts/convert-config.mjs docs/quillmark.yaml"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s3-quillmark:14",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npx tsc -p packages/core --noEmit` return? Answer with the number.",
+   "kind": "number",
+   "gold": "2",
+   "evidence_rows": [
+    59
+   ],
+   "retention": [
+    [
+     "npx tsc -p packages/core --noEmit"
+    ],
+    [
+     "exit 2",
+     "exit_code: 2",
+     "exit code 2",
+     "exit code: 2",
+     "exited 2",
+     "exited with 2",
+     "returned 2",
+     "status 2",
+     "code 2"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s3-quillmark:15",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npm run check-links` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    75
+   ],
+   "retention": [
+    [
+     "npm run check-links"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s3-quillmark:16",
+   "category": "command_outcome",
+   "question": "What exit code did the command `npm ls @iarna/toml` return? Answer with the number.",
+   "kind": "number",
+   "gold": "0",
+   "evidence_rows": [
+    91
+   ],
+   "retention": [
+    [
+     "npm ls @iarna/toml"
+    ],
+    [
+     "exit 0",
+     "exit_code: 0",
+     "exit code 0",
+     "exit code: 0",
+     "exited 0",
+     "exited with 0",
+     "returned 0",
+     "status 0",
+     "code 0"
+    ]
+   ],
+   "subkind": "exit_code"
+  },
+  {
+   "id": "s3-quillmark:17",
+   "category": "command_outcome",
+   "question": "What error line did the command `npm test -- --runInBand packages/core` print? Quote it.",
+   "kind": "text",
+   "gold": "TypeError: Cannot read properties of undefined (reading 'baseUrl')",
+   "evidence_rows": [
+    4
+   ],
+   "retention": [
+    [
+     "TypeError: Cannot read properties of undefined (reading 'baseUrl')"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s3-quillmark:18",
+   "category": "command_outcome",
+   "question": "What error line did the command `npm run build:docs` print? Quote it.",
+   "kind": "text",
+   "gold": "Error: Unknown config key \"siteTitle\" in quillmark.toml",
+   "evidence_rows": [
+    22
+   ],
+   "retention": [
+    [
+     "Error: Unknown config key \"siteTitle\" in quillmark.toml"
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s3-quillmark:19",
+   "category": "command_outcome",
+   "question": "What error line did the command `npx tsc -p packages/core --noEmit` print? Quote it.",
+   "kind": "text",
+   "gold": "error TS2322: Type 'unknown' is not assignable to type 'SiteConfig'.",
+   "evidence_rows": [
+    59
+   ],
+   "retention": [
+    [
+     "error TS2322: Type 'unknown' is not assignable to type 'SiteConfig'."
+    ]
+   ],
+   "subkind": "error_line"
+  },
+  {
+   "id": "s3-quillmark:20",
+   "category": "file_changed",
+   "question": "Which file did the agent create to parse TOML config files? Give the path.",
+   "kind": "path",
+   "gold": "packages/core/src/config/toml.ts",
+   "evidence_rows": [
+    9,
+    10
+   ],
+   "retention": [
+    [
+     "packages/core/src/config/toml.ts"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:21",
+   "category": "file_changed",
+   "question": "Which file did the agent change to choose the parser by file extension? Give the path.",
+   "kind": "path",
+   "gold": "packages/core/src/config/load.ts",
+   "evidence_rows": [
+    13,
+    14
+   ],
+   "retention": [
+    [
+     "packages/core/src/config/load.ts"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:22",
+   "category": "file_changed",
+   "question": "Which file did the agent create to hold the converted docs site config? Give the path.",
+   "kind": "path",
+   "gold": "docs/quillmark.toml",
+   "evidence_rows": [
+    31,
+    32
+   ],
+   "retention": [
+    [
+     "docs/quillmark.toml"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:23",
+   "category": "file_changed",
+   "question": "Which file did the agent change to rename the siteTitle key to title? Give the path.",
+   "kind": "path",
+   "gold": "packages/core/src/config/schema.ts",
+   "evidence_rows": [
+    62,
+    63
+   ],
+   "retention": [
+    [
+     "packages/core/src/config/schema.ts"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:24",
+   "category": "file_changed",
+   "question": "Which file did the agent create to convert YAML configs to TOML? Give the path.",
+   "kind": "path",
+   "gold": "scripts/convert-config.mjs",
+   "evidence_rows": [
+    78,
+    79
+   ],
+   "retention": [
+    [
+     "scripts/convert-config.mjs"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:25",
+   "category": "identifier",
+   "question": "Which exact version of @iarna/toml was pinned?",
+   "kind": "text",
+   "gold": "2.2.5",
+   "evidence_rows": [
+    9
+   ],
+   "retention": [
+    [
+     "2.2.5"
+    ],
+    [
+     "pinned"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:26",
+   "category": "identifier",
+   "question": "What is the GitHub discussion number about the migration?",
+   "kind": "text",
+   "gold": "1407",
+   "evidence_rows": [
+    23
+   ],
+   "retention": [
+    [
+     "1407"
+    ],
+    [
+     "discussion"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:27",
+   "category": "identifier",
+   "question": "Which environment variable turns off the YAML deprecation warning?",
+   "kind": "text",
+   "gold": "QUILLMARK_NO_YAML_WARNING",
+   "evidence_rows": [
+    42
+   ],
+   "retention": [
+    [
+     "QUILLMARK_NO_YAML_WARNING"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:28",
+   "category": "identifier",
+   "question": "Which port does the docs dev server use?",
+   "kind": "text",
+   "gold": "4317",
+   "evidence_rows": [
+    67
+   ],
+   "retention": [
+    [
+     "4317"
+    ],
+    [
+     "server"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:29",
+   "category": "identifier",
+   "question": "How many keys did the old YAML docs config have?",
+   "kind": "text",
+   "gold": "41",
+   "evidence_rows": [
+    85
+   ],
+   "retention": [
+    [
+     "41"
+    ],
+    [
+     "config"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:30",
+   "category": "decision",
+   "question": "Why did the agent choose @iarna/toml over smol-toml?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "node 22",
+     "node22"
+    ]
+   ],
+   "evidence_rows": [
+    17
+   ],
+   "retention": [
+    [
+     "node 22",
+     "node22"
+    ],
+    [
+     "smol-toml"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:31",
+   "category": "decision",
+   "question": "Why does the loader choose the parser by file extension instead of trying both parsers?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "plain string",
+     "without an error",
+     "silently"
+    ]
+   ],
+   "evidence_rows": [
+    29
+   ],
+   "retention": [
+    [
+     "plain string",
+     "without an error",
+     "silently"
+    ],
+    [
+     "extension"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:32",
+   "category": "decision",
+   "question": "Why did the agent convert TOML dates to ISO strings during loading?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "cache",
+     "hash"
+    ]
+   ],
+   "evidence_rows": [
+    47
+   ],
+   "retention": [
+    [
+     "cache",
+     "hash"
+    ],
+    [
+     "convert"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:33",
+   "category": "decision",
+   "question": "Why did the agent not delete docs/quillmark.yaml?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "one release",
+     "both formats"
+    ]
+   ],
+   "evidence_rows": [
+    70
+   ],
+   "retention": [
+    [
+     "one release",
+     "both formats"
+    ],
+    [
+     "quillmark.yaml"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:34",
+   "category": "decision",
+   "question": "Why did the agent move the schema validation before the merge of the defaults?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "baseurl",
+     "base url",
+     "base_url"
+    ]
+   ],
+   "evidence_rows": [
+    86
+   ],
+   "retention": [
+    [
+     "baseurl",
+     "base url",
+     "base_url"
+    ],
+    [
+     "validation"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:35",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"write the TOML loader\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    17
+   ],
+   "retention": [
+    [
+     "write the TOML loader"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:36",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"convert the docs site config\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "done",
+   "evidence_rows": [
+    17
+   ],
+   "retention": [
+    [
+     "convert the docs site config"
+    ],
+    [
+     "done",
+     "completed",
+     "complete",
+     "finished"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:37",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"add the deprecation warning\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    92
+   ],
+   "retention": [
+    [
+     "add the deprecation warning"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:38",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"update the migration guide\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "open",
+   "evidence_rows": [
+    92
+   ],
+   "retention": [
+    [
+     "update the migration guide"
+    ],
+    [
+     "open",
+     "pending",
+     "not started",
+     "in progress",
+     "todo",
+     "to do",
+     "not done"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:39",
+   "category": "task_state",
+   "question": "What is the status of the subtask \"fix the Windows path test\"? Answer with one word: done, open, or blocked.",
+   "kind": "choice",
+   "gold": "blocked",
+   "evidence_rows": [
+    53
+   ],
+   "retention": [
+    [
+     "fix the Windows path test"
+    ],
+    [
+     "blocked",
+     "waiting"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:40",
+   "category": "next_step",
+   "question": "What did the user say to do once the migration guide is updated?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "publish"
+    ]
+   ],
+   "evidence_rows": [
+    71
+   ],
+   "retention": [
+    [
+     "publish"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:41",
+   "category": "next_step",
+   "question": "Which file is the target of that next step? Give the path.",
+   "kind": "path",
+   "gold": "packages/core/package.json",
+   "evidence_rows": [
+    71
+   ],
+   "retention": [
+    [
+     "packages/core/package.json"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:42",
+   "category": "next_step",
+   "question": "What did the user say comes after that step?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "announce"
+    ]
+   ],
+   "evidence_rows": [
+    71
+   ],
+   "retention": [
+    [
+     "announce"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:43",
+   "category": "next_step",
+   "question": "Who must approve before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "castellanos"
+    ]
+   ],
+   "evidence_rows": [
+    71
+   ],
+   "retention": [
+    [
+     "castellanos"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:44",
+   "category": "next_step",
+   "question": "Besides the approval, which condition must hold before the merge?",
+   "kind": "keywords",
+   "gold": [
+    [
+     "console"
+    ]
+   ],
+   "evidence_rows": [
+    71
+   ],
+   "retention": [
+    [
+     "console"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:45",
+   "category": "recent",
+   "question": "How many test suites passed in the last npm test run?",
+   "kind": "number",
+   "gold": "48",
+   "evidence_rows": [
+    130
+   ],
+   "retention": [
+    [
+     "48"
+    ],
+    [
+     "passed"
+    ]
+   ]
+  },
+  {
+   "id": "s3-quillmark:46",
+   "category": "recent",
+   "question": "Which file did the last file read in the session open?",
+   "kind": "path",
+   "gold": "packages/core/README.md",
+   "evidence_rows": [
+    134
+   ],
+   "retention": [
+    [
+     "packages/core/README.md"
+    ]
+   ]
+  }
+ ],
+ "qa_batches": [
+  [
+   1,
+   6,
+   13,
+   17,
+   21,
+   26,
+   31,
+   36,
+   41,
+   46
+  ],
+  [
+   2,
+   7,
+   11,
+   16,
+   22,
+   27,
+   32,
+   37,
+   42
+  ],
+  [
+   3,
+   8,
+   12,
+   18,
+   23,
+   28,
+   33,
+   38,
+   43
+  ],
+  [
+   4,
+   9,
+   14,
+   19,
+   24,
+   29,
+   34,
+   39,
+   44
+  ],
+  [
+   5,
+   10,
+   15,
+   20,
+   25,
+   30,
+   35,
+   40,
+   45
+  ]
+ ]
+}

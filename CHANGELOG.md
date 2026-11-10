@@ -9,6 +9,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Add a work ledger after the summary: the commands that ran, with their exit codes and first error lines, and the files that tools changed. Code writes it from the tool calls and results; no model writes it. A later compaction keeps the earlier ledger lines. Setting `ledger` (default true).
 - Add a ledger-only summary when both model summaries fail and the rows before the tail have tool work (`path=ledger`). Setting `ledger_on_failure` (default true).
 - Add the setting `timeout_s` (default 300 seconds, range 10 to 3600) for the warm request time limit and the fallback deadline. The old fixed limit was 120 seconds, which a slow local model could not meet. Hermes gives its own compression requests at least 300 seconds.
+- Add a repeatable compaction benchmark in `benchmarks/compaction/`. It runs each method in the real Hermes agent loop on six synthetic coding sessions, scores 276 questions with fixed rules, and reports accuracy by category, summary success and failure codes, size, time, and drift over three compactions. The decision rule is pre-registered. Two more methods measure the compaction of Codex CLI and Claude Code on the same model and sessions, in isolated temporary homes with pinned CLI versions. The benchmark is a development tool; it does not change the plugin.
 
 ### Changed
 

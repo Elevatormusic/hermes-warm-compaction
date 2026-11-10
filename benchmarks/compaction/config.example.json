@@ -1,0 +1,28 @@
+{
+  "endpoint": "http://localhost:1234/v1",
+  "model": "qwen3.5-4b-mtp",
+  "api_key_env": "",
+  "hermes_python": "<hermes-venv-python>",
+  "hermes_source": "<clean-hermes-checkout>",
+  "plugin_source": "<folder that contains warm_compaction/>",
+  "plugin_commit": "<plugin commit, when plugin_source is not the top folder of a clean Git checkout; reported as not verified>",
+  "context_length": 131072,
+  "server_check": true,
+  "threshold": 0.95,
+  "replicates": 5,
+  "fixtures": "all",
+  "methods": ["full_context", "stock_hermes", "warm_ledger", "warm_no_ledger", "fallback_quoted_ledger",
+              "fallback_quoted_no_ledger", "fallback_relaxed_ledger", "fallback_relaxed_no_ledger"],
+  "drift": {"fixtures": ["s2-tidepool", "s4-orchard"], "methods": ["stock_hermes", "warm_ledger",
+                                                                    "fallback_relaxed_ledger"], "cycles": 3},
+  "qa_batch": 12,
+  "qa_max_tokens": 2048,
+  "main_max_tokens": 4096,
+  "job_timeout_s": 3600,
+  "keep_text": false,
+  "cli": {
+    "codex_cli": {"command": ["node", "<npm root>/@openai/codex/bin/codex.js"], "version": "0.147.0"},
+    "claude_code_cli": {"command": ["<npm root>/@anthropic-ai/claude-code/bin/claude.exe"], "version": "2.1.162"}
+  },
+  "cli_timeout_s": 1800
+}
