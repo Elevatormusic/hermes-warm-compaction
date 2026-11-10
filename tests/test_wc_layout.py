@@ -242,22 +242,126 @@ class AttachmentAndPrependTest(unittest.TestCase):
         self.assertIn("> older ask", new[1]["content"])
 
 
+class FitUserRowTest(unittest.TestCase):
+    def test_a_whitespace_sidecar_does_not_restore_the_large_display(self):
+        import copy
+        from warm_compaction.layout import fit_user_row
+        from warm_compaction.rows import api_content, sent_tokens
+
+        row = user("synthetic display " * 20_000, api_content=" \t\n " * 1000)
+        before = copy.deepcopy(row)
+        removed = []
+        fitted = fit_user_row(row, 100, removed)
+        self.assertEqual(fitted["content"], row["content"])
+        self.assertIsInstance(fitted["api_content"], str)
+        self.assertTrue(fitted["api_content"])
+        self.assertFalse(api_content(fitted).strip())
+        self.assertLessEqual(sent_tokens(fitted), 100)
+        self.assertEqual(removed, [])
+        self.assertEqual(row, before)
+
+    def test_a_cut_sidecar_keeps_the_user_display_and_input(self):
+        import copy
+        from warm_compaction.layout import fit_user_row
+        from warm_compaction.rows import MIDDLE_MARK, api_content, sent_tokens
+
+        display = "  Synthetic user request.  "
+        sent = display + "\n\n<memory-context>\n" + "synthetic memory " * 3000 + "\n</memory-context>"
+        row = user(display, api_content=sent, name="synthetic-user", unrelated="not copied")
+        before = copy.deepcopy(row)
+        for budget in (2_000, 0):
+            with self.subTest(budget=budget):
+                fitted = fit_user_row(row, budget)
+                self.assertEqual(fitted["content"], display)
+                self.assertEqual(fitted["name"], "synthetic-user")
+                self.assertNotIn("unrelated", fitted)
+                self.assertEqual(api_content(fitted), fitted["api_content"])
+                self.assertIn(MIDDLE_MARK, fitted["api_content"])
+                self.assertLess(len(fitted["api_content"]), len(sent))
+                if budget:
+                    self.assertLessEqual(sent_tokens(fitted), budget)
+                self.assertEqual(row, before)
+
+    def test_the_cut_middle_comes_from_the_sent_text(self):
+        from warm_compaction.layout import CUT_NOTE, fit_user_row
+
+        display = "SYNTHETIC DISPLAY ONLY"
+        sent = "sent start " + "s" * 20_000 + " SYNTHETIC SENT MIDDLE " + "s" * 20_000 + " sent end"
+        removed = []
+        fitted = fit_user_row(user(display, api_content=sent), 2_000, removed)
+        self.assertEqual(fitted["content"], display)
+        self.assertEqual(len(removed), 1)
+        self.assertTrue(removed[0]["content"].startswith(CUT_NOTE))
+        self.assertIn("SYNTHETIC SENT MIDDLE", removed[0]["content"])
+        self.assertNotIn(display, removed[0]["content"])
+
+    def test_only_the_sent_sidecar_counts_in_the_budget(self):
+        from warm_compaction.layout import fit_user_row
+        from warm_compaction.rows import sent_tokens
+
+        display = "synthetic display " * 3000
+        fitted = fit_user_row(user(display, api_content="synthetic sent text"), 100)
+        self.assertEqual(fitted["content"], display)
+        self.assertEqual(fitted["api_content"], "synthetic sent text")
+        self.assertLessEqual(sent_tokens(fitted), 100)
+
+
 class BoundTailTest(unittest.TestCase):
+    def test_an_empty_sidecar_replacement_does_not_restore_the_large_display(self):
+        from warm_compaction.layout import _set_parts, bound_tail
+        from warm_compaction.rows import api_content, sent_tokens
+
+        # Both helpers must keep a nonempty sidecar. An empty one replays the display text.
+        for role in ("user", "assistant"):
+            with self.subTest(role=role):
+                row = {"role": role, "content": "synthetic display " * 20_000,
+                       "api_content": "synthetic sent " * 2000}
+                for fitted in (_set_parts(row, {("content",): ""}), bound_tail([row], 0)[0]):
+                    self.assertEqual(fitted["content"], row["content"])
+                    self.assertTrue(fitted["api_content"])
+                    self.assertEqual(api_content(fitted), fitted["api_content"])
+                    self.assertLessEqual(sent_tokens(fitted), 50)
+                self.assertEqual(row["api_content"], "synthetic sent " * 2000)
+
     def test_a_newest_unit_larger_than_the_tail_is_cut(self):
         # A large user message or tool result alone above the tail budget would stay above the threshold after
         # the compaction. Its start and end stay.
         from warm_compaction.layout import bound_tail
-        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
+        from warm_compaction.rows import MIDDLE_MARK, sent_tokens
         rows = [assistant("", [("c1", "read", "{}")]), tool("c1", "head " + "r" * 40_000 + " tail"),
                 user("ask " + "u" * 20_000 + " end", api_content="[ctx]\n\nask " + "u" * 20_000 + " end")]
         bounded = bound_tail(rows, 2_000)
-        self.assertLessEqual(sum(estimate_tokens(row) for row in bounded), 2_000)
+        # The budget is on what Hermes sends (the sent payload), not the stored display text.
+        self.assertLessEqual(sum(sent_tokens(row) for row in bounded), 2_000)
         self.assertEqual(bounded[0], rows[0])
         self.assertTrue(bounded[1]["content"].startswith("head ") and bounded[1]["content"].endswith(" tail"))
         self.assertIn(MIDDLE_MARK, bounded[1]["content"])
-        self.assertTrue(bounded[2]["content"].startswith("[ctx]") and bounded[2]["content"].endswith(" end"))
-        self.assertNotIn("api_content", bounded[2])
+        # The user row keeps its display content intact; the cut sent payload stays in the api_content sidecar,
+        # so the stored display text is not replaced by the sent text (which carries <memory-context>).
+        self.assertEqual(bounded[2]["content"], "ask " + "u" * 20_000 + " end")
+        self.assertTrue(bounded[2]["api_content"].startswith("[ctx]") and bounded[2]["api_content"].endswith(" end"))
+        self.assertIn(MIDDLE_MARK, bounded[2]["api_content"])
         self.assertIs(bound_tail(rows[:1], 2_000)[0], rows[0])
+
+    def test_a_small_user_row_with_a_large_memory_context_sidecar_keeps_its_display(self):
+        # Regression (the "my messages move" bug): a real user row whose display content is short but
+        # whose sent payload (the api_content sidecar) is large because Hermes injected a <memory-context>
+        # block. bound_tail must cut the SENT payload and keep the DISPLAY content intact — not replace the
+        # display text with the cut sent text (which carries the <memory-context> block and a [cut] mark).
+        from warm_compaction.layout import bound_tail
+        from warm_compaction.rows import MIDDLE_MARK, sent_tokens
+        display = "algó algo raro en el código"  # what the user actually typed (short, no sidecar)
+        sent = display + "\n\n<memory-context>\n" + "recalled " * 3000 + "\n</memory-context>"  # large payload
+        rows = [assistant("", [("c1", "read", "{}")]), tool("c1", "ok"), user(display, api_content=sent)]
+        bounded = bound_tail(rows, 2_000)
+        self.assertLessEqual(sum(sent_tokens(row) for row in bounded), 2_000)
+        # Display content untouched: the exact text the user typed, no <memory-context>, no [cut] mark.
+        self.assertEqual(bounded[2]["content"], display)
+        self.assertNotIn("<memory-context>", bounded[2]["content"])
+        self.assertNotIn(MIDDLE_MARK, bounded[2]["content"])
+        # The cut sent payload stays in the sidecar (marked) and is what counts toward the budget.
+        self.assertIn(MIDDLE_MARK, bounded[2]["api_content"])
+        self.assertLess(len(bounded[2]["api_content"]), len(sent))
 
     def test_the_tail_is_sized_as_hermes_sends_it(self):
         # Hermes sends api_content in place of content: a row with both fields costs its sent text only.
