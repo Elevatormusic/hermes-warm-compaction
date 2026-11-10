@@ -249,6 +249,9 @@ def worker(source, case, dependency_paths):
         platform.uname()
         platform.platform()
         platform.architecture()
+        from hermes_cli import version_info
+        # Official Codex headers use the cached host version. Resolve its Git probes before the request fence.
+        version_info.get_version_info()
         from hermes_cli import plugins
         from hermes_cli.middleware import apply_llm_request_middleware, run_llm_execution_middleware
         from agent.transports.anthropic import AnthropicTransport
@@ -263,6 +266,7 @@ def worker(source, case, dependency_paths):
         checks["transport_origin_is_pinned_source"] = all(
             Path(sys.modules[transport.__module__].__file__).resolve().is_relative_to(source)
             for transport in (AnthropicTransport, ResponsesApiTransport))
+        checks["host_identity_origin_is_pinned_source"] = Path(version_info.__file__).resolve().is_relative_to(source)
         redirected = []
         if route_url != server.base_url:
             def loopback_post(url, data, headers, timeout_s, context=None):
@@ -303,10 +307,6 @@ def worker(source, case, dependency_paths):
             from anthropic import Anthropic
             client = Anthropic(base_url=server.base_url, api_key=KEY, max_retries=0)
         _ = client.default_headers
-        if "codex" in case:
-            # Load host version metadata before the synthetic request fence.
-            from hermes_cli.version_info import get_version_info
-            get_version_info()
         sys.addaudithook(fence)
         def terminal(body):
             return client.responses.create(**body) if mode == "codex_responses" else client.messages.create(**body)

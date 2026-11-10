@@ -29,6 +29,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Fixed
 
+- Report safe fallback reply metadata after success, including success after a retry. Keep the final reply counts, requested limit, attempt count, and end-marker status in the engine log and status. Do not report summary text or the random marker. The requested limit does not prove that the host sent it or that the server applied it.
 - Synchronize the documented prompt and completion token counts only after a confirmed compression boundary. Keep both counts unchanged while the host can still reject the candidate.
 - Require at least one verified source-content quote after fallback construction. Use the existing one retry for all-unknown or generated-label-only output, then preserve history if the second reply is also unusable. Keep actual text and argument provenance separate from generated labels. Give a recognized earlier summary core the existing share before its copied appendix uses any remainder; preserve the legacy whole-summary bound for unknown formats.
 - Use the exact bounded focus and memory block sent to the fallback as a separate source block. Keep the existing request reserve and reject an encoded prior quote that also occurs inside an ordinary source line.
