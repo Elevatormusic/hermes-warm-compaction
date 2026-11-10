@@ -161,43 +161,23 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((self.engine.last_prompt_tokens, self.engine.last_real_prompt_tokens), (0, 7))
 
     @staticmethod
-    def rearm_state(engine):
-        return (engine.last_prompt_tokens, engine.last_completion_tokens,
-                engine.awaiting_real_usage_after_compression, engine._verify_compaction_cleared_threshold)
+    def usage_state(engine):
+        return engine.last_prompt_tokens, engine.last_completion_tokens
 
-    def test_candidate_keeps_host_state_until_the_commit_boundary(self):
+    def test_candidate_keeps_usage_until_the_commit_boundary(self):
         rows = old_turns()
         reply = assistant("answer final")
         self.seed(rows, reply)
         self.engine.last_prompt_tokens = 99_000
         self.engine.last_completion_tokens = 12
-        before = self.rearm_state(self.engine)
+        before = self.usage_state(self.engine)
         history = [*rows, reply]
         self.assertIsNot(self.engine.compress(history), history)
-        self.assertEqual(self.rearm_state(self.engine), before)
+        self.assertEqual(self.usage_state(self.engine), before)
         self.commit(self.engine)
-        self.assertEqual(self.rearm_state(self.engine), (-1, 0, True, True))
+        self.assertEqual(self.usage_state(self.engine), (-1, 0))
         self.engine.update_from_response({"prompt_tokens": 20_000, "completion_tokens": 10})
-        self.assertEqual(self.rearm_state(self.engine), (20_000, 10, False, False))
-
-    def test_each_confirmed_boundary_arms_one_response(self):
-        history = [*old_turns(), assistant("done")]
-        for _ in range(4):
-            self.engine.update_from_response({"prompt_tokens": 99_000, "completion_tokens": 12})
-            before = self.rearm_state(self.engine)
-            self.assertIsNot(self.engine.compress(history), history)
-            self.assertEqual(self.rearm_state(self.engine), before)
-            self.commit(self.engine)
-            self.assertEqual(self.rearm_state(self.engine), (-1, 0, True, True))
-            self.engine.update_from_response({"prompt_tokens": 20_000, "completion_tokens": 10})
-            self.assertEqual(self.rearm_state(self.engine), (20_000, 10, False, False))
-
-    def test_session_reset_clears_the_rearm_contract(self):
-        self.engine._verify_compaction_cleared_threshold = True
-        self.engine.awaiting_real_usage_after_compression = True
-        self.engine.on_session_reset()
-        self.assertFalse(self.engine.awaiting_real_usage_after_compression)
-        self.assertFalse(self.engine._verify_compaction_cleared_threshold)
+        self.assertEqual(self.usage_state(self.engine), (20_000, 10))
 
     def test_preflight_uses_the_estimate(self):
         self.assertFalse(self.engine.should_compress_preflight([user("x")]))
@@ -1341,9 +1321,9 @@ class EngineTest(unittest.TestCase):
         for refusal in ("adoption", "session", "count"):
             with self.subTest(refusal=refusal):
                 engine = self.make()
-                before = self.rearm_state(engine)
+                before = self.usage_state(engine)
                 engine.compress([*old_turns(), assistant("done")])
-                self.assertEqual(self.rearm_state(engine), before)
+                self.assertEqual(self.usage_state(engine), before)
                 count = engine.compression_count
                 context = {"session_db": object()} if refusal == "adoption" else {}
                 old = "other" if refusal == "session" else "s1"
@@ -1351,11 +1331,11 @@ class EngineTest(unittest.TestCase):
                     engine.compression_count -= 1
                 engine.on_session_start("s1", boundary_reason="compression", old_session_id=old, **context)
                 self.assertEqual(engine._warm_failures, 0)
-                self.assertEqual(self.rearm_state(engine), before)
+                self.assertEqual(self.usage_state(engine), before)
                 engine.compression_count = count
                 self.commit(engine)
                 self.assertEqual(engine._warm_failures, 0)
-                self.assertEqual(self.rearm_state(engine), before)
+                self.assertEqual(self.usage_state(engine), before)
 
     def test_a_new_attempt_replaces_a_discarded_result(self):
         engine = self.make()

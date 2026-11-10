@@ -207,7 +207,6 @@ class WarmCompactionEngine(ContextEngine):
         self._clock = clock
         self.threshold_percent = float(self._settings["threshold"])
         self.last_real_prompt_tokens = 0
-        self._verify_compaction_cleared_threshold = False
         self.compression_count = 0
         self.warm_last: dict[str, Any] | None = None
         self._wc_session_id = ""
@@ -249,11 +248,9 @@ class WarmCompactionEngine(ContextEngine):
                         and pending[0] == old_session == self._wc_session_id
                         and pending[1] == self.compression_count):
                     self._note_warm_result(pending[2])
-                    # Only a confirmed boundary can discard old usage and arm the next response.
+                    # Only a confirmed boundary can replace the old prompt and completion counts.
                     self.last_prompt_tokens = -1
                     self.last_completion_tokens = 0
-                    self.awaiting_real_usage_after_compression = True
-                    self._verify_compaction_cleared_threshold = True
                 if old_session:
                     self._store.forget(session_id=old_session)
             elif str(session_id or "") != self._wc_session_id:
@@ -289,9 +286,6 @@ class WarmCompactionEngine(ContextEngine):
             self.last_real_prompt_tokens = self.last_prompt_tokens
         # Hermes sets this flag on the engine after each compaction. The next response clears it.
         self.awaiting_real_usage_after_compression = False
-        # The host reads the compaction latch before it calls this method. Clear it here, as the built-in
-        # compressor does, so one real response judges one compaction.
-        self._verify_compaction_cleared_threshold = False
 
     def should_compress(self, prompt_tokens: int | None = None) -> bool:
         tokens = self.last_prompt_tokens if prompt_tokens is None else prompt_tokens
@@ -332,7 +326,6 @@ class WarmCompactionEngine(ContextEngine):
         # The calibration of the old session: Hermes uses the real prompt count as a floor unless the latch is set.
         self.last_real_prompt_tokens = 0
         self.awaiting_real_usage_after_compression = False
-        self._verify_compaction_cleared_threshold = False
 
     def get_status(self) -> dict[str, Any]:
         with self._wc_result_lock:

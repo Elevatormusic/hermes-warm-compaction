@@ -303,6 +303,10 @@ def worker(source, case, dependency_paths):
             from anthropic import Anthropic
             client = Anthropic(base_url=server.base_url, api_key=KEY, max_retries=0)
         _ = client.default_headers
+        if "codex" in case:
+            # Load host version metadata before the synthetic request fence.
+            from hermes_cli.version_info import get_version_info
+            get_version_info()
         sys.addaudithook(fence)
         def terminal(body):
             return client.responses.create(**body) if mode == "codex_responses" else client.messages.create(**body)
