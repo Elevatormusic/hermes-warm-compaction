@@ -73,7 +73,7 @@ class RegisterTest(unittest.TestCase):
         engine = engine_of(ctx)
         self.assertTrue(all(call[2].__self__ is engine._store for call in ctx.calls[2:]))
         self.assertEqual((engine._task, engine._llm), ("warm_compaction", ctx.llm))
-        self.assertEqual(ctx.calls[0][2], {"timeout": 120})
+        self.assertEqual(ctx.calls[0][2], {"timeout": 300.0})
 
     def test_missing_method_registers_nothing(self):
         ctx = FakeContext()
@@ -136,7 +136,8 @@ class RegisterTest(unittest.TestCase):
     def test_manifest_declares_the_settings(self):
         text = (ROOT / "warm_compaction" / "plugin.yaml").read_text(encoding="utf-8")
         for line in ("manifest_version: 2", "name: warm_compaction", "config_schema:", "  threshold:",
-                     "  tail_tokens:", "  user_copy_chars:", "  warm:"):
+                     "  tail_tokens:", "  user_copy_chars:", "  warm:", "  ledger:", "  fallback_format:",
+                     "  ledger_on_failure:", "  timeout_s:"):
             self.assertIn(line + "\n", text)
 
     def test_the_alpha_files_are_gone(self):

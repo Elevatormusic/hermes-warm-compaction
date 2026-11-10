@@ -7,8 +7,10 @@ from collections.abc import Iterable
 
 from .rows import reply_text
 
-HEADINGS = ("## Goal", "## User instructions", "## Current state", "## Key facts", "## Next step")
+HEADINGS = ("## Goal", "## User instructions", "## Current state", "## Decisions", "## Key facts", "## Next step")
 REQUIRED_SECTIONS = ("## Goal", "## Current state", "## Next step")
+# A reply can leave out an optional heading: a small model can miss it. When it is present, its order is checked.
+OPTIONAL_HEADINGS = ("## Decisions",)
 MAX_REPLY_BYTES = 24_000
 LEGACY_PREFIX = "[CONTEXT SUMMARY]:"
 END_MARKER = "--- END OF CONTEXT SUMMARY"
@@ -27,7 +29,7 @@ Rules:
 - Write in the language of the conversation. Use short bullets. Use at most {summary_words} words.
 - Leave out data that the task does not need, for example unrelated records or logs.
 
-Use these five headings, in this order, each on its own line. Start the reply with "## Goal":
+Use these six headings, in this order, each on its own line. Start the reply with "## Goal":
 
 ## Goal
 The current goal of the user, in one or two sentences.
@@ -45,6 +47,11 @@ asked for it.
 - [BLOCKED] when it cannot continue until something missing arrives, for example an input or an approval. Name \
 what is missing.
 - [CANCELLED] when the user cancelled or replaced it.
+
+## Decisions
+Each decision that was made, as a bullet with its reason when the conversation gives one: for example a chosen \
+approach, a rejected option, or a changed plan. When a later message changed a decision, give the current \
+decision and say what it replaces. Write "- none" when no decision was made.
 
 ## Key facts
 Identifiers, names, values, and results that the next step needs. When a value replaced an older value, give the \
@@ -100,12 +107,13 @@ def gate_content(content: Any, summary_prefixes: Iterable[str] = ()) -> tuple[st
     if any(marker and marker in text for marker in (LEGACY_PREFIX, END_MARKER, *summary_prefixes)):
         return None, "carrier_marker"
     lines = [line.strip() for line in text.splitlines()]
-    if any(heading not in lines for heading in HEADINGS):
+    if any(heading not in lines for heading in HEADINGS if heading not in OPTIONAL_HEADINGS):
         return None, "heading_missing"
     # A repeated heading is not section text: "## Goal" twice must not count as a goal.
     if any(lines.count(heading) > 1 for heading in HEADINGS):
         return None, "heading_repeated"
-    starts = [lines.index(heading) for heading in HEADINGS]
+    present = [heading for heading in HEADINGS if heading in lines]
+    starts = [lines.index(heading) for heading in present]
     if starts != sorted(starts):
         return None, "heading_order"
     # Text before the first heading can be an answer, or an action that did not occur: not a summary.
@@ -113,7 +121,7 @@ def gate_content(content: Any, summary_prefixes: Iterable[str] = ()) -> tuple[st
         return None, "heading_preamble"
     # The goal, the state, and the next step are necessary to continue the task. The user instructions and
     # the key facts can be empty: there can be none.
-    for heading, start, end in zip(HEADINGS, starts, [*starts[1:], len(lines)]):
+    for heading, start, end in zip(present, starts, [*starts[1:], len(lines)]):
         if heading in REQUIRED_SECTIONS and not any(lines[start + 1:end]):
             return None, "section_empty"
     return text, None

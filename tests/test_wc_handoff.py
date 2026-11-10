@@ -36,6 +36,17 @@ class HandoffTest(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertTrue(text.startswith("## Goal"))
 
+    def test_the_decisions_section_is_optional_but_keeps_its_order(self):
+        # A small model can leave out the optional section (HEADINGS_TEXT has no Decisions section).
+        self.assertIsNone(gate(reply(HEADINGS_TEXT))[1])
+        decisions = "## Decisions\n- Use JSON, not YAML: the parser needs it.\n\n"
+        with_decisions = HEADINGS_TEXT.replace("## Key facts", decisions + "## Key facts")
+        text, reason = gate(reply(with_decisions))
+        self.assertIsNone(reason)
+        self.assertIn("- Use JSON, not YAML", text)
+        self.assertEqual(gate(reply(decisions + HEADINGS_TEXT))[1], "heading_order")
+        self.assertEqual(gate(reply(with_decisions + "\n\n## Decisions\n- again"))[1], "heading_repeated")
+
     def test_gate_reasons(self):
         cases = {
             "finish_not_stop": reply(finish_reason="length"),

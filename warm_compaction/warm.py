@@ -24,7 +24,7 @@ DEFAULT_RESERVE = 4096
 # thinking model that counts its reasoning in the same limit.
 HANDOFF_MIN_TOKENS = 2048
 HANDOFF_MAX_TOKENS = 8192
-TIMEOUT_S = 120.0
+TIMEOUT_S = 300.0
 # Cloudflare-fronted routes reject Python's default "Python-urllib/x.y" User-Agent with
 # HTTP 403 (error 1010). Send an explicit one, as the Hermes SDK client does.
 USER_AGENT = "hermes-warm-compaction/0.2"
@@ -437,7 +437,7 @@ def build_request(capture: dict[str, Any], messages: list, route: tuple, context
     request["messages"] = [*body["messages"], *_join_user_rows(added, instruction)]
     request["stream"] = False
     request.pop("stream_options", None)
-    # A stop sequence of the main request could cut the handoff after the five headings.
+    # A stop sequence of the main request could cut the handoff after the handoff headings.
     request.pop("stop", None)
     # A web search costs a search and can bring text that is not in the conversation into the handoff.
     request.pop("web_search_options", None)

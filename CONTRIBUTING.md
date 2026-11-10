@@ -98,12 +98,15 @@ Local code tests and lint need a manual maintainer or reviewer action for each r
 Do not start or repeat them automatically after a change, review, or failure.
 An agent must wait for an explicit request to run local checks. CI uses the
 protected `ci-approval` environment for policy unit tests, unit and property
-tests, Ruff, syntax checks, and all Hermes suites, except for pushes to `main`.
+tests, Ruff, syntax checks, and all Hermes suites, except for pushes to `main`
+and pull requests from branches in this repository.
 
 A `push` event on `refs/heads/main` selects the approval-free `ci-main` environment
-and runs these checks automatically. All other events select `ci-approval`.
-Pull requests, scheduled runs, and manual dispatch still need approval, including
-scheduled runs and manual dispatch on `main`.
+and runs these checks automatically. A pull request whose head branch is in this
+repository selects no environment and also runs automatically. Only users with
+write access can push such a branch. All other events select `ci-approval`.
+Pull requests from forks, scheduled runs, and manual dispatch still need approval,
+including scheduled runs and manual dispatch on `main`.
 
 The Hermes compatibility workflow keeps separate concurrency groups for each
 event and ref. A newer run cancels an earlier run only when both match.

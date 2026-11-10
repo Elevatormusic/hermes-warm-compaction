@@ -176,7 +176,7 @@ class LlmSummaryTest(unittest.TestCase):
         self.assertEqual((text, tokens), (useful_summary("hi"), 321))
         self.assertEqual((kwargs["task"], kwargs["max_tokens"]), (TASK, REQUEST_MAX_TOKENS))
         self.assertGreater(kwargs["timeout"], 0)
-        self.assertLessEqual(kwargs["timeout"], 120.0)
+        self.assertLessEqual(kwargs["timeout"], 300.0)
         self.assertIn("Give more detail to this topic: db", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
         self.assertRegex(self.marker(messages), r"^\[END OF SUMMARY [0-9a-f]{32}\]$")
@@ -229,9 +229,70 @@ class LlmSummaryTest(unittest.TestCase):
                 failure = {}
                 self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (None, None))
             self.assertEqual(failure["reason"], "gate:" + reason)
-            self.assertEqual(failure["attempts"], 2)
-            self.assertEqual(len(llm.calls), 2)
+            self.assertEqual(failure["attempts"], 3)
+            self.assertEqual(len(llm.calls), 3)
             self.assertNotIn(self.marker(llm.calls[-1][0]), str(logs.output) + str(failure))
+
+    def test_missing_marker_retry_repeats_the_marker_requirement(self):
+        def reply(messages, kwargs, count):
+            body = useful_summary("hi")
+            return body if count == 1 else body + "\n" + self.marker(messages)
+        llm, failure = FakeLlm(text=reply), {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (useful_summary("hi"), 321))
+        self.assertEqual(len(llm.calls), 2)
+        first, second = llm.calls
+        self.assertNotIn("did not end with the marker line", first[0][0]["content"])
+        self.assertIn("did not end with the marker line", second[0][0]["content"])
+        self.assertEqual(failure, {})
+
+    def test_duplicate_marker_retry_asks_for_the_marker_exactly_once(self):
+        def reply(messages, kwargs, count):
+            marker = self.marker(messages)
+            body = useful_summary("hi")
+            return body + " " + marker + "\n" + marker if count == 1 else body + "\n" + marker
+        llm = FakeLlm(text=reply)
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES), (useful_summary("hi"), 321))
+        second = llm.calls[1][0][0]["content"]
+        self.assertIn("had the marker line more than once", second)
+        self.assertIn("exactly once", second)
+        self.assertNotIn("did not end with the marker line", second)
+
+    def test_a_marker_failure_grants_the_third_attempt_in_either_order(self):
+        # Synthetic replies: SUMMARY with the marker fails the content check (no_useful_evidence).
+        for order in (("missing", "content"), ("content", "missing")):
+            with self.subTest(order=order):
+                def reply(messages, kwargs, count, order=order):
+                    kind = order[count - 1] if count <= 2 else "content"
+                    return SUMMARY if kind == "missing" else SUMMARY + "\n" + self.marker(messages)
+                llm, failure = FakeLlm(text=reply), {}
+                with self.assertLogs("warm_compaction.fallback", level="WARNING"):
+                    self.assertEqual(llm_summary(llm, [user("Check JOB-X3.")], PREFIXES, failure=failure),
+                                     (None, None))
+                self.assertEqual(len(llm.calls), 3)
+                self.assertEqual((failure["reason"], failure["attempts"]), ("gate:no_useful_evidence", 3))
+
+    def test_no_retry_with_too_little_time_reports_the_previous_gate_failure(self):
+        clock = [0.0]
+
+        def reply(messages, kwargs, count):
+            clock[0] += 16.0  # 4 s of 20 s remain: less than RETRY_MIN_SHARE of the limit.
+            return SUMMARY
+        llm, failure = FakeLlm(text=reply), {}
+        with patch("warm_compaction.fallback.time.monotonic", side_effect=lambda: clock[0]), \
+                self.assertLogs("warm_compaction.fallback", level="WARNING"):
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, timeout_s=20.0, failure=failure), (None, None))
+        self.assertEqual(len(llm.calls), 1)
+        self.assertEqual((failure["reason"], failure["attempts"], failure["end_marker"]),
+                         ("gate:missing_end_marker", 1, "missing"))
+
+    def test_third_attempt_passes_after_two_missing_markers(self):
+        def reply(messages, kwargs, count):
+            body = useful_summary("hi")
+            return body + ("\n" + self.marker(messages) if count == 3 else "")
+        llm, failure = FakeLlm(text=reply), {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, failure=failure), (useful_summary("hi"), 321))
+        self.assertEqual(len(llm.calls), 3)
+        self.assertEqual(failure, {})
 
     def test_thinking_is_removed_before_the_content_and_body_checks(self):
         body = useful_summary("hi")
@@ -269,7 +330,7 @@ class LlmSummaryTest(unittest.TestCase):
             safe_output = output if type(output) is int and 0 < output <= 2 ** 63 - 1 else None
             self.assertEqual(failure, {"reason": "gate:missing_end_marker", "output_tokens": safe_output,
                                       "requested_max_tokens": REQUEST_MAX_TOKENS, "end_marker": "missing",
-                                      "attempts": 2, "body_tokens": estimate_tokens(SUMMARY + "\n" + private)})
+                                      "attempts": 3, "body_tokens": estimate_tokens(SUMMARY + "\n" + private)})
             logged = "\n".join(logs.output)
             self.assertNotIn(private, logged + str(failure))
             self.assertNotIn(SUMMARY, logged + str(failure))
@@ -888,13 +949,85 @@ class SourceContextTest(unittest.TestCase):
         logger.warning.assert_called_once()
 
 
+PLAIN = ("## Goal\nFix the synthetic parser test.\n\n## User instructions\n- \"Keep the public API.\"\n\n"
+         "## Current state\n- [OPEN] Fix tests/test_p.py; it fails with ValueError.\n\n"
+         "## Key facts\n- The failing file is src/p.py.\n\n## Next step\nPatch src/p.py and run pytest.")
+
+
+class RelaxedFallbackTest(unittest.TestCase):
+    """quoted=False: free handoff sections, as a small model writes them. All replies are synthetic."""
+
+    def marker(self, messages):
+        return messages[0]["content"].rstrip().splitlines()[-1]
+
+    def test_the_relaxed_instruction_uses_the_handoff_sections_without_source_quotes(self):
+        llm = FakeLlm(text=lambda messages, kwargs, count: PLAIN + "\n" + self.marker(messages))
+        llm_summary(llm, [user("hi")], PREFIXES, quoted=False)
+        instruction = llm.calls[0][0][0]["content"]
+        self.assertNotIn("one JSON string", instruction)
+        self.assertIn("[COMPLETE]", instruction)
+        self.assertIn("Use only facts from the transcript.", instruction)
+        self.assertEqual(instruction.count("End the summary with this line:"), 1)
+        self.assertTrue(self.marker(llm.calls[0][0]).startswith("[END OF SUMMARY "))
+        # The relaxed format asks for the Decisions section; the quoted format keeps its five sections.
+        self.assertIn("\n## Decisions\n", instruction)
+        quoted = FakeLlm(text=lambda messages, kwargs, count: PLAIN + "\n" + self.marker(messages))
+        llm_summary(quoted, [user("hi")], PREFIXES, quoted=True)
+        self.assertNotIn("## Decisions", quoted.calls[0][0][0]["content"])
+
+    def test_paraphrased_bullets_pass_in_relaxed_mode_and_fail_in_quoted_mode(self):
+        reply = lambda messages, kwargs, count: PLAIN + "\n" + self.marker(messages)  # noqa: E731
+        self.assertEqual(llm_summary(FakeLlm(text=reply), [user("hi")], PREFIXES, quoted=False), (PLAIN, 321))
+        with self.assertLogs("warm_compaction.fallback", level="WARNING"):
+            self.assertEqual(llm_summary(FakeLlm(text=reply), [user("hi")], PREFIXES), (None, None))
+
+    def test_a_complete_reply_without_the_marker_passes_below_the_generation_limit(self):
+        llm, failure = FakeLlm(text=PLAIN + "\n", output_tokens=400), {}
+        self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, quoted=False, failure=failure), (PLAIN, 321))
+        self.assertEqual((len(llm.calls), failure), (1, {}))
+
+    def test_a_reply_without_the_marker_retries_when_it_can_be_cut(self):
+        # Unknown output count, an output at the limit, a missing heading, or a marker part: not proof of an end.
+        cases = ((PLAIN, None), (PLAIN, REQUEST_MAX_TOKENS), (PLAIN.replace("## Next step\n", ""), 400),
+                 (PLAIN + "\n[END OF SUMMARY", 400))
+        for text, output in cases:
+            with self.subTest(output=output, text=text[-20:]):
+                llm, failure = FakeLlm(text=text, output_tokens=output), {}
+                with self.assertLogs("warm_compaction.fallback", level="WARNING"):
+                    self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, quoted=False, failure=failure),
+                                     (None, None))
+                self.assertEqual(failure["reason"], "gate:missing_end_marker")
+                self.assertEqual(len(llm.calls), 3)
+
+    def test_text_after_the_marker_still_fails_in_relaxed_mode(self):
+        reply = lambda messages, kwargs, count: PLAIN + "\n" + self.marker(messages) + "\nNow I run pytest."  # noqa: E731
+        llm, failure = FakeLlm(text=reply, output_tokens=400), {}
+        with self.assertLogs("warm_compaction.fallback", level="WARNING"):
+            self.assertEqual(llm_summary(llm, [user("hi")], PREFIXES, quoted=False, failure=failure), (None, None))
+        self.assertEqual(failure["reason"], "gate:missing_end_marker")
+
+    def test_relaxed_mode_keeps_the_heading_and_size_gates(self):
+        cases = (("Sure! Here it is.\n" + PLAIN, "heading_preamble"),
+                 (PLAIN.replace("## Goal\nFix the synthetic parser test.", "## Goal"), "section_empty"),
+                 (PLAIN + "\n" + "word " * 3_000, "body_token_limit"))
+        for text, reason in cases:
+            with self.subTest(reason=reason):
+                reply = lambda messages, kwargs, count, text=text: text + "\n" + self.marker(messages)  # noqa: E731
+                failure = {}
+                with self.assertLogs("warm_compaction.fallback", level="WARNING"):
+                    self.assertEqual(llm_summary(FakeLlm(text=reply), [user("hi")], PREFIXES, quoted=False,
+                                                 failure=failure), (None, None))
+                self.assertEqual(failure["reason"], "gate:" + reason)
+
+
 class UsefulEvidenceTest(unittest.TestCase):
-    def test_all_unknown_uses_one_retry_then_refuses_without_provider_text(self):
+    def test_all_unknown_retries_then_refuses_without_provider_text(self):
         llm, failure = FakeLlm(SUMMARY + "\n" + END_LINE), {}
         self.assertEqual(llm_summary(llm, [user("Check JOB-X3.")], PREFIXES, failure=failure), (None, None))
         self.assertEqual(len(llm.calls), 2)
         self.assertEqual(failure["reason"], "gate:no_useful_evidence")
         self.assertEqual(failure["attempts"], 2)
+        self.assertIn("failed a summary check", llm.calls[1][0][0]["content"])
         self.assertNotIn("Check JOB-X3.", str(failure))
 
     def test_generated_labels_alone_do_not_count_as_useful_evidence(self):

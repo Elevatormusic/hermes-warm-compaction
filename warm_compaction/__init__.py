@@ -67,17 +67,19 @@ def register(ctx: Any) -> None:
     from .capture import CaptureStore
     from .engine import WarmCompactionEngine, read_settings
 
+    settings = read_settings(ctx.get_config)
     task: str | None = TASK
     try:
+        # The task default follows the plugin time limit; each fallback call also sends its remaining time.
         ctx.register_auxiliary_task(TASK, display_name="Warm compaction fallback",
                                     description="Model for the warm_compaction fallback summary.",
-                                    defaults={"timeout": 120})
+                                    defaults={"timeout": settings["timeout_s"]})
     except Exception as error:
         task = None
         logger.warning("warm_compaction could not register its auxiliary task (%s); the fallback summary uses "
                        "the main model route", type(error).__name__)
     store = CaptureStore()
-    engine = WarmCompactionEngine(store=store, llm=ctx.llm, settings=read_settings(ctx.get_config), task=task)
+    engine = WarmCompactionEngine(store=store, llm=ctx.llm, settings=settings, task=task)
     if ctx.register_context_engine(engine) is None:
         logger.warning("Hermes did not accept the warm_compaction context engine; the plugin registers no hooks")
         return

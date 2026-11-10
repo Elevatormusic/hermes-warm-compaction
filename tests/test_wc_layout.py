@@ -123,6 +123,13 @@ class TailTest(unittest.TestCase):
                 tool("c1", "x" * 4000)]
         self.assertEqual(tail_start(rows, 10, PREFIXES), (3, {"role": "user", "content": "do it"}))
 
+    def test_a_new_user_row_at_the_end_keeps_the_budget_tail(self):
+        # A new request right before a compaction: the tail keeps the rows that fit in the budget, not only the
+        # new request. The first tail rows answer an older request, so a copy of that request goes first.
+        rows = [user("old " * 50), user("task"), assistant("", [("c1", "f", "{}")]), tool("c1", "r " * 20),
+                assistant("", [("c2", "f", "{}")]), tool("c2", "s " * 20), user("new"), assistant("b")]
+        self.assertEqual(tail_start(rows, 100, PREFIXES), (4, {"role": "user", "content": "task"}))
+
     def test_no_row_before_the_tail(self):
         self.assertEqual(tail_start([user("only")], 10_000, PREFIXES), (0, None))
 
