@@ -152,6 +152,60 @@ class EngineTest(unittest.TestCase):
         engine.update_model(model=ROUTE[0], context_length=200_000, base_url=ROUTE[1], api_mode=ROUTE[2])
         self.assertEqual(engine.threshold_tokens, 50_000)
 
+    def test_cap_bounds_the_trigger(self):
+        engine = self.make(threshold=0.8, threshold_tokens_cap=256_000)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 256_000)
+        self.assertFalse(engine.should_compress(255_999))
+        self.assertTrue(engine.should_compress(256_000))
+
+    def test_cap_keeps_the_ratio_on_a_smaller_window(self):
+        engine = self.make(threshold=0.8, threshold_tokens_cap=256_000)
+        engine.update_model(model=ROUTE[0], context_length=131_072, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 104_857)
+
+    def test_no_cap_keeps_the_threshold_trigger(self):
+        engine = self.make(threshold=0.8)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 800_000)
+        engine = self.make(threshold=0.8, threshold_tokens_cap=0)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 800_000)
+
+    def test_cap_follows_window_changes(self):
+        engine = self.make(threshold=0.5, threshold_tokens_cap=256_000)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 256_000)
+        engine.update_model(model=ROUTE[0], context_length=131_072, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 65_536)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 256_000)
+
+    def test_cap_bounds_a_model_threshold_override(self):
+        engine = self.make(threshold=0.5, threshold_tokens_cap=256_000)
+        engine.model_thresholds = {"fake-model": 0.9}
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(engine.threshold_tokens, 256_000)
+
+    def test_clone_carries_the_cap(self):
+        engine = self.make(threshold=0.8, threshold_tokens_cap=256_000)
+        clone = engine.clone_for_agent()
+        clone.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        self.assertEqual(clone.threshold_tokens, 256_000)
+
+    def test_preflight_keeps_the_overflow_checks_under_a_cap(self):
+        # The earlier overflow checks use the window, not the trigger: a small capped trigger does not
+        # weaken them, and it does not fire below its own value.
+        engine = self.make(threshold=0.8, threshold_tokens_cap=1_000)
+        self.assertFalse(engine.should_compress_preflight([user("x")]))
+        self.assertTrue(engine.should_compress_preflight([user("x" * 400_004)]))
+
+    def test_tail_budget_fits_under_the_capped_trigger(self):
+        engine = self.make(threshold=0.8, tail_tokens=200_000, threshold_tokens_cap=256_000)
+        engine.update_model(model=ROUTE[0], context_length=1_000_000, base_url=ROUTE[1], api_mode=ROUTE[2])
+        from warm_compaction.engine import tail_budget
+        self.assertEqual(tail_budget(200_000, engine.context_length, engine.threshold_tokens), 128_000)
+
     def test_response_clears_the_wait_flag(self):
         self.engine.awaiting_real_usage_after_compression = True
         self.engine.update_from_response({"prompt_tokens": 7})
@@ -2361,19 +2415,20 @@ class SettingsTest(unittest.TestCase):
         self.module = engine
 
     def test_valid_values(self):
-        values = {"threshold": 0.6, "tail_tokens": 12_000, "user_copy_chars": 0, "warm": False,
-                  "summary_words": 1200, "warm_providers": "opencode-go,commandcode", "ledger": False,
+        values = {"threshold": 0.6, "threshold_tokens_cap": 256_000, "tail_tokens": 12_000,
+                  "user_copy_chars": 0, "warm": False, "summary_words": 1200,
+                  "warm_providers": "opencode-go,commandcode", "ledger": False,
                   "fallback_format": "quoted", "ledger_on_failure": False, "timeout_s": 900.0}
         self.assertEqual(self.module.read_settings(lambda key, default: values.get(key, default)), values)
 
     def test_invalid_values_use_the_defaults_with_a_warning(self):
-        values = {"threshold": 2.0, "tail_tokens": -1, "user_copy_chars": "big", "warm": "no",
-                  "summary_words": 0, "warm_providers": 7, "ledger": "yes", "fallback_format": "strict",
-                  "ledger_on_failure": 1, "timeout_s": 0}
+        values = {"threshold": 2.0, "threshold_tokens_cap": True, "tail_tokens": -1, "user_copy_chars": "big",
+                  "warm": "no", "summary_words": 0, "warm_providers": 7, "ledger": "yes",
+                  "fallback_format": "strict", "ledger_on_failure": 1, "timeout_s": 0}
         with self.assertLogs("warm_compaction.engine", level="WARNING") as logs:
             settings = self.module.read_settings(lambda key, default: values.get(key, default))
         self.assertEqual(settings, self.module.DEFAULTS)
-        self.assertEqual(len(logs.output), 10)
+        self.assertEqual(len(logs.output), 11)
 
     def test_the_time_limit_setting(self):
         def reader(values):
@@ -2401,6 +2456,21 @@ class SettingsTest(unittest.TestCase):
                     settings = self.module.read_settings(reader({"summary_words": bad}))
                 self.assertEqual(settings["summary_words"], self.module.DEFAULTS["summary_words"])
                 self.assertEqual(self.module.DEFAULTS["summary_words"], 600)
+
+    def test_the_token_cap_setting(self):
+        def reader(values):
+            return lambda key, default: values.get(key, default)
+
+        self.assertEqual(self.module.DEFAULTS["threshold_tokens_cap"], 0)
+        for good in (0, 1, 256_000):
+            with self.subTest(good=good):
+                settings = self.module.read_settings(reader({"threshold_tokens_cap": good}))
+                self.assertEqual(settings["threshold_tokens_cap"], good)
+        for bad in (-1, 1.5, "big", True):
+            with self.subTest(bad=bad):
+                with self.assertLogs("warm_compaction.engine", level="WARNING"):
+                    settings = self.module.read_settings(reader({"threshold_tokens_cap": bad}))
+                self.assertEqual(settings["threshold_tokens_cap"], 0)
 
     def test_tail_budget(self):
         self.assertEqual(self.module.tail_budget(0, 200_000), 10_000)

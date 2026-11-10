@@ -166,6 +166,7 @@ The settings are in `plugins.entries.warm_compaction.settings`. An invalid value
 | Key | Type and range | Default | Use |
 | --- | --- | --- | --- |
 | `threshold` | float, 0.10 to 0.95 | 0.50 | Fraction of the context window at which automatic compaction starts |
+| `threshold_tokens_cap` | int, 0 or more | 0: no cap | Absolute token cap for the compaction trigger. The trigger is the lower of the threshold fraction of the context window and this cap. Set it to start compaction earlier on a large context window |
 | `tail_tokens` | int, 0 or more | 0: 2.5% of the context window, from 10,000 to 25,000 | Size of the verbatim tail, at most half of the compaction threshold |
 | `user_copy_chars` | int, 0 or more | 24,000 | Total characters of user messages that the summary copies |
 | `warm` | bool | true | Set false to use only the fallback summary, for comparison runs |
@@ -185,6 +186,8 @@ plugins:
 ```
 
 The threshold also limits the request after compaction. The fixed system prompt and tool schemas must fit below it, with room for the summary and retained rows. For example, `threshold: 0.15` on a 131,072-token window gives 19,660 tokens. A fixed prefix of about 41,000 tokens already exceeds that limit. No smaller summary can make that request fit below the threshold, even though the full context window has room. Start with the default `0.5`, or select a threshold above the fixed overhead with room for the summary and tail. The request must also fit in the context window with its reply reserve. Lowering the threshold can cause `summary_too_large`. The plugin estimates these sizes; provider token counters can use a different tokenizer.
+
+The trigger can also be capped in tokens. With `threshold_tokens_cap` above 0, the trigger is the lower of the threshold fraction of the context window and the cap. A window change, model switch, or per-model threshold override recomputes the trigger, and the cap applies to the new value. A cap that puts the trigger below the fixed system prompt and tool schemas can cause `summary_too_large`, as a low threshold does.
 
 If a usable capture shows zero room for a summary after the fixed overhead, reply reserve, and summary row structure, the plugin stops that compaction pass before either model summary request. It reports `path=aborted`, `reason=summary_too_large`, and `fallback_reason=summary_too_large`. History and the capture stay unchanged. An unknown overhead does not trigger this early check. Hermes controls any later retry.
 

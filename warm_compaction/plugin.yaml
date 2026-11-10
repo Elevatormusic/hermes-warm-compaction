@@ -16,6 +16,10 @@ config_schema:
     type: float
     default: 0.5
     description: Fraction of the context window at which automatic compaction starts (0.10 to 0.95).
+  threshold_tokens_cap:
+    type: int
+    default: 0
+    description: Absolute token cap for the compaction trigger. The trigger is the lower of the threshold fraction of the context window and this cap. 0 means no cap.
   tail_tokens:
     type: int
     default: 0
