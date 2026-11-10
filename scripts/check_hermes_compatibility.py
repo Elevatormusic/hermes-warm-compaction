@@ -20,7 +20,7 @@ import tempfile
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-CASES = ("capture_last", "earlier_rewrite", "later_rewrite", "unknown_order")
+CASES = ("capture_last", "earlier_rewrite", "later_rewrite", "unknown_order", "fork_prompt_prefixes")
 WORKER_TIMEOUT = 60
 SOURCE_MARKERS = ("hermes_cli/plugins.py", "hermes_cli/middleware.py", "agent/context_engine.py", "run_agent.py")
 
@@ -75,6 +75,32 @@ def worker_environment(home: Path) -> dict[str, str]:
     return env
 
 
+def fork_prompt_prefix_case(source: Path) -> dict:
+    """Check the fork prompt prefixes against the real Hermes prompt texts of this checkout.
+
+    The capture filter falls back to the prompt prefixes where the host passes no turn origin.
+    A reworded prompt would make the filter miss that fork type, so the check reads the prompt
+    constants from the checked-out source instead of from literals in the test suite.
+    """
+    try:
+        from agent import background_review, side_question
+        from warm_compaction.capture import REVIEW_PROMPT_PREFIX, SIDE_QUESTION_PROMPT_PREFIX
+    except ImportError as error:
+        raise ValueError("hermes_import_failed") from error
+    check_import_origins(source)
+    review_prompts = (background_review._SKILL_REVIEW_PROMPT, background_review._MEMORY_REVIEW_PROMPT,
+                      background_review._COMBINED_REVIEW_PROMPT)
+    checks = {
+        "review_prompts_start_with_the_review_prefix": all(
+            type(prompt) is str and prompt.startswith(REVIEW_PROMPT_PREFIX) for prompt in review_prompts),
+        "side_question_prompt_starts_with_the_side_prefix": type(side_question._FORK_PROMPT) is str
+        and side_question._FORK_PROMPT.startswith(SIDE_QUESTION_PROMPT_PREFIX),
+    }
+    passed = all(checks.values())
+    return {"case": "fork_prompt_prefixes", "passed": passed, "checks": checks,
+            "error": None if passed else "contract_check_failed"}
+
+
 def worker(source: Path, case: str) -> dict:
     """Use the real Hermes manager, registrations, hooks, and middleware chain."""
     # Windows can use a system process for this standard-library value. Cache it before the fence.
@@ -85,6 +111,8 @@ def worker(source: Path, case: str) -> dict:
             raise RuntimeError("external_operation_blocked")
     sys.addaudithook(no_network)
     sys.path[:0] = [str(ROOT), str(source)]
+    if case == "fork_prompt_prefixes":
+        return fork_prompt_prefix_case(source)
     try:
         from hermes_cli import plugins
         from hermes_cli.middleware import apply_llm_request_middleware, run_llm_execution_middleware
