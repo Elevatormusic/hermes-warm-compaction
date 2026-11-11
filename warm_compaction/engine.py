@@ -18,7 +18,8 @@ from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, 
 logger = logging.getLogger(__name__)
 
 NAME = "warm_compaction"
-DEFAULTS: dict[str, Any] = {"threshold": 0.50, "tail_tokens": 0, "user_copy_chars": 24_000, "warm": True,
+DEFAULTS: dict[str, Any] = {"threshold": 0.50, "threshold_tokens_cap": 0, "tail_tokens": 0,
+                            "user_copy_chars": 24_000, "warm": True,
                             "summary_words": handoff.DEFAULT_SUMMARY_WORDS,
                             "warm_providers": "", "ledger": True, "fallback_format": "relaxed",
                             "ledger_on_failure": True, "timeout_s": warm.TIMEOUT_S}
@@ -272,6 +273,12 @@ class WarmCompactionEngine(ContextEngine):
         self._wc_route = (model, base_url, api_mode)
         self._wc_api_key = api_key
         self._wc_provider = provider
+        # An absolute token cap bounds the trigger on every window: the effective trigger is the lower of the
+        # threshold fraction of the context window and the cap. update_model recomputes the trigger, so the cap
+        # applies again on every call. 0 (the default) keeps the threshold fraction alone.
+        cap = _int(self._settings.get("threshold_tokens_cap"))
+        if cap > 0 and self.threshold_tokens > cap:
+            self.threshold_tokens = cap
 
     def update_from_response(self, usage: dict[str, Any]) -> None:
         usage = usage or {}
