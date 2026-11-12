@@ -196,6 +196,31 @@ class WarmCompactionEngine(ContextEngine):
     threshold_percent = DEFAULTS["threshold"]
     awaiting_real_usage_after_compression = False
 
+    # Host contract (2026-10-12 config sync, tui_gateway/session_compression.py:167): live compression config
+    # calls _coerce_threshold_tokens_cap on the active engine and assigns the result to threshold_tokens_cap.
+    # The built-in compressor has both since 2026-10-11; without them every live config set dies on
+    # AttributeError (agent.log warning "compression config sync failed", 2026-10-12..2026-10-20). Semantics
+    # mirror context_compressor.py:_coerce_threshold_tokens_cap / _apply_threshold_tokens_cap: a positive int
+    # or None, and when set the cap clamps threshold_tokens from below.
+
+    @staticmethod
+    def _coerce_threshold_tokens_cap(value: Any) -> int | None:
+        try:
+            ivalue = int(value) if value is not None else 0
+        except (TypeError, ValueError):
+            return None
+        return ivalue if ivalue > 0 else None
+
+    @property
+    def threshold_tokens_cap(self) -> int | None:
+        return getattr(self, "_threshold_tokens_cap", None)
+
+    @threshold_tokens_cap.setter
+    def threshold_tokens_cap(self, value: int | None) -> None:
+        self._threshold_tokens_cap = value
+        if value is not None and 0 < value < self.threshold_tokens:
+            self.threshold_tokens = value
+
     def __init__(self, *, store: CaptureStore | None = None, llm: Any = None,
                  settings: dict[str, Any] | None = None, task: str | None = fallback.TASK, post: Any = None,
                  clock: Callable[[], float] = time.monotonic) -> None:
@@ -235,6 +260,9 @@ class WarmCompactionEngine(ContextEngine):
         # The per-model thresholds that update_model resolves (a copy: the clone must not change with this engine).
         if getattr(self, "model_thresholds", None):
             clone.model_thresholds = copy.deepcopy(self.model_thresholds)
+        # A live config cap (threshold_tokens_cap) belongs to the agent, not the instance: carry it over.
+        if self.threshold_tokens_cap is not None:
+            clone.threshold_tokens_cap = self.threshold_tokens_cap
         return clone
 
     def on_session_start(self, session_id: str, **kwargs: Any) -> None:
@@ -263,6 +291,11 @@ class WarmCompactionEngine(ContextEngine):
                      provider: str = "", api_mode: str = "") -> None:
         super().update_model(model, context_length, base_url=base_url, api_key=api_key, provider=provider,
                              api_mode=api_mode)
+        # The base recomputes an uncapped threshold_tokens (context_engine.py:250). Re-clamp under a live
+        # config cap the way the built-in compressor does in _apply_threshold_tokens_cap.
+        cap = self.threshold_tokens_cap
+        if cap is not None and 0 < cap < self.threshold_tokens:
+            self.threshold_tokens = cap
         # A capture belongs to the provider and key that sent it: two configurations can share the model, the base
         # URL, and the API mode, and the old body must not go out with the new key and headers. The first call (no
         # identity yet) is not a switch; a change from an empty provider or key is.
