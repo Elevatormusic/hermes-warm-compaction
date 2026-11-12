@@ -11,7 +11,7 @@ from collections.abc import Callable
 
 from agent.context_engine import ContextEngine
 
-from . import fallback, handoff, layout, ledger, native, protocol, warm
+from . import fallback, handoff, layout, ledger, native, protocol, tailguard, warm
 from .capture import CaptureStore, key_stamp
 from .rows import SendPolicy, api_content, attr, estimate_tokens, hermes_value, sent_rows, sent_tokens
 
@@ -349,8 +349,11 @@ class WarmCompactionEngine(ContextEngine):
         budget = self._budget_capture(capture, messages)
         overhead = request_overhead(budget, messages)
         reserve = request_reserve(budget, int(self.context_length or 0))
-        start, prepend = layout.tail_start(messages, self._tail_cap(SUMMARY_RESERVE, overhead, reserve), prefixes,
-                                           policy)
+        tail_cap = self._tail_cap(SUMMARY_RESERVE, overhead, reserve)
+        start, prepend = layout.tail_start(messages, tail_cap, prefixes, policy)
+        # Hermes puts a folded answer back only when the rows around the slot allow it, and a running turn
+        # puts assistant rows there: keep the answer in the tail instead of folding it away.
+        start, prepend = tailguard.apply(messages, start, prepend, prefixes, tail_cap)
         if start <= 0:
             return messages
         with self._wc_result_lock:
