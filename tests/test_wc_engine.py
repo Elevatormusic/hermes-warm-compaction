@@ -76,6 +76,50 @@ def old_turns(count=30):
     return rows
 
 
+class HostTurn:
+    """The host steps a long turn repeats, copied from the Hermes core.
+
+    Mirrors agent/turn_preflight.py (one attempt per pass; refused while the engine awaits real
+    usage and once the three-attempt budget is spent), the commit site in
+    agent/conversation_compression.py (the host arms the pending-compaction verdict on the engine
+    after a rewrite), and agent/turn_usage.py::record_response_usage (the verdict is read BEFORE
+    update_from_response(), and only a priced prompt below the threshold rearms the budget).
+    """
+
+    MAX_ATTEMPTS = 3
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.attempts = self.rearms = 0
+        self.blocked_at = None
+
+    def preflight(self, real_tokens):
+        """Return True when the host would run a compaction pass for this request size."""
+        if self.engine.awaiting_real_usage_after_compression or not self.engine.should_compress(real_tokens):
+            return False
+        if self.attempts >= self.MAX_ATTEMPTS:
+            self.blocked_at = (real_tokens, self.attempts)
+            return False
+        self.attempts += 1
+        return True
+
+    def commit(self):
+        """The host commit site: the rewrite is done, nothing may compress off the stale count."""
+        self.engine.last_prompt_tokens = -1
+        self.engine.last_completion_tokens = 0
+        self.engine.awaiting_real_usage_after_compression = True
+        self.engine._verify_compaction_cleared_threshold = True
+
+    def response(self, prompt_tokens, completion_tokens=10):
+        """Price one request the way the provider does and rearm the budget when the host would."""
+        pending = bool(getattr(self.engine, "_verify_compaction_cleared_threshold", False))
+        self.engine.update_from_response({"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
+        if pending and self.attempts and 0 < prompt_tokens < self.engine.threshold_tokens:
+            self.engine._verify_compaction_cleared_threshold = False
+            self.attempts = 0
+            self.rearms += 1
+
+
 class EngineTest(unittest.TestCase):
     def setUp(self):
         wc_hermes_stub.install(self)
@@ -159,6 +203,56 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((self.engine.last_prompt_tokens, self.engine.last_real_prompt_tokens), (7, 7))
         self.engine.update_from_response({})
         self.assertEqual((self.engine.last_prompt_tokens, self.engine.last_real_prompt_tokens), (0, 7))
+
+    @staticmethod
+    def usage_state(engine):
+        return engine.last_prompt_tokens, engine.last_completion_tokens
+
+    def test_candidate_keeps_usage_until_the_commit_boundary(self):
+        rows = old_turns()
+        reply = assistant("answer final")
+        self.seed(rows, reply)
+        self.engine.last_prompt_tokens = 99_000
+        self.engine.last_completion_tokens = 12
+        before = self.usage_state(self.engine)
+        history = [*rows, reply]
+        self.assertIsNot(self.engine.compress(history), history)
+        self.assertEqual(self.usage_state(self.engine), before)
+        self.commit(self.engine)
+        self.assertEqual(self.usage_state(self.engine), (-1, 0))
+        self.engine.update_from_response({"prompt_tokens": 20_000, "completion_tokens": 10})
+        self.assertEqual(self.usage_state(self.engine), (20_000, 10))
+
+    def test_three_compactions_in_one_long_turn_keep_the_attempt_budget(self):
+        """A worker run is a single host turn: four compactions must not spend the three-attempt budget."""
+        engine = self.make()
+        turn = HostTurn(engine)
+        for index in range(4):
+            self.assertTrue(turn.preflight(120_000), f"compaction #{index + 1} refused by the host gate")
+            rows = old_turns()
+            reply = assistant("answer final")
+            self.seed(rows, reply)
+            self.assertIsNotNone(self.compress_committed(engine, [*rows, reply]))
+            turn.commit()
+            # The provider prices the compacted request well below the threshold.
+            turn.response(40_000)
+            self.assertFalse(engine.awaiting_real_usage_after_compression)
+            self.assertEqual(turn.attempts, 0, f"budget spent after compaction #{index + 1}")
+        self.assertEqual((engine.compression_count, turn.rearms, turn.blocked_at), (4, 4, None))
+
+    def test_an_over_threshold_response_spends_the_attempt(self):
+        """A compaction that left the request at the threshold is not recovery: the host keeps the attempt."""
+        engine = self.make()
+        turn = HostTurn(engine)
+        self.assertTrue(turn.preflight(120_000))
+        rows = old_turns()
+        reply = assistant("answer final")
+        self.seed(rows, reply)
+        self.assertIsNotNone(self.compress_committed(engine, [*rows, reply]))
+        turn.commit()
+        turn.response(engine.threshold_tokens)
+        self.assertEqual((turn.attempts, turn.rearms), (1, 0))
+        self.assertFalse(engine.awaiting_real_usage_after_compression)
 
     def test_preflight_uses_the_estimate(self):
         self.assertFalse(self.engine.should_compress_preflight([user("x")]))
@@ -1302,7 +1396,9 @@ class EngineTest(unittest.TestCase):
         for refusal in ("adoption", "session", "count"):
             with self.subTest(refusal=refusal):
                 engine = self.make()
+                before = self.usage_state(engine)
                 engine.compress([*old_turns(), assistant("done")])
+                self.assertEqual(self.usage_state(engine), before)
                 count = engine.compression_count
                 context = {"session_db": object()} if refusal == "adoption" else {}
                 old = "other" if refusal == "session" else "s1"
@@ -1310,9 +1406,11 @@ class EngineTest(unittest.TestCase):
                     engine.compression_count -= 1
                 engine.on_session_start("s1", boundary_reason="compression", old_session_id=old, **context)
                 self.assertEqual(engine._warm_failures, 0)
+                self.assertEqual(self.usage_state(engine), before)
                 engine.compression_count = count
                 self.commit(engine)
                 self.assertEqual(engine._warm_failures, 0)
+                self.assertEqual(self.usage_state(engine), before)
 
     def test_a_new_attempt_replaces_a_discarded_result(self):
         engine = self.make()

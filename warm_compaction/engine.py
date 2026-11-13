@@ -248,6 +248,9 @@ class WarmCompactionEngine(ContextEngine):
                         and pending[0] == old_session == self._wc_session_id
                         and pending[1] == self.compression_count):
                     self._note_warm_result(pending[2])
+                    # Only a confirmed boundary can replace the old prompt and completion counts.
+                    self.last_prompt_tokens = -1
+                    self.last_completion_tokens = 0
                 if old_session:
                     self._store.forget(session_id=old_session)
             elif str(session_id or "") != self._wc_session_id:

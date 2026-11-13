@@ -341,6 +341,7 @@ The plugin was faster than both other engines in 10 of 10 cases. hermes-lcm and 
 
 ## Limits
 
+- Hermes controls the per-turn compaction attempt budget. The `ContextEngine` APIs in Hermes `2bd378ed1b8d`, `ab44d8acf7bca230aea8574f2f2ab4666ca293ce`, and `95fc3e668fc1e13ad05d22a4f02fccc6a6d6ce02` provide no documented way for a plugin to rearm that budget. [Issue #55](https://github.com/Elevatormusic/hermes-warm-compaction/issues/55) remains unresolved and needs host API support. This plugin does not implement the private compaction-latch protocol.
 - The warm path needs a captured main-model request in the current Hermes process. After a restart or a resume, the first compaction uses the fallback summary if no main-model request completed before it (`no_capture`).
 - The warm request uses its own HTTP connection. It sends the route URL (with its query, for example an Azure `api-version`), the route headers, and the TLS settings, but not the cookies of the Hermes client. A gateway that needs a cookie from an earlier response refuses the warm request, and the fallback summary runs (`provider_error`).
 - A model or session switch, or a host timeout, during the attempt stops it, also while the warm request is on the network: the history stays unchanged (`route_changed` or `cancelled`).
