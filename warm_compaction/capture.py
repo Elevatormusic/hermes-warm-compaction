@@ -77,14 +77,17 @@ def request_headers(request: Any, api_mode: str = "chat_completions") -> dict[st
     """Copy known session and API headers. Refuse other headers and unsafe HTTP values.
 
     Hermes 1d6b2786 adds x-opencode-session for OpenCode routes. Keep the captured value: a new session id
-    need not select the same server. Header values stay in memory and never go to status or logs.
+    need not select the same server. A custom provider's opt-in session_affinity_header (LiteLLM's
+    x-litellm-session-id) merges into extra_headers the same way (merge_session_affinity_headers); keeping
+    its value re-pins the warm replay to the same gateway deployment, which helps the prefix cache. Header
+    values stay in memory and never go to status or logs.
     """
     if not isinstance(request, dict):
         raise UnsupportedRequest("request_not_mapping")
     headers = request.get("extra_headers")
     if headers is None:
         return {}
-    allowed = {"x-opencode-session"}
+    allowed = {"x-opencode-session", "x-litellm-session-id"}
     if api_mode == "codex_responses":
         allowed.update(("session_id", "x-client-request-id", "x-grok-conv-id", "x-initiator"))
     elif api_mode == "anthropic_messages":
