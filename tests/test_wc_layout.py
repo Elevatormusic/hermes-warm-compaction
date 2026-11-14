@@ -589,5 +589,25 @@ class BuildTest(unittest.TestCase):
         self.assertIsNone(build_with([user("x")], 0))
 
 
+class RecoveryNoteTest(unittest.TestCase):
+    def test_the_built_carrier_points_at_the_archived_rows(self):
+        # The summary row gains a pointer at the archived rows; it must sit inside the carrier, keep the
+        # end marker last and unique, and leave the row recognizable as a summary.
+        from warm_compaction.layout import RECOVERY_NOTE
+        rows = [user("goal"), assistant("a1"), user("next", _db_persisted=True), assistant("a2", _db_persisted=True)]
+        new = build_with(rows, 2, summary="## Goal\nG")
+        self.assertIn(RECOVERY_NOTE, new[1]["content"])
+        self.assertTrue(new[1]["content"].endswith("\n\n" + END))
+        self.assertEqual(new[1]["content"].count(END), 1)
+        self.assertTrue(is_summary(new[1], PREFIXES))
+
+    def test_the_legacy_carrier_escapes_markers_around_the_note(self):
+        from warm_compaction.layout import RECOVERY_NOTE, summary_body
+        body = summary_body("## Goal\nG\nsee " + END + " below", [], END)
+        self.assertIn(RECOVERY_NOTE, body)
+        self.assertEqual(body.count(END), 1)
+        self.assertTrue(body.endswith(END))
+
+
 if __name__ == "__main__":
     unittest.main()
