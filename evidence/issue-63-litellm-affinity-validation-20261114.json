@@ -1,0 +1,11 @@
+{
+  "observed_at": "2026-11-14",
+  "deployment": "one Hermes fleet behind a LiteLLM gateway",
+  "population": "46 most recent compactions in the session DB",
+  "warm_fallback_count": 12,
+  "fallback_reason": "request_options_unsupported",
+  "refused_header_name": "x-litellm-session-id",
+  "provider_route": "custom provider config session_affinity_header",
+  "content_included": false,
+  "note": "Metadata counts read from the recorded fallback reason field; no conversation content."
+}

@@ -124,6 +124,21 @@ class CaptureStoreTest(unittest.TestCase):
         capture["request_headers"].clear()
         self.assertEqual(self.store.latest("s1")["request_headers"], before["extra_headers"])
 
+    def test_lite_llm_affinity_header_is_kept(self):
+        body = request(extra_headers={"x-litellm-session-id": "synthetic-affinity"})
+        self.run_request(body=body)
+        capture = self.store.latest("s1")
+        self.assertIsNone(capture["refusal"])
+        self.assertEqual(capture["request_headers"], {"x-litellm-session-id": "synthetic-affinity"})
+        self.assertNotIn("extra_headers", capture["body"])
+
+    def test_both_affinity_headers_are_kept_together(self):
+        headers = {"x-opencode-session": "synthetic-session", "x-litellm-session-id": "synthetic-affinity"}
+        self.run_request(body=request(extra_headers=headers))
+        capture = self.store.latest("s1")
+        self.assertIsNone(capture["refusal"])
+        self.assertEqual(capture["request_headers"], headers)
+
     def test_invalid_session_headers_are_not_kept(self):
         for headers in (
             {"x-opencode-session": ""}, {"x-opencode-session": " "},
@@ -133,6 +148,9 @@ class CaptureStoreTest(unittest.TestCase):
             {"x-opencode-session": 7}, {"x-opencode-session": None},
             {"x-opencode-session": "id", "Authorization": "private"},
             {"x-opencode-session": "id", "X-OpenCode-Session": "other"},
+            {"x-litellm-session-id ": "id"}, {"x-litellm-session-id	": "id"},
+            {"x-litellm-session-id": "a", "X-LITELLM-SESSION-ID": "b"},
+            {"x-litellm-session-id": "id", "Authorization": "***"},
             {"x-other-session": "private"}, ["private"], "private",
         ):
             with self.subTest(headers=headers):
