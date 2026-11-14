@@ -288,11 +288,18 @@ def escape_markers(text: str, end_marker: str) -> str:
     return text
 
 
+# Point the next reader at the archived rows instead of at its own memory of them: compaction archives
+# (active=0, compacted=1) stay searchable through the host's session_search tool.
+RECOVERY_NOTE = ("The turns folded away above are archived, not deleted: use the session_search tool to "
+                 "retrieve their exact text before repeating identifiers, paths, values, or decisions "
+                 "from this summary.")
+
+
 def summary_body(summary_text: str, copies: list[str], end_marker: str) -> str:
     """Return the text of the summary row."""
     copied = COPY_SEPARATOR.join(quote(escape_markers(text, end_marker)) for text in copies) if copies else NO_COPIES
     summary = escape_markers(summary_text.strip(), end_marker)
-    return f"{LEGACY_PREFIX}\n{summary}\n\n{COPY_HEADING}\n\n{copied}\n\n{end_marker}"
+    return (f"{LEGACY_PREFIX}\n{summary}\n\n{COPY_HEADING}\n\n{copied}\n\n{RECOVERY_NOTE}\n\n{end_marker}")
 
 
 def _tail_row(row: Any, marker: str) -> Any:
