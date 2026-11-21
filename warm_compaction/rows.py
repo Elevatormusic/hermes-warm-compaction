@@ -91,7 +91,8 @@ def visible_text(content: Any) -> str:
     for part in content:
         if isinstance(part, str):
             lines.append(part)
-        elif isinstance(part, dict) and isinstance(part.get("text"), str) and part.get("type", "text") == "text":
+        elif (isinstance(part, dict) and part.get("type", "text") in ("text", "input_text")
+              and isinstance(part.get("text"), str)):
             lines.append(part["text"])
         elif isinstance(part, dict):
             lines.append(attachment_mark(part))

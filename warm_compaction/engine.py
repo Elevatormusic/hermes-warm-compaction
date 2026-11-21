@@ -357,6 +357,9 @@ class WarmCompactionEngine(ContextEngine):
             if self._native_available and not self._native_notice_logged:
                 self._native_notice_logged = True
                 logger.info(native.NOTICE)
+        active = next((i - start for i in range(len(messages) - 1, start - 1, -1)
+                       if layout.is_real_user(messages[i], prefixes)), None)
+        active_prepend = active is None and prepend is not None
         memory = sanitize_memory(memory_context)
         record: dict[str, Any] = {"path": None, "reason": None, "elapsed_s": None, "prompt_tokens": None,
                                   "cached_tokens": None}
@@ -374,7 +377,8 @@ class WarmCompactionEngine(ContextEngine):
         # The middles that the tail cuts (see layout.bound_tail): the rows before the tail do not have them.
         removed: list = []
         if summary is None and not self._cancelled() and self._attempt() == attempt:
-            layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve), removed, policy)
+            layout.bound_tail(messages[start:], self._tail_cap(SUMMARY_RESERVE, overhead, reserve),
+                              removed, policy, active)
             # Only the rows before the tail: the tail stays as it is, and a transcript of the whole history
             # can spend its budget on the tail.
             # The plugin API has no request on a set route (an override needs a trust setting), and the auto
@@ -440,13 +444,15 @@ class WarmCompactionEngine(ContextEngine):
         # With an unknown overhead, the room is unknown too: the row keeps only its minimum. The room is after the
         # tail as the cap cuts it: an uncut large tool result would leave no room.
         bounded = layout.bound_tail(messages[start:], self._tail_cap(estimate_tokens(summary), overhead, reserve),
-                                    policy=policy)
+                                    policy=policy, active=active)
         room = self._room(bounded, summary, overhead or 0, reserve, policy)
         cut: list = []
         if prepend is not None and room is not None:
             allowed = room if overhead is not None else 0
             if sent_tokens(prepend, policy) > allowed:
-                if record["path"] == "warm":
+                if active_prepend:
+                    prepend = layout.active_user_row(prepend)
+                elif record["path"] == "warm":
                     # The warm request had the whole row.
                     prepend = layout.fit_user_row(prepend, allowed)
                 elif record["path"] in ("fallback", "ledger"):
@@ -470,31 +476,36 @@ class WarmCompactionEngine(ContextEngine):
         tail_tokens = self._tail_cap(estimate_tokens(summary), overhead, reserve, prepend_tokens)
         # The copies get the room after the tail as build cuts it: the uncut tail can be much larger.
         copy_tokens = 0 if overhead is None else self._copy_tokens(
-            layout.bound_tail(messages[start:], tail_tokens, policy=policy), summary, overhead, reserve, policy)
+            layout.bound_tail(messages[start:], tail_tokens, policy=policy, active=active),
+            summary, overhead, reserve, policy)
         new = layout.build(
             messages, summary, start=start, prepend=prepend, copy_chars=int(self._settings["user_copy_chars"]),
             header_prefix=hermes_value("agent.context_compressor", "SUMMARY_PREFIX", handoff.LEGACY_PREFIX),
             prefixes=prefixes,
             end_marker=hermes_value("agent.context_compressor", "_SUMMARY_END_MARKER", HERMES_END_MARKER),
             marker=hermes_value("agent.context_compressor", "_DB_PERSISTED_MARKER", HERMES_DB_MARKER),
-            copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy)
-        native_overflow = False
-        if policy.native_mode:
+            copy_tokens=copy_tokens, tail_tokens=tail_tokens, policy=policy, active=active)
+        assert new is not None  # start > 0
+        overflow = False
+        if policy.native_mode or active is not None or active_prepend:
             # An indivisible replay can exceed the tail cap. Check the complete candidate against the same
             # free budget, including the conservative allowance for an unknown request overhead.
             free = self._room([], "", overhead or 0, reserve)
             if free is not None:
                 if overhead is None:
                     free //= 2
-                native_overflow = estimate_tokens(sent_rows(new, policy)) > free
+                if not policy.native_mode:
+                    # The complete candidate already includes the summary headings.
+                    free += CARRIER_TOKENS
+                overflow = estimate_tokens(sent_rows(new, policy)) > free
         # A stale worker must not change the counter or replace a newer candidate. No model call holds this lock.
         with self._wc_result_lock:
             if self._cancelled() or self._attempt() != attempt:
                 record.update(path="cancelled", reason="cancelled" if self._cancelled() else "route_changed")
                 self._finish(record, started, attempt[-1])
                 return messages
-            if native_overflow:
-                # An indivisible native replay block cannot be cut to make a valid signed request.
+            if overflow:
+                # Neither native replay nor active user text can be cut to fit.
                 record["fallback_reason"] = "capacity"
                 return self._abort(messages, record, started, attempt)
             self.compression_count += 1
