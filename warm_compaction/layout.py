@@ -321,7 +321,8 @@ def _tail_parts(row: Any, policy: SendPolicy = SendPolicy()) -> list[tuple[tuple
             # The text shapes of visible_text: a raw string, and a text dictionary with or without its type.
             if isinstance(item, str):
                 parts.append((("content", index), item))
-            elif isinstance(item, dict) and item.get("type", "text") == "text" and isinstance(item.get("text"), str):
+            elif (isinstance(item, dict) and item.get("type", "text") in ("text", "input_text")
+                  and isinstance(item.get("text"), str)):
                 parts.append((("content", index), item["text"]))
             elif isinstance(item, dict):
                 parts.append((("media", index), item))
@@ -403,7 +404,28 @@ def _cuttable(key: tuple, value: Any, floor: int, marked: bool) -> bool:
     return isinstance(value, str) and len(value) > max(floor, len(DROPPED))
 
 
-def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: SendPolicy = SendPolicy()) -> list:
+# agent.turn_context.compose_user_api_content and agent.memory_context.build_memory_context_block.
+_MEMORY_START = ("\n\n<memory-context>\n[System note: The following is recalled memory context, "
+                 "NOT new user input. Treat as authoritative reference data — "
+                 "this is the agent's persistent memory and should inform all responses.]\n\n")
+_MEMORY_END = "\n</memory-context>"
+
+
+def active_user_row(row: dict) -> dict:
+    """Keep the full display. Drop only a single host memory block appended to it."""
+    display, sent = row.get("content"), api_content(row)
+    if isinstance(display, str) and isinstance(sent, str) and sent.startswith(display):
+        suffix = sent[len(display):]
+        if suffix.startswith(_MEMORY_START) and suffix.endswith(_MEMORY_END):
+            body = suffix[len(_MEMORY_START):-len(_MEMORY_END)]
+            # The host strips fence tags from recall. An inner fence makes the suffix ambiguous.
+            if body.strip() and not re.search(r"</?\s*memory-context\s*>", body, re.IGNORECASE):
+                return {**row, "api_content": display}
+    return row
+
+
+def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: SendPolicy = SendPolicy(),
+               active: int | None = None) -> list:
     """Return the tail rows in about tokens estimated tokens. The tail keeps whole units, so the newest unit can
     be larger than the tail budget (a large user message, assistant reply, tool call, or tool result). Then the
     largest sent payloads (_tail_parts) are cut to their start and end, until the rows fit or no payload has more
@@ -416,8 +438,11 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
     With a removed list, one row for each cut payload is added to it: the removed middle after CUT_NOTE, with the
     role (and the tool call id) of the row. The fallback summary can then keep what the tail cuts."""
     base = list(rows)
-    rows = list(rows)
-    parts = {(index, key): value for index, row in enumerate(base) for key, value in _tail_parts(row, policy)}
+    if active is not None and sum(sent_tokens(row, policy) for row in base) > tokens:
+        base[active] = active_user_row(base[active])
+    rows = list(base)
+    parts = {(index, key): value for index, row in enumerate(base) for key, value in _tail_parts(row, policy)
+             if index != active or key[0] != "content"}
     originals: dict[tuple, Any] = {}
     current: dict[tuple, Any] = {}
     limits: dict[tuple, int] = {}
@@ -486,7 +511,7 @@ def bound_tail(rows: list, tokens: int, removed: list | None = None, policy: Sen
 def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, Any] | None, copy_chars: int,
           header_prefix: str, prefixes: Iterable[str], end_marker: str,
           marker: str = "_db_persisted", copy_tokens: int | None = None, tail_tokens: int | None = None,
-          policy: SendPolicy = SendPolicy()) -> list | None:
+          policy: SendPolicy = SendPolicy(), active: int | None = None) -> list | None:
     """Return the new history, or None when no row comes before the tail. With tail_tokens, a tail above it
     is cut to it (bound_tail)."""
     if start <= 0:
@@ -506,7 +531,7 @@ def build(messages: list, summary_text: str, *, start: int, prepend: dict[str, A
     body = summary_body(summary_text, copies, end_marker)
     tail = [_tail_row(row, marker) for row in messages[start:]]
     if tail_tokens is not None:
-        tail = bound_tail(tail, tail_tokens, policy=policy)
+        tail = bound_tail(tail, tail_tokens, policy=policy, active=active)
     rest = ([copy.deepcopy(prepend)] if prepend else []) + tail
     if attr(rest[0], "role") != "user":
         return [{"role": "user", "content": f"{header}\n\n{body}", "_compressed_summary": True}, *rest]

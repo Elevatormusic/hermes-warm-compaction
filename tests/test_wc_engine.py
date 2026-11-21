@@ -762,8 +762,9 @@ class EngineTest(unittest.TestCase):
         # The fallback transcript has only the start and end of a long row: the middle that the tail cuts from
         # the prepended request must stay in the summary (a bounded quote: its start and end).
         rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
-                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
-        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+                assistant("old output " * 12_000), assistant("", [("c1", "read", "{}")]), tool("c1", "r1"),
+                assistant("done"), user("next")]
+        engine = self.make(threshold=0.95, tail_tokens=16_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         new = engine.compress(rows)
@@ -780,8 +781,9 @@ class EngineTest(unittest.TestCase):
         from warm_compaction.rows import estimate_tokens
         self.llm = FakeLlm(text=large_fallback_text(old_turns(4)) + "\n" + END_LINE)
         rows = [*old_turns(4), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
-                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
-        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+                assistant("old output " * 12_000), assistant("", [("c1", "read", "{}")]), tool("c1", "r1"),
+                assistant("done"), user("next")]
+        engine = self.make(threshold=0.95, tail_tokens=16_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         new = engine.compress(rows)
@@ -873,9 +875,10 @@ class EngineTest(unittest.TestCase):
 
     def test_a_fallback_summary_without_room_for_the_cut_quote_stops_compaction(self):
         rows = [*old_turns(4), user("BIG start " + "q" * 1_000 + " MID-REQ " + "q" * 40_000 + " big end"),
-                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
+                assistant("old output " * 12_000), assistant("", [("c1", "read", "{}")]), tool("c1", "r1"),
+                assistant("done"), user("next")]
         self.llm.text = large_fallback_text(rows) + "\n" + END_LINE
-        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+        engine = self.make(threshold=0.95, tail_tokens=16_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         from warm_compaction.rows import estimate_tokens
@@ -1651,27 +1654,63 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(engine.warm_last["reason"], "route_changed")
         self.assertIsNone(engine._budget_capture(self.store.latest("s1"), rows))
 
-    def test_a_large_prepended_user_row_is_cut_to_fit(self):
-        # The newest user message is before the tail (it is larger than the tail) and goes in front of it. It
-        # must fit below the threshold and the window less the reply reserve.
-        from warm_compaction.rows import MIDDLE_MARK, estimate_tokens
-        from warm_compaction.warm import DEFAULT_RESERVE
+    def test_active_sent_text_survives_both_tail_positions(self):
+        from warm_compaction.rows import api_content
+        display = "  start<memory-context>" + "body " * 3000 + "end  "
+        for after in ([], [assistant("done")]):
+            for prefix in (True, False):
+                with self.subTest(prepend=bool(after), prefix=prefix):
+                    sent = (display if prefix else "different " + display) + " extra" * 3000
+                    row = dict(user(display), api_content=sent)
+                    history = [*old_turns(4), row, *after]
+                    engine = self.make(warm=False, tail_tokens=2000)
+                    result = engine.compress(history)
+                    self.assertEqual(engine.compression_count, 1)
+                    active = next(item for item in result if item.get("content") == display)
+                    self.assertEqual(api_content(active), sent)
+                    self.assertEqual(row["api_content"], sent)
+
+    def test_only_a_separate_host_memory_block_can_be_removed(self):
+        from warm_compaction.layout import active_user_row
+        block = ("<memory-context>\n[System note: The following is recalled memory context, "
+                 "NOT new user input. Treat as authoritative reference data — "
+                 "this is the agent's persistent memory and should inform all responses.]\n\n"
+                 "synthetic recall\n</memory-context>")
+        display = "  quote:\n\n" + block + "  \n"
+        for suffix in ("\n\n" + block, block, "\n" + block, "\n\n" + block.replace("NOT", "not"),
+                       "\n\n" + block + "\nmore", "\n\n" + block + "\n\n" + block):
+            with self.subTest(suffix=suffix):
+                row = dict(user(display), api_content=display + suffix)
+                result = active_user_row(row)
+                self.assertEqual(result['content'], display)
+                self.assertEqual(result['api_content'], display if suffix == "\n\n" + block else display + suffix)
+
+    def test_active_input_text_is_not_replaced_by_a_media_mark(self):
+        from warm_compaction.layout import bound_tail
+        row = user([{"type": "input_text", "text": "synthetic request " * 1000}])
+        self.assertEqual(bound_tail([row], 16, active=0), [row])
+
+    def test_active_text_over_capacity_refuses_both_tail_positions(self):
+        row = user("synthetic request " * 100000)
+        for after in ([], [assistant("done")]):
+            with self.subTest(prepend=bool(after)):
+                self.assert_aborted(self.make(warm=False), [*old_turns(4), row, *after], "capacity")
+
+    def test_an_oversized_latest_prepended_request_stops_compaction(self):
+        from warm_compaction.rows import estimate_tokens
         rows = [*old_turns(4), user("BIG start " + "q" * 240_000 + " big end"),
                 assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
         engine = self.make(threshold=0.95, tail_tokens=2_000)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
-        new = engine.compress(rows, current_tokens=estimate_tokens(rows) + 1_000)
-        prepended = next(row for row in new if str(row.get("content")).startswith("BIG start"))
-        self.assertIn(MIDDLE_MARK, prepended["content"])
-        self.assertTrue(prepended["content"].endswith(" big end"))
-        self.assertLessEqual(estimate_tokens(new) + 1_000, min(engine.threshold_tokens, 64_000 - DEFAULT_RESERVE))
+        self.assert_aborted(engine, rows, "capacity", current_tokens=estimate_tokens(rows) + 1_000)
 
     def test_an_unknown_overhead_cuts_the_prepended_row_to_its_minimum(self):
         from warm_compaction.layout import MIN_COPY_CHARS
         rows = [*old_turns(4), user("BIG start " + "q" * 40_000 + " big end"),
-                assistant("", [("c1", "read", "{}")]), tool("c1", "r1"), assistant("done")]
-        engine = self.make(threshold=0.95, tail_tokens=2_000)
+                assistant("old output " * 12_000), assistant("", [("c1", "read", "{}")]), tool("c1", "r1"),
+                assistant("done"), user("next")]
+        engine = self.make(threshold=0.95, tail_tokens=16_000)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         new = engine.compress(rows, current_tokens=None)
@@ -1961,8 +2000,9 @@ class EngineTest(unittest.TestCase):
         from warm_compaction.rows import estimate_tokens
         self.llm.error = RuntimeError("synthetic failure")
         rows = [*self.ledger_rows(), user("BIG start " + "q" * 3_000 + " MID-REQ " + "q" * 37_000 + " big end"),
-                assistant("", [("c3", "read", "{}")]), tool("c3", "r1"), assistant("done")]
-        engine = self.make(threshold=0.95, tail_tokens=2_000, warm=False)
+                assistant("old output " * 12_000), assistant("", [("c3", "read", "{}")]), tool("c3", "r1"),
+                assistant("done"), user("next")]
+        engine = self.make(threshold=0.95, tail_tokens=16_000, warm=False)
         engine.update_model(model=ROUTE[0], context_length=64_000, base_url=ROUTE[1], api_key="k",
                             provider="custom", api_mode=ROUTE[2])
         new = engine.compress(rows)
